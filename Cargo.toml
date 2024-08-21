@@ -1,0 +1,25 @@
+[package]
+name = "corsa-reth"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+reth = { git = "https://github.com/paradigmxyz/reth.git" }
+reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git" }
+reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth.git" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth.git" }
+reth-primitives = { git = "https://github.com/paradigmxyz/reth.git" }
+reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", features = ["test-utils"] }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth.git" }
+
+bitcoin = "0.31.1"
+bitcoincore-rpc = "0.18.0"
+
+eyre = "0.6.12" # Easy error handling
+tokio = { version = "1.39.3", features = ["full"] }
+serde = { version = "1.0.195", features = ["derive"] }
+serde_json = "1.0.94"
+toml = "0.8.10"
+tracing = "0.1.0"
