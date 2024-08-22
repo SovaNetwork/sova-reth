@@ -199,8 +199,8 @@ async fn main() -> eyre::Result<()> {
 
     let tasks = TaskManager::current();
 
-    let node_config =
-        NodeConfig::test()
+    let node_config = NodeConfig::test()
+        .dev() // enable dev features, REMOVE THIS IN PRODUCTION
         .with_rpc(RpcServerArgs::default().with_http())
         .with_chain(custom_chain());
 
@@ -257,7 +257,8 @@ fn custom_chain() -> Arc<ChainSpec> {
         "londonBlock": 0,
         "terminalTotalDifficulty": 0,
         "terminalTotalDifficultyPassed": true,
-        "shanghaiTime": 0
+        "shanghaiTime": 0,
+        "cancunTime": 0
     }
 }
 "#;
