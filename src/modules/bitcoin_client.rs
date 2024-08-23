@@ -1,26 +1,39 @@
-use bitcoincore_rpc::{Auth, Client};
-use bitcoin::Network;
+use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoin::{Transaction, Txid};
+
 use crate::settings::Settings;
 
-pub fn create_rpc_client(settings: &Settings) -> Client {
-    let port = match settings.network {
-        Network::Bitcoin => 8332,
-        Network::Testnet => 18332,
-        Network::Regtest => 18443,
-        Network::Signet => 38332,
-        _ => {
-            unreachable!("unsupported network")
-        }
-    };
+pub struct BitcoinClientWrapper {
+    client: Client,
+}
 
-    // TODO: allow for other authentication
-    let auth = Auth::UserPass(
-        settings.bitcoin_rpc_username.clone(),
-        settings.bitcoin_rpc_password.clone(),
-    );
-    // let auth = bitcoincore_rpc::Auth::CookieFile("/Users/alex/Library/Application Support/Bitcoin/regtest/.cookie".to_string().parse().unwrap());
+impl BitcoinClientWrapper {
+    pub fn new(settings: &Settings) -> Result<Self, bitcoincore_rpc::Error> {
+        let port = match settings.network {
+            bitcoin::Network::Bitcoin => 8332,
+            bitcoin::Network::Testnet => 18332,
+            bitcoin::Network::Regtest => 18443,
+            bitcoin::Network::Signet => 38332,
+            _ => unreachable!("unsupported network id"),
+        };
 
-    let url = format!("{}:{port}", settings.network_url);
+        let auth = Auth::UserPass(
+            settings.bitcoin_rpc_username.clone(),
+            settings.bitcoin_rpc_password.clone(),
+        );
 
-    Client::new(&url, auth.clone()).unwrap()
+        let url = format!("{}:{}", settings.network_url, port);
+        let client = Client::new(&url, auth)?;
+        Ok(Self { client })
+    }
+
+    pub fn send_raw_transaction(&self, tx: &Transaction) -> Result<Txid, bitcoincore_rpc::Error> {
+        self.client.send_raw_transaction(tx)
+    }
+
+    pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
+        self.client.get_block_count()
+    }
+
+    // Add more methods as needed...
 }
