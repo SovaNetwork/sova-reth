@@ -32,10 +32,10 @@ impl StatefulPrecompileMut for BitcoinRpcPrecompile {
         // input[0] is the method id
         match input.first() {
             Some(0) => {
-                 // sendrawtransaction
-                 let raw_tx = &input[1..]; // Skip the first byte
+                // sendrawtransaction
+                let raw_tx = &input[1..]; // Skip the first byte
 
-                 let tx: bitcoin::Transaction = deserialize(raw_tx)
+                let tx: bitcoin::Transaction = deserialize(raw_tx)
                     .map_err(|_| PrecompileErrors::Error(PrecompileError::other("Invalid Bitcoin transaction")))?;
 
                 let txid = self.bitcoin_client.read().send_raw_transaction(&tx)

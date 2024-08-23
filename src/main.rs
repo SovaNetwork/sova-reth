@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::path::PathBuf;
+
 use parking_lot::RwLock;
 
 use reth::{
@@ -31,7 +32,7 @@ use reth_primitives::{
     revm_primitives::{AnalysisKind, CfgEnvWithHandlerCfg, TxEnv},
     Address, Header, TransactionSigned, U256,
 };
-use reth_tracing::{RethTracer, Tracer};
+use reth_tracing::{tracing::info, RethTracer, Tracer};
 
 mod modules;
 mod settings;
@@ -120,13 +121,11 @@ impl ConfigureEvm for MyEvmConfig {
     type DefaultExternalContext<'a> = ();
 
     fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
-        let bitcoin_rpc_precompile = self.bitcoin_rpc_precompile.clone();
-
         EvmBuilder::default()
             .with_db(db)
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
-                MyEvmConfig::set_precompiles(handler, bitcoin_rpc_precompile.clone())
+                MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
             .build()
     }
@@ -136,14 +135,12 @@ impl ConfigureEvm for MyEvmConfig {
         DB: Database,
         I: GetInspector<DB>,
     {
-        let bitcoin_rpc_precompile = self.bitcoin_rpc_precompile.clone();
-
         EvmBuilder::default()
             .with_db(db)
             .with_external_context(inspector)
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
-                MyEvmConfig::set_precompiles(handler, bitcoin_rpc_precompile.clone())
+                MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
             .append_handler_register(inspector_handle_register)
             .build()
@@ -204,7 +201,7 @@ async fn main() -> eyre::Result<()> {
         .await
         .unwrap();
 
-    println!("Node started");
+    info!("Corsa EVM node started");
 
     handle.node_exit_future.await
 }
