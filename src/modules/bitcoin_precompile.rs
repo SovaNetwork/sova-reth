@@ -29,6 +29,7 @@ impl BitcoinRpcPrecompile {
 
 impl StatefulPrecompileMut for BitcoinRpcPrecompile {
     fn call_mut(&mut self, input: &reth::primitives::Bytes, gas_price: u64, _env: &Env) -> PrecompileResult {
+        // input[0] is the method id
         match input.first() {
             Some(0) => {
                  // sendrawtransaction
