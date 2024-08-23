@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 use std::io;
 
-use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct Settings {
+use bitcoin::Network;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Settings {
     pub network: Network,
     pub network_url: String,
     pub bitcoin_rpc_username: String,

@@ -1,26 +1,20 @@
-//! This example shows how to implement a node with a custom EVM
-
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
-
 use std::sync::Arc;
 use std::path::PathBuf;
-
-use tracing::error;
+use parking_lot::RwLock;
 
 use reth::{
     builder::{components::ExecutorBuilder, BuilderContext, NodeBuilder},
-    primitives::{
-        address,
-        revm_primitives::{Env, PrecompileResult},
-        Bytes,
-        Genesis,
-        hex
-    },
+    primitives::{address, revm_primitives::Env, Bytes},
     revm::{
         handler::register::EvmHandler,
         inspector_handle_register,
-        precompile::{Precompile, PrecompileOutput, PrecompileSpecId},
-        ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
+        precompile::{Precompile, PrecompileSpecId},
+        ContextPrecompile,
+        ContextPrecompiles,
+        Database,
+        Evm,
+        EvmBuilder,
+        GetInspector
     },
     tasks::TaskManager,
 };
@@ -29,8 +23,9 @@ use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{ConfigureEvm, ConfigureEvmEnv, FullNodeTypes};
 use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
 use reth_node_ethereum::{
-    node::{EthereumAddOns, EthereumPayloadBuilder},
-    EthExecutorProvider, EthereumNode,
+    node::EthereumAddOns,
+    EthExecutorProvider,
+    EthereumNode,
 };
 use reth_primitives::{
     revm_primitives::{AnalysisKind, CfgEnvWithHandlerCfg, TxEnv},
@@ -38,67 +33,46 @@ use reth_primitives::{
 };
 use reth_tracing::{RethTracer, Tracer};
 
-use bitcoincore_rpc::{Client, RpcApi};
-use bitcoin as _;
-
-use settings::Settings;
-use crate::modules::bitcoin_client::create_rpc_client;
-
 mod modules;
 mod settings;
+mod genesis;
 
-/// Custom EVM configuration
-#[derive(Debug, Clone, Copy, Default)]
-#[non_exhaustive]
-pub struct MyEvmConfig;
+use modules::bitcoin_precompile::BitcoinRpcPrecompile;
+use settings::Settings;
+use genesis::custom_chain;
+
+#[derive(Clone)]
+pub struct MyEvmConfig {
+    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+}
 
 impl MyEvmConfig {
-    /// Sets the precompiles to the EVM handler
-    ///
-    /// This will be invoked when the EVM is created via [ConfigureEvm::evm] or
-    /// [ConfigureEvm::evm_with_inspector]
-    ///
-    /// This will use the default mainnet precompiles and add additional precompiles.
-    pub fn set_precompiles<EXT, DB>(handler: &mut EvmHandler<EXT, DB>)
-    where
-        DB: Database,
-    {
-        // first we need the evm spec id, which determines the precompiles
-        let spec_id = handler.cfg.spec_id;
-
-        // install the precompiles
-        handler.pre_execution.load_precompiles = Arc::new(move || {
-            let mut precompiles = ContextPrecompiles::new(PrecompileSpecId::from_spec_id(spec_id));
-            precompiles.extend([(
-                address!("0000000000000000000000000000000000000999"),
-                Precompile::Env(Self::my_precompile).into(),
-            )]);
-            precompiles
-        });
+    pub fn new(settings: &Settings) -> Self {
+        let bitcoin_precompile = BitcoinRpcPrecompile::new(settings)
+            .expect("Failed to create Bitcoin RPC precompile");
+        Self {
+            bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
+        }
     }
 
-    /// A custom precompile that does nothing
-    fn my_precompile(data: &Bytes, gas: u64, _env: &Env) -> PrecompileResult {
+    pub fn set_precompiles<EXT, DB>(
+        handler: &mut EvmHandler<EXT, DB>,
+        bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    ) where
+        DB: Database,
+    {
+        let spec_id = handler.cfg.spec_id;
+        let mut loaded_precompiles: ContextPrecompiles<DB> =
+            ContextPrecompiles::new(PrecompileSpecId::from_spec_id(spec_id));
 
-        let settings: Settings = match Settings::from_toml_file(&PathBuf::from("settings.toml")) {
-            Ok(settings) => settings,
-            Err(e) => {
-                error!("Error reading settings file: {}", e);
-                return Ok(PrecompileOutput::new(gas, Bytes::from(format!("Error: {}", e))));
-            }
-        };
-        
-        let client: Client = create_rpc_client(&settings);
+        loaded_precompiles.to_mut().insert(
+            address!("0000000000000000000000000000000000000999"),
+            ContextPrecompile::Ordinary(Precompile::StatefulMut(
+                Box::new(BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()))
+            )),
+        );
 
-        let call_result = client.call::<String>("sendrawtransaction", &[serde_json::json!(hex::encode(data))]);
-
-        match call_result {
-            Ok(txid) => Ok(PrecompileOutput::new(gas, Bytes::from(txid))),
-            Err(e) => {
-                error!("Bitcoin RPC error: {}", e);
-                Ok(PrecompileOutput::new(gas, Bytes::from(format!("Error: {}", e))))
-            }
-        }
+        handler.pre_execution.load_precompiles = Arc::new(move || loaded_precompiles.clone());
     }
 }
 
@@ -146,10 +120,14 @@ impl ConfigureEvm for MyEvmConfig {
     type DefaultExternalContext<'a> = ();
 
     fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
+        let bitcoin_rpc_precompile = self.bitcoin_rpc_precompile.clone();
+
         EvmBuilder::default()
             .with_db(db)
             // add additional precompiles
-            .append_handler_register(MyEvmConfig::set_precompiles)
+            .append_handler_register_box(Box::new(move |handler| {
+                MyEvmConfig::set_precompiles(handler, bitcoin_rpc_precompile.clone())
+            }))
             .build()
     }
 
@@ -158,11 +136,15 @@ impl ConfigureEvm for MyEvmConfig {
         DB: Database,
         I: GetInspector<DB>,
     {
+        let bitcoin_rpc_precompile = self.bitcoin_rpc_precompile.clone();
+
         EvmBuilder::default()
             .with_db(db)
             .with_external_context(inspector)
             // add additional precompiles
-            .append_handler_register(MyEvmConfig::set_precompiles)
+            .append_handler_register_box(Box::new(move |handler| {
+                MyEvmConfig::set_precompiles(handler, bitcoin_rpc_precompile.clone())
+            }))
             .append_handler_register(inspector_handle_register)
             .build()
     }
@@ -170,10 +152,18 @@ impl ConfigureEvm for MyEvmConfig {
     fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
 }
 
-/// Builds a regular ethereum block executor that uses the custom EVM.
-#[derive(Debug, Default, Clone, Copy)]
-#[non_exhaustive]
-pub struct MyExecutorBuilder;
+#[derive(Debug, Clone)]
+pub struct MyExecutorBuilder {
+    settings: Settings,
+}
+
+impl MyExecutorBuilder {
+    pub fn new(settings: Settings) -> Self {
+        Self {
+            settings,
+        }
+    }
+}
 
 impl<Node> ExecutorBuilder<Node> for MyExecutorBuilder
 where
@@ -186,10 +176,8 @@ where
         self,
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        Ok((
-            MyEvmConfig::default(),
-            EthExecutorProvider::new(ctx.chain_spec(), MyEvmConfig::default()),
-        ))
+        let evm_config = MyEvmConfig::new(&self.settings);
+        Ok((evm_config.clone(), EthExecutorProvider::new(ctx.chain_spec(), evm_config)))
     }
 }
 
@@ -199,21 +187,18 @@ async fn main() -> eyre::Result<()> {
 
     let tasks = TaskManager::current();
 
+    let settings = Settings::from_toml_file(&PathBuf::from("settings.toml"))
+        .expect("Failed to load settings.toml");
+
     let node_config = NodeConfig::test()
-        .dev() // enable dev features, REMOVE THIS IN PRODUCTION
+        .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
         .with_rpc(RpcServerArgs::default().with_http())
         .with_chain(custom_chain());
 
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())
-        // configure the node with regular ethereum types
         .with_types::<EthereumNode>()
-        // use default ethereum components but with our executor
-        .with_components(
-            EthereumNode::components()
-                .executor(MyExecutorBuilder::default())
-                .payload(EthereumPayloadBuilder::new(MyEvmConfig::default())),
-        )
+        .with_components(EthereumNode::components().executor(MyExecutorBuilder::new(settings)))
         .with_add_ons::<EthereumAddOns>()
         .launch()
         .await
@@ -222,46 +207,4 @@ async fn main() -> eyre::Result<()> {
     println!("Node started");
 
     handle.node_exit_future.await
-}
-
-fn custom_chain() -> Arc<ChainSpec> {
-    let custom_genesis = r#"
-{
-    "nonce": "0x42",
-    "timestamp": "0x0",
-    "extraData": "0x5343",
-    "gasLimit": "0x1388",
-    "difficulty": "0x400000000",
-    "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    "coinbase": "0x0000000000000000000000000000000000000000",
-    "alloc": {
-        "0x1a0Fe90f5Bf076533b2B74a21b3AaDf225CdDfF7": {
-            "balance": "0x52b7d2dcc80cd2e4000000"
-        }
-    },
-    "number": "0x0",
-    "gasUsed": "0x0",
-    "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    "config": {
-        "ethash": {},
-        "chainId": 120893,
-        "homesteadBlock": 0,
-        "eip150Block": 0,
-        "eip155Block": 0,
-        "eip158Block": 0,
-        "byzantiumBlock": 0,
-        "constantinopleBlock": 0,
-        "petersburgBlock": 0,
-        "istanbulBlock": 0,
-        "berlinBlock": 0,
-        "londonBlock": 0,
-        "terminalTotalDifficulty": 0,
-        "terminalTotalDifficultyPassed": true,
-        "shanghaiTime": 0,
-        "cancunTime": 0
-    }
-}
-"#;
-    let genesis: Genesis = serde_json::from_str(custom_genesis).unwrap();
-    Arc::new(genesis.into())
 }
