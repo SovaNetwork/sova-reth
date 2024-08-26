@@ -5,14 +5,14 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-reth = { git = "https://github.com/paradigmxyz/reth.git" }
-reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git" }
-reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git" }
-reth-node-api = { git = "https://github.com/paradigmxyz/reth.git" }
-reth-node-core = { git = "https://github.com/paradigmxyz/reth.git" }
-reth-primitives = { git = "https://github.com/paradigmxyz/reth.git" }
-reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", features = ["test-utils"] }
-reth-tracing = { git = "https://github.com/paradigmxyz/reth.git" }
+reth = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
+reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
+reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
+reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
+reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5", features = ["test-utils"] }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 
 bitcoin = "0.31.1"
 bitcoincore-rpc = "0.18.0"
