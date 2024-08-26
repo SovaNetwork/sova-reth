@@ -10,8 +10,10 @@ use reth_primitives::revm_primitives::{PrecompileError, PrecompileErrors};
 
 use bitcoin::consensus::encode::deserialize;
 
-use crate::modules::bitcoin_client::BitcoinClientWrapper;
-use crate::settings::Settings;
+use crate::{
+    config::BitcoinConfig,
+    modules::bitcoin_client::BitcoinClientWrapper
+};
 
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
@@ -19,8 +21,8 @@ pub struct BitcoinRpcPrecompile {
 }
 
 impl BitcoinRpcPrecompile {
-    pub fn new(settings: &Settings) -> Result<Self, bitcoincore_rpc::Error> {
-        let client = BitcoinClientWrapper::new(settings)?;
+    pub fn new(config: &BitcoinConfig) -> Result<Self, bitcoincore_rpc::Error> {
+        let client = BitcoinClientWrapper::new(config)?;
         Ok(Self {
             bitcoin_client: Arc::new(RwLock::new(client)),
         })
