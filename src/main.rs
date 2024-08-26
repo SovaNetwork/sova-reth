@@ -38,9 +38,9 @@ mod cli;
 mod modules;
 mod config;
 
+use cli::Args;
 use modules::bitcoin_precompile::BitcoinRpcPrecompile;
-use cli::RethCliBitcoinArgs;
-use config::{custom_chain, AppConfig};
+use config::{custom_chain, CorsaConfig};
 
 #[derive(Clone)]
 pub struct MyEvmConfig {
@@ -48,7 +48,7 @@ pub struct MyEvmConfig {
 }
 
 impl MyEvmConfig {
-    pub fn new(config: &AppConfig) -> Self {
+    pub fn new(config: &CorsaConfig) -> Self {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(config.bitcoin.as_ref())
             .expect("Failed to create Bitcoin RPC precompile");
         Self {
@@ -151,11 +151,11 @@ impl ConfigureEvm for MyEvmConfig {
 
 #[derive(Clone)]
 pub struct MyExecutorBuilder {
-    config: AppConfig,
+    config: CorsaConfig,
 }
 
 impl MyExecutorBuilder {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: CorsaConfig) -> Self {
         Self {
             config,
         }
@@ -184,8 +184,8 @@ async fn main() -> eyre::Result<()> {
 
     let tasks = TaskManager::current();
 
-    let args = RethCliBitcoinArgs::parse();
-    let app_config = AppConfig::new(&args);
+    let args = Args::parse();
+    let app_config = CorsaConfig::new(&args);
 
     let node_config = NodeConfig::test()
         .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION

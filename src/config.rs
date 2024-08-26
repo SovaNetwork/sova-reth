@@ -14,12 +14,12 @@ pub struct BitcoinConfig {
 }
 
 #[derive(Clone)]
-pub struct AppConfig {
+pub struct CorsaConfig {
     pub bitcoin: Arc<BitcoinConfig>,
 }
 
-impl AppConfig {
-    pub fn new(args: &crate::cli::RethCliBitcoinArgs) -> Self {
+impl CorsaConfig {
+    pub fn new(args: &crate::cli::Args) -> Self {
         let bitcoin_config = BitcoinConfig {
             network: args.btc_network,
             network_url: args.network_url.clone(),
@@ -27,7 +27,7 @@ impl AppConfig {
             rpc_password: args.btc_rpc_password.clone(),
         };
 
-        AppConfig {
+        CorsaConfig {
             bitcoin: Arc::new(bitcoin_config),
         }
     }
