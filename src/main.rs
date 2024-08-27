@@ -1,7 +1,7 @@
 use std::sync::Arc;
-use std::path::PathBuf;
 
 use parking_lot::RwLock;
+use clap::Parser;
 
 use reth::{
     builder::{components::ExecutorBuilder, BuilderContext, NodeBuilder},
@@ -34,13 +34,13 @@ use reth_primitives::{
 };
 use reth_tracing::{tracing::info, RethTracer, Tracer};
 
+mod cli;
 mod modules;
-mod settings;
-mod genesis;
+mod config;
 
+use cli::Args;
 use modules::bitcoin_precompile::BitcoinRpcPrecompile;
-use settings::Settings;
-use genesis::custom_chain;
+use config::{custom_chain, CorsaConfig};
 
 #[derive(Clone)]
 pub struct MyEvmConfig {
@@ -48,8 +48,8 @@ pub struct MyEvmConfig {
 }
 
 impl MyEvmConfig {
-    pub fn new(settings: &Settings) -> Self {
-        let bitcoin_precompile = BitcoinRpcPrecompile::new(settings)
+    pub fn new(config: &CorsaConfig) -> Self {
+        let bitcoin_precompile = BitcoinRpcPrecompile::new(config.bitcoin.as_ref())
             .expect("Failed to create Bitcoin RPC precompile");
         Self {
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
@@ -149,15 +149,15 @@ impl ConfigureEvm for MyEvmConfig {
     fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MyExecutorBuilder {
-    settings: Settings,
+    config: CorsaConfig,
 }
 
 impl MyExecutorBuilder {
-    pub fn new(settings: Settings) -> Self {
+    pub fn new(config: CorsaConfig) -> Self {
         Self {
-            settings,
+            config,
         }
     }
 }
@@ -173,7 +173,7 @@ where
         self,
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        let evm_config = MyEvmConfig::new(&self.settings);
+        let evm_config = MyEvmConfig::new(&self.config);
         Ok((evm_config.clone(), EthExecutorProvider::new(ctx.chain_spec(), evm_config)))
     }
 }
@@ -184,8 +184,8 @@ async fn main() -> eyre::Result<()> {
 
     let tasks = TaskManager::current();
 
-    let settings = Settings::from_toml_file(&PathBuf::from("settings.toml"))
-        .expect("Failed to load settings.toml");
+    let args = Args::parse();
+    let app_config = CorsaConfig::new(&args);
 
     let node_config = NodeConfig::test()
         .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
@@ -195,7 +195,7 @@ async fn main() -> eyre::Result<()> {
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())
         .with_types::<EthereumNode>()
-        .with_components(EthereumNode::components().executor(MyExecutorBuilder::new(settings)))
+        .with_components(EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())))
         .with_add_ons::<EthereumAddOns>()
         .launch()
         .await

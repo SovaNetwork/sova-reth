@@ -1,7 +1,39 @@
 use std::sync::Arc;
+
 use reth::primitives::Genesis;
 use reth_chainspec::ChainSpec;
 
+use bitcoin::Network;
+
+#[derive(Clone)]
+pub struct BitcoinConfig {
+    pub network: Network,
+    pub network_url: String,
+    pub rpc_username: String,
+    pub rpc_password: String,
+}
+
+#[derive(Clone)]
+pub struct CorsaConfig {
+    pub bitcoin: Arc<BitcoinConfig>,
+}
+
+impl CorsaConfig {
+    pub fn new(args: &crate::cli::Args) -> Self {
+        let bitcoin_config = BitcoinConfig {
+            network: args.btc_network,
+            network_url: args.network_url.clone(),
+            rpc_username: args.btc_rpc_username.clone(),
+            rpc_password: args.btc_rpc_password.clone(),
+        };
+
+        CorsaConfig {
+            bitcoin: Arc::new(bitcoin_config),
+        }
+    }
+}
+
+/// Genesis data for the testnet
 pub fn custom_chain() -> Arc<ChainSpec> {
     let custom_genesis = r#"
     {

@@ -1,15 +1,15 @@
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use bitcoin::{Transaction, Txid};
 
-use crate::settings::Settings;
+use crate::config::BitcoinConfig;
 
 pub struct BitcoinClientWrapper {
     client: Client,
 }
 
 impl BitcoinClientWrapper {
-    pub fn new(settings: &Settings) -> Result<Self, bitcoincore_rpc::Error> {
-        let port = match settings.network {
+    pub fn new(config: &BitcoinConfig) -> Result<Self, bitcoincore_rpc::Error> {
+        let port = match config.network {
             bitcoin::Network::Bitcoin => 8332,
             bitcoin::Network::Testnet => 18332,
             bitcoin::Network::Regtest => 18443,
@@ -18,11 +18,11 @@ impl BitcoinClientWrapper {
         };
 
         let auth = Auth::UserPass(
-            settings.bitcoin_rpc_username.clone(),
-            settings.bitcoin_rpc_password.clone(),
+            config.rpc_username.clone(),
+            config.rpc_password.clone(),
         );
 
-        let url = format!("{}:{}", settings.network_url, port);
+        let url = format!("{}:{}", config.network_url, port);
         let client = Client::new(&url, auth)?;
         Ok(Self { client })
     }
