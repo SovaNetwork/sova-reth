@@ -1,5 +1,5 @@
-use bitcoincore_rpc::{Auth, Client, RpcApi};
 use bitcoin::{Transaction, Txid};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
 
 use crate::config::BitcoinConfig;
 
@@ -17,10 +17,7 @@ impl BitcoinClientWrapper {
             _ => unreachable!("unsupported network id"),
         };
 
-        let auth = Auth::UserPass(
-            config.rpc_username.clone(),
-            config.rpc_password.clone(),
-        );
+        let auth = Auth::UserPass(config.rpc_username.clone(), config.rpc_password.clone());
 
         let url = format!("{}:{}", config.network_url, port);
         let client = Client::new(&url, auth)?;

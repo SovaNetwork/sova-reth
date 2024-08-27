@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use parking_lot::RwLock;
 use clap::Parser;
+use parking_lot::RwLock;
 
 use reth::{
     builder::{components::ExecutorBuilder, BuilderContext, NodeBuilder},
@@ -10,12 +10,7 @@ use reth::{
         handler::register::EvmHandler,
         inspector_handle_register,
         precompile::{Precompile, PrecompileSpecId},
-        ContextPrecompile,
-        ContextPrecompiles,
-        Database,
-        Evm,
-        EvmBuilder,
-        GetInspector
+        ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
     },
     tasks::TaskManager,
 };
@@ -23,11 +18,7 @@ use reth_chainspec::{ChainSpec, Head};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{ConfigureEvm, ConfigureEvmEnv, FullNodeTypes};
 use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
-use reth_node_ethereum::{
-    node::EthereumAddOns,
-    EthExecutorProvider,
-    EthereumNode,
-};
+use reth_node_ethereum::{node::EthereumAddOns, EthExecutorProvider, EthereumNode};
 use reth_primitives::{
     revm_primitives::{AnalysisKind, CfgEnvWithHandlerCfg, TxEnv},
     Address, Header, TransactionSigned, U256,
@@ -35,12 +26,12 @@ use reth_primitives::{
 use reth_tracing::{tracing::info, RethTracer, Tracer};
 
 mod cli;
-mod modules;
 mod config;
+mod modules;
 
 use cli::Args;
-use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 use config::{custom_chain, CorsaConfig};
+use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 
 #[derive(Clone)]
 pub struct MyEvmConfig {
@@ -68,9 +59,9 @@ impl MyEvmConfig {
 
         loaded_precompiles.to_mut().insert(
             address!("0000000000000000000000000000000000000999"),
-            ContextPrecompile::Ordinary(Precompile::StatefulMut(
-                Box::new(BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()))
-            )),
+            ContextPrecompile::Ordinary(Precompile::StatefulMut(Box::new(
+                BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()),
+            ))),
         );
 
         handler.pre_execution.load_precompiles = Arc::new(move || loaded_precompiles.clone());
@@ -156,9 +147,7 @@ pub struct MyExecutorBuilder {
 
 impl MyExecutorBuilder {
     pub fn new(config: CorsaConfig) -> Self {
-        Self {
-            config,
-        }
+        Self { config }
     }
 }
 
@@ -174,7 +163,10 @@ where
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
         let evm_config = MyEvmConfig::new(&self.config);
-        Ok((evm_config.clone(), EthExecutorProvider::new(ctx.chain_spec(), evm_config)))
+        Ok((
+            evm_config.clone(),
+            EthExecutorProvider::new(ctx.chain_spec(), evm_config),
+        ))
     }
 }
 
@@ -195,7 +187,9 @@ async fn main() -> eyre::Result<()> {
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())
         .with_types::<EthereumNode>()
-        .with_components(EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())))
+        .with_components(
+            EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
+        )
         .with_add_ons::<EthereumAddOns>()
         .launch()
         .await
