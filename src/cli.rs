@@ -28,6 +28,6 @@ fn parse_network(s: &str) -> Result<Network, &'static str> {
         "testnet" => Ok(Network::Testnet),
         "signet" => Ok(Network::Signet),
         "mainnet" => Ok(Network::Bitcoin),
-        _ => Err("Invalid network. Use 'regtest', 'testnet', 'signet' or 'mainnet'")
+        _ => Err("Invalid network. Use 'regtest', 'testnet', 'signet' or 'mainnet'"),
     }
 }
