@@ -1,0 +1,40 @@
+version: '3'
+services:
+  bitcoin:
+    image: ruimarinho/bitcoin-core:latest
+    command:
+      -regtest=1
+      -rpcallowip=0.0.0.0/0
+      -rpcbind=0.0.0.0
+      -rpcuser=rpcuser
+      -rpcpassword=rpcpassword
+    ports:
+      - "18443:18443"
+    networks:
+      - corsa_network
+    healthcheck:
+      test: ["CMD", "bitcoin-cli", "-regtest", "-rpcuser=rpcuser", "-rpcpassword=rpcpassword", "getblockchaininfo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  corsa-reth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - BTC_NETWORK=regtest
+      - BTC_RPC_URL=http://bitcoin
+      - BTC_RPC_USER=rpcuser
+      - BTC_RPC_PASSWORD=rpcpassword
+    ports:
+      - "8545:8545"
+    networks:
+      - corsa_network
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+
+networks:
+  corsa_network:
+    driver: bridge

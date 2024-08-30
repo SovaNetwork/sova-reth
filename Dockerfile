@@ -48,8 +48,8 @@ COPY --from=builder /usr/src/corsa-reth/target/release/corsa-reth .
 # Expose port 8545 for JSON-RPC
 EXPOSE 8545
 
-# Set the startup command
-ENTRYPOINT ["corsa-reth"]
+# Set the entrypoint
+ENTRYPOINT ["/bin/sh", "-c"]
 
-# Use CMD to provide default arguments to ENTRYPOINT
-CMD ["--btc-network", "regtest", "--network-url", "http://127.0.0.1", "--btc-rpc-username", "user", "--btc-rpc-password", "password"]
+# Set the default command
+CMD ["corsa-reth --btc-network $BTC_NETWORK --network-url $BTC_RPC_URL --btc-rpc-username $BTC_RPC_USER --btc-rpc-password $BTC_RPC_PASSWORD"]
