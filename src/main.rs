@@ -181,7 +181,12 @@ async fn main() -> eyre::Result<()> {
 
     let node_config = NodeConfig::test()
         .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
-        .with_rpc(RpcServerArgs::default().with_http())
+        .with_rpc(RpcServerArgs {
+            http: true,
+            http_addr: "0.0.0.0".parse().expect("Invalid IP address"), // listen on all available network interfaces
+            http_port: 8545,
+            ..RpcServerArgs::default()
+        })
         .with_chain(custom_chain());
 
     let handle = NodeBuilder::new(node_config)
