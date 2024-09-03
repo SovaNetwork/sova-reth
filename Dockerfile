@@ -17,10 +17,7 @@ COPY Cargo.toml Cargo.lock ./
 # Copy the source code
 COPY src ./src
 
-# Copy any other necessary files (like build.rs if you have one)
-# COPY build.rs ./
-
-# Build dependencies - this is separate from building the project to cache dependencies
+# Build dependencies
 RUN cargo fetch --locked
 
 # Build the project
