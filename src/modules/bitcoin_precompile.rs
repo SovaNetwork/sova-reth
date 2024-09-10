@@ -12,6 +12,8 @@ use bitcoin::consensus::encode::deserialize;
 
 use crate::{config::BitcoinConfig, modules::bitcoin_client::BitcoinClientWrapper};
 
+use super::encoding::encode_tx_data;
+
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
     bitcoin_client: Arc<RwLock<BitcoinClientWrapper>>,
@@ -24,6 +26,60 @@ impl BitcoinRpcPrecompile {
             bitcoin_client: Arc::new(RwLock::new(client)),
         })
     }
+
+    fn send_raw_transaction(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
+        let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
+            PrecompileErrors::Error(PrecompileError::other("Failed to deserialize Bitcoin transaction"))
+        })?;
+
+        let txid = self
+            .bitcoin_client
+            .read()
+            .send_raw_transaction(&tx)
+            .map_err(|_| {
+                PrecompileErrors::Error(PrecompileError::other(
+                    "Send raw transaction bitcoin rpc call failed",
+                ))
+            })?;
+
+        Ok(PrecompileOutput::new(
+            gas_price,
+            reth::primitives::Bytes::from(txid.to_string()),
+        ))
+    }
+
+    fn get_block_count(&self, gas_price: u64) -> PrecompileResult {
+        let block_count = self.bitcoin_client.read().get_block_count().map_err(|_| {
+            PrecompileErrors::Error(PrecompileError::other("Failed to get block count"))
+        })?;
+
+        Ok(PrecompileOutput::new(
+            gas_price,
+            reth::primitives::Bytes::from(block_count.to_be_bytes().to_vec()),
+        ))
+    }
+
+    fn decode_raw_transaction(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
+        let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
+            PrecompileErrors::Error(PrecompileError::other("Failed to deserialize Bitcoin transaction"))
+        })?;
+
+        let data = self
+            .bitcoin_client
+            .read()
+            .decode_raw_transaction(&tx)
+            .map_err(|_| {
+                PrecompileErrors::Error(PrecompileError::other(
+                    "Decode raw transaction bitcoin rpc call failed",
+                ))
+            })?;
+        
+        let encoded_data = encode_tx_data(&data).map_err(|e| {
+            PrecompileErrors::Error(PrecompileError::Other(format!("Failed to encode transaction data: {:?}", e)))
+        })?;
+    
+        Ok(PrecompileOutput::new(gas_price, encoded_data))
+    }
 }
 
 impl StatefulPrecompileMut for BitcoinRpcPrecompile {
@@ -35,40 +91,9 @@ impl StatefulPrecompileMut for BitcoinRpcPrecompile {
     ) -> PrecompileResult {
         // input[0] is the method id
         match input.first() {
-            Some(0) => {
-                // sendrawtransaction
-                let raw_tx = &input[1..]; // Skip the first byte
-
-                let tx: bitcoin::Transaction = deserialize(raw_tx).map_err(|_| {
-                    PrecompileErrors::Error(PrecompileError::other("Invalid Bitcoin transaction"))
-                })?;
-
-                let txid = self
-                    .bitcoin_client
-                    .read()
-                    .send_raw_transaction(&tx)
-                    .map_err(|_| {
-                        PrecompileErrors::Error(PrecompileError::other(
-                            "Failed to send raw transaction",
-                        ))
-                    })?;
-
-                Ok(PrecompileOutput::new(
-                    gas_price,
-                    reth::primitives::Bytes::from(txid.to_string()),
-                ))
-            }
-            Some(1) => {
-                // getblockcount
-                let block_count = self.bitcoin_client.read().get_block_count().map_err(|_| {
-                    PrecompileErrors::Error(PrecompileError::other("Failed to get block count"))
-                })?;
-
-                Ok(PrecompileOutput::new(
-                    gas_price,
-                    reth::primitives::Bytes::from(block_count.to_be_bytes().to_vec()),
-                ))
-            }
+            Some(0) => self.send_raw_transaction(&input[1..], gas_price),
+            Some(1) => self.get_block_count(gas_price),
+            Some(2) => self.decode_raw_transaction(&input[1..], gas_price),
             _ => Err(PrecompileErrors::Error(PrecompileError::other(
                 "StatefulPrecompileMut::Unsupported Bitcoin RPC method",
             ))),
