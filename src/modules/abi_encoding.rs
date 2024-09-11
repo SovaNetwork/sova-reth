@@ -108,7 +108,7 @@ fn encode_input(
         .txinwitness
         .as_ref()
         .map(|w| w.iter().map(|item| Bytes::from(item.clone())).collect())
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_default();
 
     Ok(Input {
         prev_tx_hash: FixedBytes::from(reversed_prev_tx_hash),
