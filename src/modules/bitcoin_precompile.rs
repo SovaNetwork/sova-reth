@@ -114,9 +114,7 @@ impl BitcoinRpcPrecompile {
             .read()
             .decode_raw_transaction(&tx)
             .map_err(|_| {
-                PrecompileErrors::Error(PrecompileError::other(
-                    "Decode raw transaction bitcoin rpc call failed",
-                ))
+                PrecompileErrors::Error(PrecompileError::other("Decode raw transaction bitcoin rpc call failed"))
             })?;
 
         let encoded_data: AlloyBytes =
@@ -129,7 +127,6 @@ impl BitcoinRpcPrecompile {
 
         // Convert AlloyBytes to RethBytes by creating a new RethBytes from the underlying Vec<u8>
         let reth_bytes = RethBytes::from(encoded_data.to_vec());
-
         Ok(PrecompileOutput::new(gas_price, reth_bytes))
     }
 }
