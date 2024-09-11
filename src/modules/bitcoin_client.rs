@@ -32,11 +32,18 @@ impl BitcoinClientWrapper {
         self.client.get_block_count()
     }
 
-    pub fn decode_raw_transaction(&self, tx: &Transaction) -> Result<DecodeRawTransactionResult, bitcoincore_rpc::Error> {
+    pub fn decode_raw_transaction(
+        &self,
+        tx: &Transaction,
+    ) -> Result<DecodeRawTransactionResult, bitcoincore_rpc::Error> {
         self.client.decode_raw_transaction(tx, None)
     }
 
-    pub fn get_raw_transaction(&self, txid: &Txid, block_hash: Option<&BlockHash>) -> Result<Transaction, bitcoincore_rpc::Error> {
+    pub fn get_raw_transaction(
+        &self,
+        txid: &Txid,
+        block_hash: Option<&BlockHash>,
+    ) -> Result<Transaction, bitcoincore_rpc::Error> {
         self.client.get_raw_transaction(txid, block_hash)
     }
 

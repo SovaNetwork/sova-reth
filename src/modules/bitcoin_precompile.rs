@@ -4,12 +4,8 @@ use parking_lot::RwLock;
 
 use reth::revm::precompile::PrecompileOutput;
 use reth_primitives::revm_primitives::{
-    Env,
-    PrecompileError,
-    PrecompileErrors,
-    PrecompileResult,
+    Bytes as RethBytes, Env, PrecompileError, PrecompileErrors, PrecompileResult,
     StatefulPrecompileMut,
-    Bytes as RethBytes
 };
 
 use alloy_primitives::Bytes as AlloyBytes;
@@ -36,14 +32,26 @@ impl BitcoinRpcPrecompile {
     }
 
     /// helper functions
-    pub fn get_output_script_type(&self, txid: &Txid, vout: u32) -> Result<ScriptType, EncodingError> {
-        let prev_tx = self.bitcoin_client.read()
+    pub fn get_output_script_type(
+        &self,
+        txid: &Txid,
+        vout: u32,
+    ) -> Result<ScriptType, EncodingError> {
+        let prev_tx = self
+            .bitcoin_client
+            .read()
             .get_raw_transaction(txid, None)
-            .map_err(|e| EncodingError::GetPreviousOutputTypeError(format!("Failed to get previous transaction: {:?}", e)))?;
-    
-        let output = prev_tx.output.get(vout as usize)
-            .ok_or_else(|| EncodingError::GetPreviousOutputTypeError("Invalid output index".to_string()))?;
-    
+            .map_err(|e| {
+                EncodingError::GetPreviousOutputTypeError(format!(
+                    "Failed to get previous transaction: {:?}",
+                    e
+                ))
+            })?;
+
+        let output = prev_tx.output.get(vout as usize).ok_or_else(|| {
+            EncodingError::GetPreviousOutputTypeError("Invalid output index".to_string())
+        })?;
+
         if output.script_pubkey.is_p2pkh() {
             Ok(ScriptType::P2PKH)
         } else if output.script_pubkey.is_p2sh() {
@@ -53,14 +61,18 @@ impl BitcoinRpcPrecompile {
         } else if output.script_pubkey.is_p2wsh() {
             Ok(ScriptType::P2WSH)
         } else {
-            Err(EncodingError::GetPreviousOutputTypeError("Unknown script type".to_string()))
+            Err(EncodingError::GetPreviousOutputTypeError(
+                "Unknown script type".to_string(),
+            ))
         }
     }
 
     /// precompile entrypoints
     fn send_raw_transaction(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileErrors::Error(PrecompileError::other("Failed to deserialize Bitcoin transaction"))
+            PrecompileErrors::Error(PrecompileError::other(
+                "Failed to deserialize Bitcoin transaction",
+            ))
         })?;
 
         let txid = self
@@ -92,7 +104,9 @@ impl BitcoinRpcPrecompile {
 
     fn decode_raw_transaction(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileErrors::Error(PrecompileError::other("Failed to deserialize Bitcoin transaction"))
+            PrecompileErrors::Error(PrecompileError::other(
+                "Failed to deserialize Bitcoin transaction",
+            ))
         })?;
 
         let data = self
@@ -100,17 +114,22 @@ impl BitcoinRpcPrecompile {
             .read()
             .decode_raw_transaction(&tx)
             .map_err(|_| {
-                PrecompileErrors::Error(PrecompileError::other("Decode raw transaction bitcoin rpc call failed"))
+                PrecompileErrors::Error(PrecompileError::other(
+                    "Decode raw transaction bitcoin rpc call failed",
+                ))
             })?;
-        
-        let encoded_data: AlloyBytes = abi_encode_tx_data(self, &data, &self.network)
-            .map_err(|e| {
-                PrecompileErrors::Error(PrecompileError::Other(format!("Failed to encode transaction data: {:?}", e)))
+
+        let encoded_data: AlloyBytes =
+            abi_encode_tx_data(self, &data, &self.network).map_err(|e| {
+                PrecompileErrors::Error(PrecompileError::Other(format!(
+                    "Failed to encode transaction data: {:?}",
+                    e
+                )))
             })?;
 
         // Convert AlloyBytes to RethBytes by creating a new RethBytes from the underlying Vec<u8>
         let reth_bytes = RethBytes::from(encoded_data.to_vec());
-    
+
         Ok(PrecompileOutput::new(gas_price, reth_bytes))
     }
 }

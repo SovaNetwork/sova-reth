@@ -1,11 +1,13 @@
-use bitcoin::Network;
 use bitcoin::hashes::Hash;
-use bitcoincore_rpc::json::DecodeRawTransactionResult;
+use bitcoin::Network;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
-use bitcoincore_rpc::bitcoincore_rpc_json::{GetRawTransactionResultVin, GetRawTransactionResultVout};
+use bitcoincore_rpc::bitcoincore_rpc_json::{
+    GetRawTransactionResultVin, GetRawTransactionResultVout,
+};
+use bitcoincore_rpc::json::DecodeRawTransactionResult;
 
-use alloy_sol_types::{sol, SolValue};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
+use alloy_sol_types::{sol, SolValue};
 
 use super::bitcoin_precompile::BitcoinRpcPrecompile;
 
@@ -45,18 +47,23 @@ sol! {
     }
 }
 
-fn encode_output(output: &GetRawTransactionResultVout, network: &Network) -> Result<Output, EncodingError> {
+fn encode_output(
+    output: &GetRawTransactionResultVout,
+    network: &Network,
+) -> Result<Output, EncodingError> {
     let addr = match &output.script_pub_key.address {
-        Some(addr_unchecked) => {
-            addr_unchecked.clone().require_network(*network)
-                .map(|checked_addr| checked_addr.to_string())
-                .unwrap_or_else(|_| "Invalid network".to_string())
-        },
+        Some(addr_unchecked) => addr_unchecked
+            .clone()
+            .require_network(*network)
+            .map(|checked_addr| checked_addr.to_string())
+            .unwrap_or_else(|_| "Invalid network".to_string()),
         None => Address::ZERO.to_string(),
     };
 
     if addr == Address::ZERO.to_string() || addr == "Invalid network" {
-        return Err(EncodingError::DecodingBtcTxError("Invalid vout address".to_string()));
+        return Err(EncodingError::DecodingBtcTxError(
+            "Invalid vout address".to_string(),
+        ));
     }
 
     Ok(Output {
@@ -66,31 +73,40 @@ fn encode_output(output: &GetRawTransactionResultVout, network: &Network) -> Res
     })
 }
 
-fn encode_input(precompile: &BitcoinRpcPrecompile, input: &GetRawTransactionResultVin) -> Result<Input, EncodingError> {
-    let prev_tx_hash = input.txid
+fn encode_input(
+    precompile: &BitcoinRpcPrecompile,
+    input: &GetRawTransactionResultVin,
+) -> Result<Input, EncodingError> {
+    let prev_tx_hash = input
+        .txid
         .ok_or_else(|| EncodingError::DecodingBtcTxError("Missing vin txid".to_string()))?;
 
     // Reverse the byte order of the prev transaction hash
     // Bitcoin uses little-endian byte order for transaction hashes
     let reversed_prev_tx_hash: [u8; 32] = {
-        let mut reversed = prev_tx_hash
-            .to_byte_array(); // results in big endian by default
+        let mut reversed = prev_tx_hash.to_byte_array(); // results in big endian by default
         reversed.reverse(); // reverse -> little endian
         reversed
     };
 
-    let output_index = input.vout
+    let output_index = input
+        .vout
         .ok_or_else(|| EncodingError::DecodingBtcTxError("Missing vout".to_string()))?;
 
-    let script_type = precompile.get_output_script_type(&prev_tx_hash, output_index)
-        .map_err(|e| EncodingError::GetPreviousOutputTypeError(format!("Failed to get script type: {:?}", e)))?;
+    let script_type = precompile
+        .get_output_script_type(&prev_tx_hash, output_index)
+        .map_err(|e| {
+            EncodingError::GetPreviousOutputTypeError(format!("Failed to get script type: {:?}", e))
+        })?;
 
     let script_sig_hex = match &input.script_sig {
         Some(script) => Bytes::from(script.hex.clone()),
         None => Bytes::new(),
     };
 
-    let txin_witness: Vec<Bytes> = input.txinwitness.as_ref()
+    let txin_witness: Vec<Bytes> = input
+        .txinwitness
+        .as_ref()
         .map(|w| w.iter().map(|item| Bytes::from(item.clone())).collect())
         .unwrap_or_else(Vec::new);
 
@@ -103,15 +119,23 @@ fn encode_input(precompile: &BitcoinRpcPrecompile, input: &GetRawTransactionResu
     })
 }
 
-pub fn abi_encode_tx_data(precompile: &BitcoinRpcPrecompile, tx_data: &DecodeRawTransactionResult, network: &Network) -> Result<Bytes, EncodingError> {
+pub fn abi_encode_tx_data(
+    precompile: &BitcoinRpcPrecompile,
+    tx_data: &DecodeRawTransactionResult,
+    network: &Network,
+) -> Result<Bytes, EncodingError> {
     let txid = Vec::from_hex(&tx_data.txid.to_string())
         .map_err(|e| EncodingError::DecodingBtcTxError(e.to_string()))?;
 
-    let outputs = tx_data.vout.iter()
+    let outputs = tx_data
+        .vout
+        .iter()
         .map(|output| encode_output(output, network))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let inputs = tx_data.vin.iter()
+    let inputs = tx_data
+        .vin
+        .iter()
         .map(|input| encode_input(precompile, input))
         .collect::<Result<Vec<_>, _>>()?;
 
