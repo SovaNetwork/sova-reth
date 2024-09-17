@@ -59,8 +59,8 @@ impl MyEvmConfig {
 
         loaded_precompiles.to_mut().insert(
             address!("0000000000000000000000000000000000000999"),
-            ContextPrecompile::Ordinary(Precompile::StatefulMut(Box::new(
-                BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()),
+            ContextPrecompile::Ordinary(Precompile::Stateful(Arc::new(
+                BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read())
             ))),
         );
 

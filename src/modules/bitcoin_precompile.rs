@@ -4,17 +4,16 @@ use parking_lot::RwLock;
 
 use reth::revm::precompile::PrecompileOutput;
 use reth_primitives::revm_primitives::{
-    Bytes as RethBytes, Env, PrecompileError, PrecompileErrors, PrecompileResult,
-    StatefulPrecompileMut,
+    Bytes as RethBytes, Env, PrecompileError, PrecompileErrors, PrecompileResult, StatefulPrecompile,
 };
 
 use alloy_primitives::Bytes as AlloyBytes;
 
-use bitcoin::{consensus::encode::deserialize, Network, Txid};
+use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut, Txid};
 
-use crate::{config::BitcoinConfig, modules::bitcoin_client::BitcoinClientWrapper};
+use crate::config::BitcoinConfig;
 
-use super::abi_encoding::{abi_encode_tx_data, EncodingError, ScriptType};
+use super::{abi_encoding::{abi_encode_tx_data, EncodingError, ScriptType}, bitcoin_client::BitcoinClientWrapper};
 
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
@@ -131,22 +130,61 @@ impl BitcoinRpcPrecompile {
         let reth_bytes = RethBytes::from(encoded_data.to_vec());
         Ok(PrecompileOutput::new(gas_price, reth_bytes))
     }
+
+    fn check_signature(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
+        let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
+            PrecompileErrors::Error(PrecompileError::other(
+                "Failed to deserialize Bitcoin transaction",
+            ))
+        })?;
+
+        // Closure to fetch previous transaction output (TxOut) for each input
+        let mut spent = |outpoint: &OutPoint| -> Option<TxOut> {
+            match self.bitcoin_client.read().get_raw_transaction(&outpoint.txid, None) {
+                Ok(prev_tx) => prev_tx.output.get(outpoint.vout as usize).map(|output| {
+                    TxOut {
+                        value: output.value,
+                        script_pubkey: output.script_pubkey.clone(),
+                    }
+                }),
+                Err(_) => None,
+            }
+        };
+
+        // Verify the transaction. For each input, check if unlocking script is valid based on the corresponding TxOut.
+        tx.verify(&mut spent).map_err(|e| {
+            PrecompileErrors::Error(PrecompileError::other(format!("Transaction verification failed: {:?}", e)))
+        })?;
+
+        println!("Transaction verified successfully");
+    
+        Ok(PrecompileOutput::new(gas_price, reth::primitives::Bytes::from(vec![1])))
+    }
 }
 
-impl StatefulPrecompileMut for BitcoinRpcPrecompile {
-    fn call_mut(
-        &mut self,
+impl StatefulPrecompile for BitcoinRpcPrecompile {
+    fn call(
+        &self,
         input: &reth::primitives::Bytes,
         gas_price: u64,
         _env: &Env,
     ) -> PrecompileResult {
-        // input[0] is the method id
-        match input.first() {
-            Some(0) => self.send_raw_transaction(&input[1..], gas_price),
-            Some(1) => self.get_block_count(gas_price),
-            Some(2) => self.decode_raw_transaction(&input[1..], gas_price),
+        if input.len() < 4 {
+            return Err(PrecompileErrors::Error(PrecompileError::other(
+                "Input too short for method selector",
+            )));
+        }
+
+        // Parse the first 4 bytes as a u32 method selector
+        let method_selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
+
+        match method_selector {
+            0x00000000 => self.send_raw_transaction(&input[4..], gas_price),
+            0x00000001 => self.get_block_count(gas_price),
+            0x00000002 => self.decode_raw_transaction(&input[4..], gas_price),
+            0x00000003 => self.check_signature(&input[4..], gas_price),
             _ => Err(PrecompileErrors::Error(PrecompileError::other(
-                "StatefulPrecompileMut::Unsupported Bitcoin RPC method",
+                "Unsupported Bitcoin RPC method",
             ))),
         }
     }
