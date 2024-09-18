@@ -1,21 +1,15 @@
+use reth_primitives::revm_primitives::PrecompileError;
+
+use alloy_primitives::{Address, Bytes, FixedBytes, U256};
+use alloy_sol_types::{sol, SolValue};
+
+use bitcoin::{Network, Script};
 use bitcoin::hashes::Hash;
-use bitcoin::Network;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoincore_rpc_json::{
     GetRawTransactionResultVin, GetRawTransactionResultVout,
 };
 use bitcoincore_rpc::json::DecodeRawTransactionResult;
-
-use alloy_primitives::{Address, Bytes, FixedBytes, U256};
-use alloy_sol_types::{sol, SolValue};
-
-use super::bitcoin_precompile::BitcoinRpcPrecompile;
-
-#[derive(Debug)]
-pub enum EncodingError {
-    DecodingBtcTxError(String),
-    GetPreviousOutputTypeError(String),
-}
 
 sol! {
     enum ScriptType {
@@ -47,10 +41,35 @@ sol! {
     }
 }
 
+fn determine_vin_script_type(input: &GetRawTransactionResultVin) -> Result<ScriptType, PrecompileError> {
+    if let Some(script_sig) = &input.script_sig {
+        let script = Script::from_bytes(&script_sig.hex);
+        if script.is_p2pkh() {
+            Ok(ScriptType::P2PKH)
+        } else if script.is_p2sh() {
+            if input.txinwitness.is_some() && !input.txinwitness.as_ref().unwrap().is_empty() {
+                Ok(ScriptType::P2WSH) // P2SH-wrapped segwit
+            } else {
+                Ok(ScriptType::P2SH) // Native P2SH
+            }
+        } else {
+            Err(PrecompileError::other("Unknown script type"))
+        }
+    } else if input.txinwitness.is_some() && !input.txinwitness.as_ref().unwrap().is_empty() {
+        if input.txinwitness.as_ref().unwrap().len() == 2 {
+            Ok(ScriptType::P2WPKH) // Native segwit P2WPKH
+        } else {
+            Ok(ScriptType::P2WSH) // Native segwit P2WSH
+        }
+    } else {
+        Err(PrecompileError::other("Unable to determine script type"))
+    }
+}
+
 fn encode_output(
     output: &GetRawTransactionResultVout,
     network: &Network,
-) -> Result<Output, EncodingError> {
+) -> Result<Output, PrecompileError> {
     let addr = match &output.script_pub_key.address {
         Some(addr_unchecked) => addr_unchecked
             .clone()
@@ -61,9 +80,7 @@ fn encode_output(
     };
 
     if addr == Address::ZERO.to_string() || addr == "Invalid network" {
-        return Err(EncodingError::DecodingBtcTxError(
-            "Invalid vout address".to_string(),
-        ));
+        return Err(PrecompileError::other("Invalid vout address"));
     }
 
     Ok(Output {
@@ -73,13 +90,10 @@ fn encode_output(
     })
 }
 
-fn encode_input(
-    precompile: &BitcoinRpcPrecompile,
-    input: &GetRawTransactionResultVin,
-) -> Result<Input, EncodingError> {
+fn encode_input(input: &GetRawTransactionResultVin,) -> Result<Input, PrecompileError> {
     let prev_tx_hash = input
         .txid
-        .ok_or_else(|| EncodingError::DecodingBtcTxError("Missing vin txid".to_string()))?;
+        .ok_or_else(|| PrecompileError::other("Missing vin txid"))?;
 
     // Reverse the byte order of the prev transaction hash
     // Bitcoin uses little-endian byte order for transaction hashes
@@ -91,13 +105,9 @@ fn encode_input(
 
     let output_index = input
         .vout
-        .ok_or_else(|| EncodingError::DecodingBtcTxError("Missing vout".to_string()))?;
+        .ok_or_else(|| PrecompileError::other("Missing vout"))?;
 
-    let script_type = precompile
-        .get_output_script_type(&prev_tx_hash, output_index)
-        .map_err(|e| {
-            EncodingError::GetPreviousOutputTypeError(format!("Failed to get script type: {:?}", e))
-        })?;
+    let script_type = determine_vin_script_type(input)?;
 
     let script_sig_hex = match &input.script_sig {
         Some(script) => Bytes::from(script.hex.clone()),
@@ -120,12 +130,11 @@ fn encode_input(
 }
 
 pub fn abi_encode_tx_data(
-    precompile: &BitcoinRpcPrecompile,
     tx_data: &DecodeRawTransactionResult,
     network: &Network,
-) -> Result<Bytes, EncodingError> {
+) -> Result<Bytes, PrecompileError> {
     let txid = Vec::from_hex(&tx_data.txid.to_string())
-        .map_err(|e| EncodingError::DecodingBtcTxError(e.to_string()))?;
+        .map_err(|e| PrecompileError::Other(format!("Failed to decode txid: {:?}", e)))?;
 
     let outputs = tx_data
         .vout
@@ -136,7 +145,7 @@ pub fn abi_encode_tx_data(
     let inputs = tx_data
         .vin
         .iter()
-        .map(|input| encode_input(precompile, input))
+        .map(|input| encode_input(input))
         .collect::<Result<Vec<_>, _>>()?;
 
     let data = BitcoinTx {
