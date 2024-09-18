@@ -4,7 +4,8 @@ use parking_lot::RwLock;
 
 use reth::revm::precompile::PrecompileOutput;
 use reth_primitives::revm_primitives::{
-    Bytes as RethBytes, Env, PrecompileError, PrecompileErrors, PrecompileResult, StatefulPrecompile,
+    Bytes as RethBytes, Env, PrecompileError, PrecompileErrors, PrecompileResult,
+    StatefulPrecompile,
 };
 
 use alloy_primitives::Bytes as AlloyBytes;
@@ -13,7 +14,10 @@ use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut, Txid};
 
 use crate::config::BitcoinConfig;
 
-use super::{abi_encoding::{abi_encode_tx_data, EncodingError, ScriptType}, bitcoin_client::BitcoinClientWrapper};
+use super::{
+    abi_encoding::{abi_encode_tx_data, EncodingError, ScriptType},
+    bitcoin_client::BitcoinClientWrapper,
+};
 
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
@@ -97,7 +101,7 @@ impl BitcoinRpcPrecompile {
     }
 
     fn get_block_count(&self) -> PrecompileResult {
-        let gas_used: u64 = (2_000) as u64;
+        let gas_used: u64 = 2_000_u64;
 
         let block_count = self.bitcoin_client.read().get_block_count().map_err(|_| {
             PrecompileErrors::Error(PrecompileError::other("Failed to get block count"))
@@ -142,7 +146,7 @@ impl BitcoinRpcPrecompile {
 
         // Convert AlloyBytes to RethBytes by creating a new RethBytes from the underlying Vec<u8>
         let reth_bytes = RethBytes::from(encoded_data.to_vec());
-        Ok(PrecompileOutput::new(gas_price, reth_bytes))
+        Ok(PrecompileOutput::new(gas_used, reth_bytes))
     }
 
     fn check_signature(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
@@ -151,7 +155,7 @@ impl BitcoinRpcPrecompile {
         if gas_used > gas_limit {
             return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
         }
-        
+
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
             PrecompileErrors::Error(PrecompileError::other(
                 "Failed to deserialize Bitcoin transaction",
@@ -160,25 +164,36 @@ impl BitcoinRpcPrecompile {
 
         // Closure to fetch previous transaction output (TxOut) for each input
         let mut spent = |outpoint: &OutPoint| -> Option<TxOut> {
-            match self.bitcoin_client.read().get_raw_transaction(&outpoint.txid, None) {
-                Ok(prev_tx) => prev_tx.output.get(outpoint.vout as usize).map(|output| {
-                    TxOut {
+            match self
+                .bitcoin_client
+                .read()
+                .get_raw_transaction(&outpoint.txid, None)
+            {
+                Ok(prev_tx) => prev_tx
+                    .output
+                    .get(outpoint.vout as usize)
+                    .map(|output| TxOut {
                         value: output.value,
                         script_pubkey: output.script_pubkey.clone(),
-                    }
-                }),
+                    }),
                 Err(_) => None,
             }
         };
 
         // Verify the transaction. For each input, check if unlocking script is valid based on the corresponding TxOut.
         tx.verify(&mut spent).map_err(|e| {
-            PrecompileErrors::Error(PrecompileError::other(format!("Transaction verification failed: {:?}", e)))
+            PrecompileErrors::Error(PrecompileError::other(format!(
+                "Transaction verification failed: {:?}",
+                e
+            )))
         })?;
 
         println!("Transaction verified successfully");
 
-        Ok(PrecompileOutput::new(gas_used, reth::primitives::Bytes::from(vec![1])))
+        Ok(PrecompileOutput::new(
+            gas_used,
+            reth::primitives::Bytes::from(vec![1]),
+        ))
     }
 }
 
