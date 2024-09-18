@@ -67,7 +67,13 @@ impl BitcoinRpcPrecompile {
     }
 
     /// precompile entrypoints
-    fn send_raw_transaction(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
+    fn send_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
+        let gas_used: u64 = (10_000 + input.len() * 3) as u64;
+
+        if gas_used > gas_limit {
+            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
+        }
+
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
             PrecompileErrors::Error(PrecompileError::other(
                 "Failed to deserialize Bitcoin transaction",
@@ -85,23 +91,31 @@ impl BitcoinRpcPrecompile {
             })?;
 
         Ok(PrecompileOutput::new(
-            gas_price,
+            gas_used,
             reth::primitives::Bytes::from(txid.to_string()),
         ))
     }
 
-    fn get_block_count(&self, gas_price: u64) -> PrecompileResult {
+    fn get_block_count(&self) -> PrecompileResult {
+        let gas_used: u64 = (2_000) as u64;
+
         let block_count = self.bitcoin_client.read().get_block_count().map_err(|_| {
             PrecompileErrors::Error(PrecompileError::other("Failed to get block count"))
         })?;
 
         Ok(PrecompileOutput::new(
-            gas_price,
+            gas_used,
             reth::primitives::Bytes::from(block_count.to_be_bytes().to_vec()),
         ))
     }
 
-    fn decode_raw_transaction(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
+    fn decode_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
+        let gas_used: u64 = (4_000 + input.len() * 3) as u64;
+
+        if gas_used > gas_limit {
+            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
+        }
+
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
             PrecompileErrors::Error(PrecompileError::other(
                 "Failed to deserialize Bitcoin transaction",
@@ -131,7 +145,13 @@ impl BitcoinRpcPrecompile {
         Ok(PrecompileOutput::new(gas_price, reth_bytes))
     }
 
-    fn check_signature(&self, input: &[u8], gas_price: u64) -> PrecompileResult {
+    fn check_signature(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
+        let gas_used: u64 = (6_000 + input.len() * 3) as u64;
+
+        if gas_used > gas_limit {
+            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
+        }
+        
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
             PrecompileErrors::Error(PrecompileError::other(
                 "Failed to deserialize Bitcoin transaction",
@@ -157,8 +177,8 @@ impl BitcoinRpcPrecompile {
         })?;
 
         println!("Transaction verified successfully");
-    
-        Ok(PrecompileOutput::new(gas_price, reth::primitives::Bytes::from(vec![1])))
+
+        Ok(PrecompileOutput::new(gas_used, reth::primitives::Bytes::from(vec![1])))
     }
 }
 
@@ -166,7 +186,7 @@ impl StatefulPrecompile for BitcoinRpcPrecompile {
     fn call(
         &self,
         input: &reth::primitives::Bytes,
-        gas_price: u64,
+        _gas_price: u64,
         _env: &Env,
     ) -> PrecompileResult {
         if input.len() < 4 {
@@ -179,10 +199,10 @@ impl StatefulPrecompile for BitcoinRpcPrecompile {
         let method_selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
 
         match method_selector {
-            0x00000000 => self.send_raw_transaction(&input[4..], gas_price),
-            0x00000001 => self.get_block_count(gas_price),
-            0x00000002 => self.decode_raw_transaction(&input[4..], gas_price),
-            0x00000003 => self.check_signature(&input[4..], gas_price),
+            0x00000000 => self.send_raw_transaction(&input[4..], 100_000),
+            0x00000001 => self.get_block_count(),
+            0x00000002 => self.decode_raw_transaction(&input[4..], 150_000),
+            0x00000003 => self.check_signature(&input[4..], 100_000),
             _ => Err(PrecompileErrors::Error(PrecompileError::other(
                 "Unsupported Bitcoin RPC method",
             ))),
