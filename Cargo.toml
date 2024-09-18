@@ -14,7 +14,7 @@ reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5", features = ["test-utils"] }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 
-bitcoin = "0.31.1"
+bitcoin = { version = "0.31.1", features = ["bitcoinconsensus"] }
 bitcoincore-rpc = "0.18.0"
 
 eyre = "0.6.12" # Easy error handling
