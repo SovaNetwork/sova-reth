@@ -10,13 +10,13 @@ use reth_primitives::revm_primitives::{
 
 use alloy_primitives::Bytes as AlloyBytes;
 
-use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut, Txid};
+use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut};
 
 use crate::config::BitcoinConfig;
 
 use super::{
-    abi_encoding::{abi_encode_tx_data, EncodingError, ScriptType},
-    bitcoin_client::BitcoinClientWrapper,
+    abi_encoding::abi_encode_tx_data,
+    bitcoin_client::BitcoinClientWrapper
 };
 
 #[derive(Clone)]
@@ -34,43 +34,6 @@ impl BitcoinRpcPrecompile {
         })
     }
 
-    /// helper functions
-    pub fn get_output_script_type(
-        &self,
-        txid: &Txid,
-        vout: u32,
-    ) -> Result<ScriptType, EncodingError> {
-        let prev_tx = self
-            .bitcoin_client
-            .read()
-            .get_raw_transaction(txid, None)
-            .map_err(|e| {
-                EncodingError::GetPreviousOutputTypeError(format!(
-                    "Failed to get previous transaction: {:?}",
-                    e
-                ))
-            })?;
-
-        let output = prev_tx.output.get(vout as usize).ok_or_else(|| {
-            EncodingError::GetPreviousOutputTypeError("Invalid output index".to_string())
-        })?;
-
-        if output.script_pubkey.is_p2pkh() {
-            Ok(ScriptType::P2PKH)
-        } else if output.script_pubkey.is_p2sh() {
-            Ok(ScriptType::P2SH)
-        } else if output.script_pubkey.is_p2wpkh() {
-            Ok(ScriptType::P2WPKH)
-        } else if output.script_pubkey.is_p2wsh() {
-            Ok(ScriptType::P2WSH)
-        } else {
-            Err(EncodingError::GetPreviousOutputTypeError(
-                "Unknown script type".to_string(),
-            ))
-        }
-    }
-
-    /// precompile entrypoints
     fn send_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
         let gas_used: u64 = (10_000 + input.len() * 3) as u64;
 
@@ -137,10 +100,9 @@ impl BitcoinRpcPrecompile {
             })?;
 
         let encoded_data: AlloyBytes =
-            abi_encode_tx_data(self, &data, &self.network).map_err(|e| {
+            abi_encode_tx_data( &data, &self.network).map_err(|e| {
                 PrecompileErrors::Error(PrecompileError::Other(format!(
-                    "Failed to encode transaction data: {:?}",
-                    e
+                    "Failed to encode transaction data: {:?}", e
                 )))
             })?;
 
