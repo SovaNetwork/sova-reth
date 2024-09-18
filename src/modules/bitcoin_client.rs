@@ -1,5 +1,5 @@
-use bitcoin::{Transaction, Txid};
-use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoin::{BlockHash, Transaction, Txid};
+use bitcoincore_rpc::{json::DecodeRawTransactionResult, Auth, Client, RpcApi};
 
 use crate::config::BitcoinConfig;
 
@@ -30,6 +30,21 @@ impl BitcoinClientWrapper {
 
     pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
         self.client.get_block_count()
+    }
+
+    pub fn decode_raw_transaction(
+        &self,
+        tx: &Transaction,
+    ) -> Result<DecodeRawTransactionResult, bitcoincore_rpc::Error> {
+        self.client.decode_raw_transaction(tx, None)
+    }
+
+    pub fn get_raw_transaction(
+        &self,
+        txid: &Txid,
+        block_hash: Option<&BlockHash>,
+    ) -> Result<Transaction, bitcoincore_rpc::Error> {
+        self.client.get_raw_transaction(txid, block_hash)
     }
 
     // Add more methods as needed...
