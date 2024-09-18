@@ -3,8 +3,8 @@ use reth_primitives::revm_primitives::PrecompileError;
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{sol, SolValue};
 
-use bitcoin::{Network, Script};
 use bitcoin::hashes::Hash;
+use bitcoin::{Network, Script};
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoincore_rpc_json::{
     GetRawTransactionResultVin, GetRawTransactionResultVout,
@@ -41,7 +41,9 @@ sol! {
     }
 }
 
-fn determine_vin_script_type(input: &GetRawTransactionResultVin) -> Result<ScriptType, PrecompileError> {
+fn determine_vin_script_type(
+    input: &GetRawTransactionResultVin,
+) -> Result<ScriptType, PrecompileError> {
     if let Some(script_sig) = &input.script_sig {
         let script = Script::from_bytes(&script_sig.hex);
         if script.is_p2pkh() {
@@ -90,7 +92,7 @@ fn encode_output(
     })
 }
 
-fn encode_input(input: &GetRawTransactionResultVin,) -> Result<Input, PrecompileError> {
+fn encode_input(input: &GetRawTransactionResultVin) -> Result<Input, PrecompileError> {
     let prev_tx_hash = input
         .txid
         .ok_or_else(|| PrecompileError::other("Missing vin txid"))?;
@@ -145,7 +147,7 @@ pub fn abi_encode_tx_data(
     let inputs = tx_data
         .vin
         .iter()
-        .map(|input| encode_input(input))
+        .map(encode_input)
         .collect::<Result<Vec<_>, _>>()?;
 
     let data = BitcoinTx {

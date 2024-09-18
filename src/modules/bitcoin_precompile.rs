@@ -14,10 +14,7 @@ use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut};
 
 use crate::config::BitcoinConfig;
 
-use super::{
-    abi_encoding::abi_encode_tx_data,
-    bitcoin_client::BitcoinClientWrapper
-};
+use super::{abi_encoding::abi_encode_tx_data, bitcoin_client::BitcoinClientWrapper};
 
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
@@ -99,12 +96,12 @@ impl BitcoinRpcPrecompile {
                 ))
             })?;
 
-        let encoded_data: AlloyBytes =
-            abi_encode_tx_data( &data, &self.network).map_err(|e| {
-                PrecompileErrors::Error(PrecompileError::Other(format!(
-                    "Failed to encode transaction data: {:?}", e
-                )))
-            })?;
+        let encoded_data: AlloyBytes = abi_encode_tx_data(&data, &self.network).map_err(|e| {
+            PrecompileErrors::Error(PrecompileError::Other(format!(
+                "Failed to encode transaction data: {:?}",
+                e
+            )))
+        })?;
 
         // Convert AlloyBytes to RethBytes by creating a new RethBytes from the underlying Vec<u8>
         let reth_bytes = RethBytes::from(encoded_data.to_vec());
