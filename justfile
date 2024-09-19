@@ -1,6 +1,6 @@
-# build rust binary
 alias b := build
 
+# build rust binary
 build:
     cargo build --release
 

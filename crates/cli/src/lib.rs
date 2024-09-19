@@ -2,22 +2,22 @@ use clap::Parser;
 
 use bitcoin::Network;
 
-/// Our custom cli args extension that adds flags to configure the bitcoin rpc client
-#[derive(Debug, Clone, Parser)]
+/// corsa-reth CLI arguments
+#[derive(Debug, Parser)]
 pub struct Args {
-    /// CLI flag to indicate the bitcoin network the bitcoin rpc client will connect to
+    /// The bitcoin network that the rpc client will connect to
     #[arg(long, value_parser = parse_network, default_value = "regtest")]
     pub btc_network: Network,
 
-    // CLI flag to indicate the bitcoin rpc url
+    // The bitcoin rpc url
     #[arg(long, default_value = "http://127.0.0.1")]
     pub network_url: String,
 
-    /// CLI flag to indicate the bitcoin rpc username
+    /// The bitcoin rpc username
     #[arg(long, default_value = "user")]
     pub btc_rpc_username: String,
 
-    /// CLI flag to indicate the bitcoin rpc password
+    /// The bitcoin rpc password
     #[arg(long, default_value = "password")]
     pub btc_rpc_password: String,
 }
