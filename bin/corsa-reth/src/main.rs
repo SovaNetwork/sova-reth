@@ -25,10 +25,9 @@ use reth_primitives::{
 };
 use reth_tracing::{tracing::info, RethTracer, Tracer};
 
+use corsa_bitcoin_precompiles::BitcoinRpcPrecompile;
 use corsa_cli::Args;
 use corsa_config::{custom_chain, CorsaConfig};
-use corsa_bitcoin_precompiles::BitcoinRpcPrecompile;
-
 
 #[derive(Clone)]
 pub struct MyEvmConfig {
