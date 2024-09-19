@@ -4,7 +4,7 @@ use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{sol, SolValue};
 
 use bitcoin::hashes::Hash;
-use bitcoin::{Network, Script};
+use bitcoin::Network;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoincore_rpc_json::{
     GetRawTransactionResultVin, GetRawTransactionResultVout,
@@ -12,13 +12,6 @@ use bitcoincore_rpc::bitcoincore_rpc_json::{
 use bitcoincore_rpc::json::DecodeRawTransactionResult;
 
 sol! {
-    enum ScriptType {
-        P2PKH,
-        P2SH,
-        P2WPKH,
-        P2WSH
-    }
-
     struct Output {
         string addr;
         uint256 value;
@@ -28,7 +21,6 @@ sol! {
     struct Input {
         bytes32 prev_tx_hash;
         uint256 output_index;
-        ScriptType output_script_type;
         bytes script_sig;
         bytes[] witness;
     }
@@ -38,33 +30,6 @@ sol! {
         Output[] outputs;
         Input[] inputs;
         uint256 locktime;
-    }
-}
-
-fn determine_vin_script_type(
-    input: &GetRawTransactionResultVin,
-) -> Result<ScriptType, PrecompileError> {
-    if let Some(script_sig) = &input.script_sig {
-        let script = Script::from_bytes(&script_sig.hex);
-        if script.is_p2pkh() {
-            Ok(ScriptType::P2PKH)
-        } else if script.is_p2sh() {
-            if input.txinwitness.is_some() && !input.txinwitness.as_ref().unwrap().is_empty() {
-                Ok(ScriptType::P2WSH) // P2SH-wrapped segwit
-            } else {
-                Ok(ScriptType::P2SH) // Native P2SH
-            }
-        } else {
-            Err(PrecompileError::other("Unknown script type"))
-        }
-    } else if input.txinwitness.is_some() && !input.txinwitness.as_ref().unwrap().is_empty() {
-        if input.txinwitness.as_ref().unwrap().len() == 2 {
-            Ok(ScriptType::P2WPKH) // Native segwit P2WPKH
-        } else {
-            Ok(ScriptType::P2WSH) // Native segwit P2WSH
-        }
-    } else {
-        Err(PrecompileError::other("Unable to determine script type"))
     }
 }
 
@@ -109,8 +74,6 @@ fn encode_input(input: &GetRawTransactionResultVin) -> Result<Input, PrecompileE
         .vout
         .ok_or_else(|| PrecompileError::other("Missing vout"))?;
 
-    let script_type = determine_vin_script_type(input)?;
-
     let script_sig_hex = match &input.script_sig {
         Some(script) => Bytes::from(script.hex.clone()),
         None => Bytes::new(),
@@ -125,7 +88,6 @@ fn encode_input(input: &GetRawTransactionResultVin) -> Result<Input, PrecompileE
     Ok(Input {
         prev_tx_hash: FixedBytes::from(reversed_prev_tx_hash),
         output_index: U256::from(output_index),
-        output_script_type: script_type,
         script_sig: script_sig_hex,
         witness: txin_witness,
     })
