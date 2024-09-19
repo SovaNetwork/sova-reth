@@ -1,0 +1,26 @@
+[package]
+name = "corsa-bitcoin-precompiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# corsa-reth
+corsa-config.workspace = true
+corsa-bitcoin-client.workspace = true
+corsa-abi-encoding.workspace = true
+
+# reth
+reth.workspace = true
+reth-primitives.workspace = true
+
+# eth
+alloy-primitives.workspace = true
+
+# btc
+bitcoin.workspace = true
+bitcoincore-rpc.workspace = true
+
+# misc
+parking_lot.workspace = true

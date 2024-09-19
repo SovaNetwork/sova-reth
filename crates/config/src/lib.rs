@@ -4,6 +4,7 @@ use reth::primitives::Genesis;
 use reth_chainspec::ChainSpec;
 
 use bitcoin::Network;
+use corsa_cli::Args;
 
 #[derive(Clone)]
 pub struct BitcoinConfig {
@@ -19,7 +20,7 @@ pub struct CorsaConfig {
 }
 
 impl CorsaConfig {
-    pub fn new(args: &crate::cli::Args) -> Self {
+    pub fn new(args: &Args) -> Self {
         let bitcoin_config = BitcoinConfig {
             network: args.btc_network,
             network_url: args.network_url.clone(),

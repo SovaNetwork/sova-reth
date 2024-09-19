@@ -12,9 +12,9 @@ use alloy_primitives::Bytes as AlloyBytes;
 
 use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut};
 
-use crate::config::BitcoinConfig;
-
-use super::{abi_encoding::abi_encode_tx_data, bitcoin_client::BitcoinClientWrapper};
+use corsa_config::BitcoinConfig;
+use corsa_bitcoin_client::BitcoinClientWrapper;
+use corsa_abi_encoding::abi_encode_tx_data;
 
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {

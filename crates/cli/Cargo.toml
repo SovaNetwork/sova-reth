@@ -1,0 +1,13 @@
+[package]
+name = "corsa-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# btc
+bitcoin.workspace = true
+
+# misc
+clap.workspace = true

@@ -1,28 +1,53 @@
-[package]
-name = "corsa-reth"
+[workspace.package]
 version = "0.0.1"
 edition = "2021"
 license = "MIT"
+homepage = "https://www.oncorsa.com/"
+exclude = [".github/"]
 
-[dependencies]
+[workspace]
+members = [
+    "bin/corsa-reth/",
+    "crates/abi-encoding/",
+    "crates/bitcoin-client/",
+    "crates/bitcoin-precompiles/",
+    "crates/cli/",
+    "crates/config/",
+]
+default-members = ["bin/corsa-reth"]
+
+resolver = "2"
+
+[workspace.dependencies]
+corsa-abi-encoding = { path = "crates/abi-encoding" }
+corsa-bitcoin-client = { path = "crates/bitcoin-client" }
+corsa-bitcoin-precompiles = { path = "crates/bitcoin-precompiles" }
+corsa-cli = { path = "crates/cli" }
+corsa-config = { path = "crates/config" }
+
+# reth
 reth = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
-reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5", features = ["test-utils"] }
+reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 
+# eth
+alloy-sol-types = "0.8.3"
+alloy-primitives = "0.8.3"
+
+# btc
 bitcoin = { version = "0.31.1", features = ["bitcoinconsensus"] }
 bitcoincore-rpc = "0.18.0"
 
-eyre = "0.6.12" # Easy error handling
+# tokio
 tokio = { version = "1.39.3", features = ["full"] }
-serde = { version = "1.0.195", features = ["derive"] }
-serde_json = "1.0.94"
-toml = "0.8.10"
-parking_lot = "0.12.3"
+
+# misc
 clap = { version = "4.4.18", features = ["derive"] }
-alloy-sol-types = "0.8.3"
-alloy-primitives = "0.8.3"
+eyre = "0.6.12"
+parking_lot = "0.12.3"
+serde_json = "1.0.94"

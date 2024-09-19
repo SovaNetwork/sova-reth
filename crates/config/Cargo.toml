@@ -1,0 +1,20 @@
+[package]
+name = "corsa-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# corsa-reth
+corsa-cli.workspace = true
+
+# reth
+reth.workspace = true
+reth-chainspec.workspace = true
+
+# btc
+bitcoin.workspace = true
+
+# misc
+serde_json.workspace = true

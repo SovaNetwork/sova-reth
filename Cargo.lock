@@ -1951,14 +1951,67 @@ dependencies = [
 ]
 
 [[package]]
-name = "corsa-reth"
+name = "corsa-abi-encoding"
 version = "0.0.1"
 dependencies = [
  "alloy-primitives 0.8.3",
  "alloy-sol-types 0.8.3",
  "bitcoin",
  "bitcoincore-rpc",
+ "reth-primitives",
+]
+
+[[package]]
+name = "corsa-bitcoin-client"
+version = "0.0.1"
+dependencies = [
+ "bitcoin",
+ "bitcoincore-rpc",
+ "corsa-config",
+]
+
+[[package]]
+name = "corsa-bitcoin-precompiles"
+version = "0.0.1"
+dependencies = [
+ "alloy-primitives 0.8.3",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "corsa-abi-encoding",
+ "corsa-bitcoin-client",
+ "corsa-config",
+ "parking_lot 0.12.3",
+ "reth",
+ "reth-primitives",
+]
+
+[[package]]
+name = "corsa-cli"
+version = "0.0.1"
+dependencies = [
+ "bitcoin",
  "clap",
+]
+
+[[package]]
+name = "corsa-config"
+version = "0.0.1"
+dependencies = [
+ "bitcoin",
+ "corsa-cli",
+ "reth",
+ "reth-chainspec",
+ "serde_json",
+]
+
+[[package]]
+name = "corsa-reth"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "corsa-bitcoin-precompiles",
+ "corsa-cli",
+ "corsa-config",
  "eyre",
  "parking_lot 0.12.3",
  "reth",
@@ -1969,10 +2022,7 @@ dependencies = [
  "reth-node-ethereum",
  "reth-primitives",
  "reth-tracing",
- "serde",
- "serde_json",
  "tokio",
- "toml",
 ]
 
 [[package]]

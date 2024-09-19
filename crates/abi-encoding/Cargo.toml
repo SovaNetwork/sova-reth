@@ -1,0 +1,18 @@
+[package]
+name = "corsa-abi-encoding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# reth
+reth-primitives.workspace = true
+
+# eth
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+
+# btc
+bitcoin.workspace = true
+bitcoincore-rpc.workspace = true
