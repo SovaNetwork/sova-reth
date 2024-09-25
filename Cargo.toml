@@ -13,6 +13,7 @@ reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.
 reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5", features = ["test-utils"] }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5" }
+reth-node-optimism = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.0.5", features = ["optimism"] }
 
 bitcoin = { version = "0.31.1", features = ["bitcoinconsensus"] }
 bitcoincore-rpc = "0.18.0"

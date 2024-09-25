@@ -1,17 +1,19 @@
-# build rust binary
-alias b := build
+# where to store blockchain data
+corsa_datadir := "./data/corsa-reth/120893"
 
+# build rust binary
 build:
     cargo build --release
+alias b := build
 
 # list all CLI flags
 help:
     ./target/release/corsa-reth -h
 
-# run corsa chain
+# run corsa chain and specify bitcoin network params
 run-chain btc_network="regtest" network_url="http://127.0.0.1" btc_rpc_username="user" btc_rpc_password="password":
-    ./target/release/corsa-reth --btc-network {{btc_network}} --network-url {{network_url}} --btc-rpc-username {{btc_rpc_username}} --btc-rpc-password {{btc_rpc_password}}
+    ./target/release/corsa-reth node --chain genesis.json --datadir {{ corsa_datadir }} --bitcoin.network {{btc_network}} --bitcoin.url {{network_url}} --bitcoin.rpc-username {{btc_rpc_username}} --bitcoin.rpc-password {{btc_rpc_password}}
 
-# run corsa chain on bitcoin regtest network
-run-chain-regtest:
-    ./target/release/corsa-reth --btc-network "regtest" --network-url "http://127.0.0.1" --btc-rpc-username "user" --btc-rpc-password "password"
+# run corsa chain with a local bitcoin regtest network
+run-chain-dev:
+    ./target/release/corsa-reth node --chain genesis.json --datadir {{ corsa_datadir }} --http --bitcoin.network "regtest" --bitcoin.url "http://127.0.0.1" --bitcoin.rpc-username "user" --bitcoin.rpc-password "password"

@@ -1967,6 +1967,7 @@ dependencies = [
  "reth-node-api",
  "reth-node-core",
  "reth-node-ethereum",
+ "reth-node-optimism",
  "reth-primitives",
  "reth-tracing",
  "serde",
@@ -3251,6 +3252,7 @@ dependencies = [
  "hyper-util",
  "log",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
@@ -4667,6 +4669,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
+name = "op-alloy-consensus"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e41c4537e76555df708c8372ec2c4254da9631eb129c2530f2baea00d645b422"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-primitives 0.7.7",
+ "alloy-rlp",
+ "alloy-serde",
+ "derive_more 0.99.18",
+ "serde",
+]
+
+[[package]]
+name = "op-alloy-rpc-types"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48bf0c126082234c15b6051c1f06d2d666adf68e7de305a5352022f06a84be78"
+dependencies = [
+ "alloy-network",
+ "alloy-primitives 0.7.7",
+ "alloy-rpc-types-eth",
+ "alloy-serde",
+ "op-alloy-consensus",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4698,6 +4730,18 @@ name = "overload"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
+
+[[package]]
+name = "p256"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
+dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primeorder",
+ "sha2 0.10.8",
+]
 
 [[package]]
 name = "page_size"
@@ -4976,6 +5020,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve",
 ]
 
 [[package]]
@@ -5480,6 +5533,7 @@ dependencies = [
  "pin-project-lite",
  "quinn",
  "rustls",
+ "rustls-native-certs",
  "rustls-pemfile",
  "rustls-pki-types",
  "serde",
@@ -5750,10 +5804,12 @@ dependencies = [
  "auto_impl",
  "derive_more 0.99.18",
  "once_cell",
+ "op-alloy-rpc-types",
  "reth-ethereum-forks",
  "reth-network-peers",
  "reth-primitives-traits",
  "reth-trie-common",
+ "serde",
  "serde_json",
 ]
 
@@ -6398,6 +6454,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "reth-evm-optimism"
+version = "1.0.5"
+source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
+dependencies = [
+ "reth-chainspec",
+ "reth-ethereum-forks",
+ "reth-evm",
+ "reth-execution-errors",
+ "reth-execution-types",
+ "reth-optimism-consensus",
+ "reth-primitives",
+ "reth-prune-types",
+ "reth-revm",
+ "revm",
+ "revm-primitives",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "reth-execution-errors"
 version = "1.0.5"
 source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
@@ -6418,6 +6494,7 @@ name = "reth-execution-types"
 version = "1.0.5"
 source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
 dependencies = [
+ "reth-chainspec",
  "reth-execution-errors",
  "reth-primitives",
  "reth-trie",
@@ -6891,9 +6968,119 @@ dependencies = [
 ]
 
 [[package]]
+name = "reth-node-optimism"
+version = "1.0.5"
+source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
+dependencies = [
+ "async-trait",
+ "clap",
+ "eyre",
+ "jsonrpsee",
+ "jsonrpsee-types",
+ "parking_lot 0.12.3",
+ "reqwest",
+ "reth-auto-seal-consensus",
+ "reth-basic-payload-builder",
+ "reth-beacon-consensus",
+ "reth-chainspec",
+ "reth-consensus",
+ "reth-discv5",
+ "reth-evm",
+ "reth-evm-optimism",
+ "reth-network",
+ "reth-node-api",
+ "reth-node-builder",
+ "reth-optimism-consensus",
+ "reth-optimism-payload-builder",
+ "reth-optimism-rpc",
+ "reth-payload-builder",
+ "reth-primitives",
+ "reth-provider",
+ "reth-revm",
+ "reth-rpc-eth-api",
+ "reth-rpc-eth-types",
+ "reth-rpc-types",
+ "reth-rpc-types-compat",
+ "reth-tracing",
+ "reth-transaction-pool",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "reth-optimism-consensus"
+version = "1.0.5"
+source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
+dependencies = [
+ "reth-chainspec",
+ "reth-consensus",
+ "reth-consensus-common",
+ "reth-primitives",
+ "tracing",
+]
+
+[[package]]
+name = "reth-optimism-payload-builder"
+version = "1.0.5"
+source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
+dependencies = [
+ "alloy-rlp",
+ "reth-basic-payload-builder",
+ "reth-chain-state",
+ "reth-chainspec",
+ "reth-evm",
+ "reth-evm-optimism",
+ "reth-execution-types",
+ "reth-payload-builder",
+ "reth-payload-primitives",
+ "reth-primitives",
+ "reth-provider",
+ "reth-revm",
+ "reth-rpc-types",
+ "reth-rpc-types-compat",
+ "reth-transaction-pool",
+ "reth-trie",
+ "revm",
+ "sha2 0.10.8",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "reth-optimism-primitives"
 version = "1.0.5"
 source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
+
+[[package]]
+name = "reth-optimism-rpc"
+version = "1.0.5"
+source = "git+https://github.com/paradigmxyz/reth.git?tag=v1.0.5#603e39ab74509e0863fc023461a4c760fb2126d1"
+dependencies = [
+ "alloy-primitives 0.7.7",
+ "derive_more 0.99.18",
+ "jsonrpsee",
+ "jsonrpsee-types",
+ "parking_lot 0.12.3",
+ "reth-evm",
+ "reth-evm-optimism",
+ "reth-network-api",
+ "reth-node-api",
+ "reth-primitives",
+ "reth-provider",
+ "reth-rpc",
+ "reth-rpc-eth-api",
+ "reth-rpc-eth-types",
+ "reth-rpc-server-types",
+ "reth-rpc-types",
+ "reth-tasks",
+ "reth-transaction-pool",
+ "revm",
+ "serde",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "reth-payload-builder"
@@ -7706,9 +7893,10 @@ dependencies = [
  "cfg-if",
  "k256",
  "once_cell",
+ "p256",
  "revm-primitives",
  "ripemd",
- "secp256k1 0.29.0",
+ "secp256k1 0.28.2",
  "sha2 0.10.8",
  "substrate-bn",
 ]

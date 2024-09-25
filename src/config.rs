@@ -1,9 +1,7 @@
+use bitcoin::Network;
 use std::sync::Arc;
 
-use reth::primitives::Genesis;
-use reth_chainspec::ChainSpec;
-
-use bitcoin::Network;
+use crate::cli::CorsaRollupArgs;
 
 #[derive(Clone)]
 pub struct BitcoinConfig {
@@ -19,59 +17,25 @@ pub struct CorsaConfig {
 }
 
 impl CorsaConfig {
-    pub fn new(args: &crate::cli::Args) -> Self {
+    pub fn new(args: &CorsaRollupArgs) -> Self {
+        let btc_network = match args.bitcoin.network.as_str() {
+            "regtest" => Ok(Network::Regtest),
+            "testnet" => Ok(Network::Testnet),
+            "signet" => Ok(Network::Signet),
+            "mainnet" => Ok(Network::Bitcoin),
+            _ => Err("Invalid network. Use 'regtest', 'testnet', 'signet' or 'mainnet'"),
+        }
+        .unwrap();
+
         let bitcoin_config = BitcoinConfig {
-            network: args.btc_network,
-            network_url: args.network_url.clone(),
-            rpc_username: args.btc_rpc_username.clone(),
-            rpc_password: args.btc_rpc_password.clone(),
+            network: btc_network,
+            network_url: args.bitcoin.url.clone(),
+            rpc_username: args.bitcoin.rpc_username.clone(),
+            rpc_password: args.bitcoin.rpc_password.clone(),
         };
 
         CorsaConfig {
             bitcoin: Arc::new(bitcoin_config),
         }
     }
-}
-
-/// Genesis data for the testnet
-pub fn custom_chain() -> Arc<ChainSpec> {
-    let custom_genesis = r#"
-    {
-        "nonce": "0x42",
-        "timestamp": "0x0",
-        "extraData": "0x5343",
-        "gasLimit": "0x1388",
-        "difficulty": "0x400000000",
-        "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "coinbase": "0x0000000000000000000000000000000000000000",
-        "alloc": {
-            "0x1a0Fe90f5Bf076533b2B74a21b3AaDf225CdDfF7": {
-                "balance": "0x52b7d2dcc80cd2e4000000"
-            }
-        },
-        "number": "0x0",
-        "gasUsed": "0x0",
-        "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "config": {
-            "ethash": {},
-            "chainId": 120893,
-            "homesteadBlock": 0,
-            "eip150Block": 0,
-            "eip155Block": 0,
-            "eip158Block": 0,
-            "byzantiumBlock": 0,
-            "constantinopleBlock": 0,
-            "petersburgBlock": 0,
-            "istanbulBlock": 0,
-            "berlinBlock": 0,
-            "londonBlock": 0,
-            "terminalTotalDifficulty": 0,
-            "terminalTotalDifficultyPassed": true,
-            "shanghaiTime": 0,
-            "cancunTime": 0
-        }
-    }
-    "#;
-    let genesis: Genesis = serde_json::from_str(custom_genesis).unwrap();
-    Arc::new(genesis.into())
 }

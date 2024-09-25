@@ -8,3 +8,6 @@ target/
 
 # VSCode
 .vscode
+
+# blockchain data
+data

@@ -4,33 +4,35 @@ use clap::Parser;
 use parking_lot::RwLock;
 
 use reth::{
-    builder::{components::ExecutorBuilder, BuilderContext, NodeBuilder},
+    builder::{components::ExecutorBuilder, BuilderContext, EngineNodeLauncher},
+    cli::Cli,
     primitives::{address, revm_primitives::Env, Bytes},
+    providers::providers::BlockchainProvider2,
     revm::{
         handler::register::EvmHandler,
         inspector_handle_register,
         precompile::{Precompile, PrecompileSpecId},
         ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
     },
-    tasks::TaskManager,
 };
 use reth_chainspec::{ChainSpec, Head};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{ConfigureEvm, ConfigureEvmEnv, FullNodeTypes};
-use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
-use reth_node_ethereum::{node::EthereumAddOns, EthExecutorProvider, EthereumNode};
+use reth_node_ethereum::EthExecutorProvider;
+use reth_node_optimism::{
+    args::RollupArgs, node::OptimismAddOns, rpc::SequencerClient, OptimismNode,
+};
 use reth_primitives::{
     revm_primitives::{AnalysisKind, CfgEnvWithHandlerCfg, TxEnv},
     Address, Header, TransactionSigned, U256,
 };
-use reth_tracing::{tracing::info, RethTracer, Tracer};
 
 mod cli;
 mod config;
 mod modules;
 
-use cli::Args;
-use config::{custom_chain, CorsaConfig};
+use cli::CorsaRollupArgs;
+use config::CorsaConfig;
 use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 
 #[derive(Clone)]
@@ -170,37 +172,38 @@ where
     }
 }
 
-#[tokio::main]
-async fn main() -> eyre::Result<()> {
-    let _guard = RethTracer::new().init()?;
+fn main() -> eyre::Result<()> {
+    Cli::<CorsaRollupArgs>::parse().run(|builder, rollup_args| async move {
+        let sequencer_http_arg = rollup_args.sequencer_http.clone();
+        let app_config = CorsaConfig::new(&rollup_args);
+        let rollup_args: RollupArgs = rollup_args.into();
+        let handle = builder
+            .with_types_and_provider::<OptimismNode, BlockchainProvider2<_>>()
+            .with_components(
+                OptimismNode::components(rollup_args)
+                    .executor(MyExecutorBuilder::new(app_config.clone())),
+            )
+            .with_add_ons::<OptimismAddOns>()
+            .extend_rpc_modules(move |ctx| {
+                // register sequencer tx forwarder
+                if let Some(sequencer_http) = sequencer_http_arg {
+                    ctx.registry
+                        .set_eth_raw_transaction_forwarder(Arc::new(SequencerClient::new(
+                            sequencer_http,
+                        )));
+                }
 
-    let tasks = TaskManager::current();
+                Ok(())
+            })
+            .launch_with_fn(|builder| {
+                let launcher = EngineNodeLauncher::new(
+                    builder.task_executor().clone(),
+                    builder.config().datadir(),
+                );
+                builder.launch_with(launcher)
+            })
+            .await?;
 
-    let args = Args::parse();
-    let app_config = CorsaConfig::new(&args);
-
-    let node_config = NodeConfig::test()
-        .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
-        .with_rpc(RpcServerArgs {
-            http: true,
-            http_addr: "0.0.0.0".parse().expect("Invalid IP address"), // listen on all available network interfaces
-            http_port: 8545,
-            ..RpcServerArgs::default()
-        })
-        .with_chain(custom_chain());
-
-    let handle = NodeBuilder::new(node_config)
-        .testing_node(tasks.executor())
-        .with_types::<EthereumNode>()
-        .with_components(
-            EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
-        )
-        .with_add_ons::<EthereumAddOns>()
-        .launch()
-        .await
-        .unwrap();
-
-    info!("Corsa EVM node started");
-
-    handle.node_exit_future.await
+        handle.node_exit_future.await
+    })
 }
