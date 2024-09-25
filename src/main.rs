@@ -15,15 +15,14 @@ use reth::{
         ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
     },
 };
-use reth_chainspec::{ChainSpec, Head};
-use reth_evm_ethereum::EthEvmConfig;
+use reth_chainspec::ChainSpec;
 use reth_node_api::{ConfigureEvm, ConfigureEvmEnv, FullNodeTypes};
-use reth_node_ethereum::EthExecutorProvider;
 use reth_node_optimism::{
     args::RollupArgs, node::OptimismAddOns, rpc::SequencerClient, OptimismNode,
 };
+use reth_node_optimism::{OpExecutorProvider, OptimismEvmConfig};
 use reth_primitives::{
-    revm_primitives::{AnalysisKind, CfgEnvWithHandlerCfg, TxEnv},
+    revm_primitives::{CfgEnvWithHandlerCfg, TxEnv},
     Address, Header, TransactionSigned, U256,
 };
 
@@ -78,25 +77,11 @@ impl ConfigureEvmEnv for MyEvmConfig {
         header: &Header,
         total_difficulty: U256,
     ) {
-        let spec_id = reth_evm_ethereum::revm_spec(
-            chain_spec,
-            &Head {
-                number: header.number,
-                timestamp: header.timestamp,
-                difficulty: header.difficulty,
-                total_difficulty,
-                hash: Default::default(),
-            },
-        );
-
-        cfg_env.chain_id = chain_spec.chain().id();
-        cfg_env.perf_analyse_created_bytecodes = AnalysisKind::Analyse;
-
-        cfg_env.handler_cfg.spec_id = spec_id;
+        OptimismEvmConfig::default().fill_cfg_env(cfg_env, chain_spec, header, total_difficulty)
     }
 
     fn fill_tx_env(&self, tx_env: &mut TxEnv, transaction: &TransactionSigned, sender: Address) {
-        EthEvmConfig::default().fill_tx_env(tx_env, transaction, sender)
+        OptimismEvmConfig::default().fill_tx_env(tx_env, transaction, sender)
     }
 
     fn fill_tx_env_system_contract_call(
@@ -106,7 +91,7 @@ impl ConfigureEvmEnv for MyEvmConfig {
         contract: Address,
         data: Bytes,
     ) {
-        EthEvmConfig::default().fill_tx_env_system_contract_call(env, caller, contract, data)
+        OptimismEvmConfig::default().fill_tx_env_system_contract_call(env, caller, contract, data)
     }
 }
 
@@ -116,6 +101,7 @@ impl ConfigureEvm for MyEvmConfig {
     fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
         EvmBuilder::default()
             .with_db(db)
+            .optimism()
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
@@ -131,6 +117,7 @@ impl ConfigureEvm for MyEvmConfig {
         EvmBuilder::default()
             .with_db(db)
             .with_external_context(inspector)
+            .optimism()
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
@@ -158,7 +145,7 @@ where
     Node: FullNodeTypes,
 {
     type EVM = MyEvmConfig;
-    type Executor = EthExecutorProvider<Self::EVM>;
+    type Executor = OpExecutorProvider<Self::EVM>;
 
     async fn build_evm(
         self,
@@ -167,7 +154,7 @@ where
         let evm_config = MyEvmConfig::new(&self.config);
         Ok((
             evm_config.clone(),
-            EthExecutorProvider::new(ctx.chain_spec(), evm_config),
+            OpExecutorProvider::new(ctx.chain_spec(), evm_config),
         ))
     }
 }
