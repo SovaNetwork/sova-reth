@@ -11,3 +11,4 @@ target/
 
 # blockchain data
 data
+jwt.hex
