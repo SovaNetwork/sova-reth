@@ -53,6 +53,8 @@ impl BitcoinRpcPrecompile {
                     "Send raw transaction bitcoin rpc call failed",
                 ))
             })?;
+        
+        println!("txid: {}", txid);
 
         Ok(PrecompileOutput::new(
             gas_used,
@@ -102,6 +104,8 @@ impl BitcoinRpcPrecompile {
                 e
             )))
         })?;
+
+        println!("encoded_data");
 
         // Convert AlloyBytes to RethBytes by creating a new RethBytes from the underlying Vec<u8>
         let reth_bytes = RethBytes::from(encoded_data.to_vec());

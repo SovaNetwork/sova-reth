@@ -10,9 +10,8 @@ use reth::{
     providers::providers::BlockchainProvider2,
     revm::{
         handler::register::EvmHandler,
-        inspector_handle_register,
         precompile::{Precompile, PrecompileSpecId},
-        ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
+        ContextPrecompile, ContextPrecompiles, Database, Evm, GetInspector,
     },
 };
 use reth_chainspec::ChainSpec;
@@ -36,6 +35,7 @@ use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 
 #[derive(Clone)]
 pub struct MyEvmConfig {
+    base_config: OptimismEvmConfig,
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
 }
 
@@ -44,6 +44,7 @@ impl MyEvmConfig {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(config.bitcoin.as_ref())
             .expect("Failed to create Bitcoin RPC precompile");
         Self {
+            base_config: OptimismEvmConfig::default(),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
         }
     }
@@ -77,11 +78,11 @@ impl ConfigureEvmEnv for MyEvmConfig {
         header: &Header,
         total_difficulty: U256,
     ) {
-        OptimismEvmConfig::default().fill_cfg_env(cfg_env, chain_spec, header, total_difficulty)
+        self.base_config.fill_cfg_env(cfg_env, chain_spec, header, total_difficulty)
     }
 
     fn fill_tx_env(&self, tx_env: &mut TxEnv, transaction: &TransactionSigned, sender: Address) {
-        OptimismEvmConfig::default().fill_tx_env(tx_env, transaction, sender)
+        self.base_config.fill_tx_env(tx_env, transaction, sender)
     }
 
     fn fill_tx_env_system_contract_call(
@@ -91,7 +92,7 @@ impl ConfigureEvmEnv for MyEvmConfig {
         contract: Address,
         data: Bytes,
     ) {
-        OptimismEvmConfig::default().fill_tx_env_system_contract_call(env, caller, contract, data)
+        self.base_config.fill_tx_env_system_contract_call(env, caller, contract, data)
     }
 }
 
@@ -99,14 +100,20 @@ impl ConfigureEvm for MyEvmConfig {
     type DefaultExternalContext<'a> = ();
 
     fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
-        EvmBuilder::default()
-            .with_db(db)
-            .optimism()
-            // add additional precompiles
-            .append_handler_register_box(Box::new(move |handler| {
-                MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
-            }))
-            .build()
+        let mut evm = self.base_config.evm(db);
+        evm.handler.append_handler_register_box(Box::new(move |handler| {
+            MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
+        }));
+        evm
+
+        // EvmBuilder::default()
+        //     .with_db(db)
+        //     .optimism()
+        //     // add additional precompiles
+        //     .append_handler_register_box(Box::new(move |handler| {
+        //         MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
+        //     }))
+        //     .build()
     }
 
     fn evm_with_inspector<DB, I>(&self, db: DB, inspector: I) -> Evm<'_, I, DB>
@@ -114,19 +121,29 @@ impl ConfigureEvm for MyEvmConfig {
         DB: Database,
         I: GetInspector<DB>,
     {
-        EvmBuilder::default()
-            .with_db(db)
-            .with_external_context(inspector)
-            .optimism()
-            // add additional precompiles
-            .append_handler_register_box(Box::new(move |handler| {
-                MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
-            }))
-            .append_handler_register(inspector_handle_register)
-            .build()
+        let mut evm = self.base_config.evm_with_inspector(db, inspector);
+        evm.handler.append_handler_register_box(Box::new(move |handler| {
+            MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
+        }));
+        evm
+
+        // EvmBuilder::default()
+        //     .with_db(db)
+        //     .with_external_context(inspector)
+        //     .optimism()
+        //     // add additional precompiles
+        //     .append_handler_register_box(Box::new(move |handler| {
+        //         MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
+        //     }))
+        //     .append_handler_register(inspector_handle_register)
+        //     .build()
     }
 
-    fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
+    fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {
+        self.base_config.default_external_context()
+    }
+
+    // fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
 }
 
 #[derive(Clone)]
