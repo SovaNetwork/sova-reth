@@ -10,7 +10,7 @@ The new precompile is found at address 0x999 and accepts a bytes payload of data
 | getblockcount | 0x999 | 0x00000001 | 2,000 | N/A | Retrieves the current block count |
 | decoderawtransaction | 0x999 | 0x00000002 | 4,000 + 3 * input.len() | 150,000 | Decodes a raw Bitcoin transaction |
 | verifysignature | 0x999 | 0x00000003 | 6,000 + 3 * input.len() | 100,000 | Verifies the signature of a Bitcoin transaction |
-| convertaddress | 0x999 |  0x00000001 | 3,000 | N/A | Converts the Corsa address to the corresponding BTC address |
+| convertaddress | 0x999 |  0x00000004 | 3,000 | N/A | Converts the Corsa address to the corresponding BTC address |
 
 ## Testing
 
