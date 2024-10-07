@@ -20,6 +20,10 @@ pub struct Args {
     /// CLI flag to indicate the bitcoin rpc password
     #[arg(long, default_value = "password")]
     pub btc_rpc_password: String,
+
+    /// CLI flag to indicate the corsa sequencer url
+    #[arg(long, default_value = "http://127.0.0.1:5555")]
+    pub enclave_url: String,
 }
 
 fn parse_network(s: &str) -> Result<Network, &'static str> {
