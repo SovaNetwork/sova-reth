@@ -16,6 +16,7 @@ pub struct BitcoinConfig {
 #[derive(Clone)]
 pub struct CorsaConfig {
     pub bitcoin: Arc<BitcoinConfig>,
+    pub enclave_url: String
 }
 
 impl CorsaConfig {
@@ -29,6 +30,7 @@ impl CorsaConfig {
 
         CorsaConfig {
             bitcoin: Arc::new(bitcoin_config),
+            enclave_url: args.enclave_url.clone(),
         }
     }
 }
