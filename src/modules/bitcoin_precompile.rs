@@ -27,7 +27,10 @@ pub struct BitcoinRpcPrecompile {
 }
 
 impl BitcoinRpcPrecompile {
-    pub fn new(config: &BitcoinConfig, enclave_client_url: String) -> Result<Self, bitcoincore_rpc::Error> {
+    pub fn new(
+        config: &BitcoinConfig,
+        enclave_url: String,
+    ) -> Result<Self, bitcoincore_rpc::Error> {
         let client = BitcoinClientWrapper::new(config)?;
 
         let enclave_client = ReqwestClient::new();
@@ -36,7 +39,7 @@ impl BitcoinRpcPrecompile {
             bitcoin_client: Arc::new(RwLock::new(client)),
             network: config.network,
             enclave_client: Arc::new(enclave_client),
-            enclave_client_url: enclave_client_url,
+            enclave_client_url: enclave_url,
         })
     }
 
@@ -179,25 +182,37 @@ impl BitcoinRpcPrecompile {
         let url = format!("{}/derive_address", self.enclave_client_url);
 
         // Call the enclave RPC
-        let response = self.enclave_client
+        let response = self
+            .enclave_client
             .post(url)
             .json(&enclave_request)
             .send()
             .map_err(|e| {
-                PrecompileErrors::Error(PrecompileError::other(format!("Enclave RPC call failed: {:?}", e)))
+                PrecompileErrors::Error(PrecompileError::other(format!(
+                    "Enclave RPC call failed: {:?}",
+                    e
+                )))
             })?;
 
         // Parse the response
-        let status: serde_json::Value = response.json()
-            .map_err(|e| PrecompileErrors::Error(PrecompileError::other(format!("Failed to parse response: {:?}", e))))?;
+        let status: serde_json::Value = response.json().map_err(|e| {
+            PrecompileErrors::Error(PrecompileError::other(format!(
+                "Failed to parse response: {:?}",
+                e
+            )))
+        })?;
 
         // Check if the response contains an error
-        let bitcoin_address = status["address"].as_str()
-            .ok_or_else(|| {
-                PrecompileErrors::Error(PrecompileError::other("Failed to extract Bitcoin address from response"))
-            })?;
+        let bitcoin_address = status["address"].as_str().ok_or_else(|| {
+            PrecompileErrors::Error(PrecompileError::other(
+                "Failed to extract Bitcoin address from response",
+            ))
+        })?;
 
-        Ok(PrecompileOutput::new(gas_used, reth::primitives::Bytes::from(bitcoin_address.as_bytes().to_vec())))
+        Ok(PrecompileOutput::new(
+            gas_used,
+            reth::primitives::Bytes::from(bitcoin_address.as_bytes().to_vec()),
+        ))
     }
 }
 

@@ -22,7 +22,7 @@ pub struct Args {
     pub btc_rpc_password: String,
 
     /// CLI flag to indicate the corsa sequencer url
-    #[arg(long, default_value = "http://127.0.0.1:8888")]
+    #[arg(long, default_value = "http://127.0.0.1:5555")]
     pub enclave_url: String,
 }
 
