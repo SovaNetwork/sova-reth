@@ -11,6 +11,7 @@ The new precompile is found at address 0x999 and accepts a bytes payload of data
 | decoderawtransaction | 0x999 | 0x00000002 | 4,000 + 3 * input.len() | 150,000 | Decodes a raw Bitcoin transaction |
 | verifysignature | 0x999 | 0x00000003 | 6,000 + 3 * input.len() | 100,000 | Verifies the signature of a Bitcoin transaction |
 | convertaddress | 0x999 |  0x00000004 | 3,000 | N/A | Converts the Corsa address to the corresponding BTC address |
+| sendbtc | 0x999 |  0x00000005 | 5,000 + 3 * input.len() | 250,000 | Using the Corsa network keys, sign a BTC transaction. The caller of this precompile specifies the recipient BTC address and amount to send in sats. This precompile will create a change transaction if the amount to send is less than the UTXO amount + gas fees.|
 
 ## Testing
 
@@ -61,6 +62,14 @@ cast call 0x0000000000000000000000000000000000000999 \
 ```sh
 cast call 0x0000000000000000000000000000000000000999 \
 --data 0x000000042CB44b8970d0e62296015c1fA12E72671448Fd86 \
+--rpc-url http://localhost:8545
+```
+
+### sendbtc
+> Note: `--data` is prefixed with 0x00000005. After the prefix is the corsa address of signer, the bitcoin address of the reciever, and the amount to send.
+```sh
+cast call 0x0000000000000000000000000000000000000999 \
+--data 0x00000005 \
 --rpc-url http://localhost:8545
 ```
 
