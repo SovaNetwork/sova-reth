@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 
 use reqwest::blocking::Client as ReqwestClient;
 
@@ -9,6 +9,7 @@ use reth_primitives::revm_primitives::{
     Bytes as RethBytes, Env, PrecompileError, PrecompileErrors, PrecompileResult,
     StatefulPrecompile,
 };
+use reth_tracing::tracing::{error, info};
 
 use alloy_primitives::Bytes as AlloyBytes;
 
@@ -17,33 +18,106 @@ use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, T
 use crate::config::BitcoinConfig;
 
 use super::{
-    abi_decoding::{decode_input, parse_utxos, DecodedInput},
+    abi_decoding::{decode_input, DecodedInput},
     abi_encoding::abi_encode_tx_data,
     bitcoin_client::BitcoinClientWrapper,
 };
 
+#[derive(Deserialize)]
+struct UtxoSelectionResponse {
+    block_height: i32,
+    address: String,
+    target_amount: i64,
+    selected_utxos: Vec<UtxoUpdate>,
+    total_amount: i64,
+}
+
+#[derive(Deserialize)]
+struct UtxoUpdate {
+    id: String,
+    address: String,
+    public_key: Option<String>,
+    txid: String,
+    vout: i32,
+    amount: i64,
+    script_pub_key: String,
+    script_type: String,
+    created_at: String,
+    block_height: i32,
+    spent_txid: Option<String>,
+    spent_at: Option<String>,
+    spent_block: Option<i32>,
+}
+
+#[derive(Serialize)]
+struct SignTxInputData {
+    txid: String,
+    vout: u32,
+    amount: u64,
+}
+
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
-    bitcoin_client: Arc<RwLock<BitcoinClientWrapper>>,
+    bitcoin_client: Arc<BitcoinClientWrapper>,
     network: Network,
-    enclave_client: Arc<ReqwestClient>,
-    enclave_client_url: String,
+    http_client: Arc<ReqwestClient>,
+    network_signing_url: String,
+    network_utxo_url: String,
+    btc_tx_queue_url: String,
 }
 
 impl BitcoinRpcPrecompile {
     pub fn new(
         config: &BitcoinConfig,
-        enclave_url: String,
+        network_signing_url: String,
+        network_utxo_url: String,
+        btc_tx_queue_url: String,
     ) -> Result<Self, bitcoincore_rpc::Error> {
         let client = BitcoinClientWrapper::new(config)?;
-        let enclave_client = ReqwestClient::new();
+        let http_client = ReqwestClient::new();
 
         Ok(Self {
-            bitcoin_client: Arc::new(RwLock::new(client)),
+            bitcoin_client: Arc::new(client),
             network: config.network,
-            enclave_client: Arc::new(enclave_client),
-            enclave_client_url: enclave_url,
+            http_client: Arc::new(http_client),
+            network_signing_url,
+            network_utxo_url,
+            btc_tx_queue_url,
         })
+    }
+
+    fn make_http_request<T: serde::Serialize, R: serde::de::DeserializeOwned>(
+        &self,
+        base_url: &str,
+        endpoint: &str,
+        method: reqwest::Method,
+        payload: Option<&T>,
+    ) -> Result<R, PrecompileErrors> {
+        let url = format!("{}/{}", base_url, endpoint);
+        let mut request = self.http_client.request(method.clone(), &url);
+
+        if let Some(data) = payload {
+            request = match method {
+                reqwest::Method::GET => request.query(data),
+                _ => request.json(data),
+            };
+        }
+
+        request
+            .send()
+            .map_err(|e| {
+                PrecompileErrors::Error(PrecompileError::other(format!(
+                    "HTTP request failed: {}",
+                    e
+                )))
+            })?
+            .json()
+            .map_err(|e| {
+                PrecompileErrors::Error(PrecompileError::other(format!(
+                    "Failed to parse response: {}",
+                    e
+                )))
+            })
     }
 
     fn call_enclave<T: serde::Serialize, R: serde::de::DeserializeOwned>(
@@ -51,51 +125,70 @@ impl BitcoinRpcPrecompile {
         endpoint: &str,
         payload: &T,
     ) -> Result<R, PrecompileErrors> {
-        let url = format!("{}/{}", self.enclave_client_url, endpoint);
-
-        self.enclave_client
-            .post(&url)
-            .json(payload)
-            .send()
-            .map_err(|e| {
-                PrecompileErrors::Error(PrecompileError::other(format!(
-                    "Enclave RPC call failed: {:?}",
-                    e
-                )))
-            })?
-            .json()
-            .map_err(|e| {
-                PrecompileErrors::Error(PrecompileError::other(format!(
-                    "Failed to parse enclave response: {:?}",
-                    e
-                )))
-            })
+        self.make_http_request(
+            &self.network_signing_url,
+            endpoint,
+            reqwest::Method::POST,
+            Some(payload),
+        )
     }
 
-    fn send_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
+    fn call_utxo_selection<T: serde::Serialize, R: serde::de::DeserializeOwned>(
+        &self,
+        endpoint: &str,
+        payload: &T,
+    ) -> Result<R, PrecompileErrors> {
+        self.make_http_request(
+            &self.network_utxo_url,
+            endpoint,
+            reqwest::Method::GET,
+            Some(payload),
+        )
+    }
+
+    fn call_btc_tx_queue(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
         let gas_used: u64 = (10_000 + input.len() * 3) as u64;
 
         if gas_used > gas_limit {
             return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
         }
 
+        // Deserialize to verify transaction format
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
             PrecompileErrors::Error(PrecompileError::other(
                 "Failed to deserialize Bitcoin transaction",
             ))
         })?;
 
-        let txid = self
-            .bitcoin_client
-            .read()
-            .send_raw_transaction(&tx)
-            .map_err(|_| {
-                PrecompileErrors::Error(PrecompileError::other(
-                    "Send raw transaction bitcoin rpc call failed",
-                ))
-            })?;
+        // Get txid for return value
+        let txid = tx.txid();
 
-        // Convert the Txid to raw bytes and reverse the byte order
+        // Queue transaction for broadcasting
+        let broadcast_request = serde_json::json!({
+            "raw_tx": hex::encode(input)
+        });
+
+        // Queue transaction for broadcasting
+        // TODO (@powvt): handle what about when the broadcast fails in the queue?
+        match self.make_http_request::<_, serde_json::Value>(
+            &self.btc_tx_queue_url,
+            "broadcast",
+            reqwest::Method::POST,
+            Some(&broadcast_request),
+        ) {
+            Ok(_) => {
+                info!(
+                    "Successfully queued transaction for broadcast, txid: {}",
+                    txid
+                );
+            }
+            Err(e) => {
+                error!("Failed to broadcast transaction: {}", e);
+                // Continue execution despite error
+            }
+        }
+
+        // Convert txid to bytes and return
         let mut txid_bytes: [u8; 32] = txid.to_raw_hash().to_byte_array();
         txid_bytes.reverse();
 
@@ -105,19 +198,7 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn get_block_count(&self) -> PrecompileResult {
-        let gas_used: u64 = 2_000_u64;
-
-        let block_count = self.bitcoin_client.read().get_block_count().map_err(|_| {
-            PrecompileErrors::Error(PrecompileError::other("Failed to get block count"))
-        })?;
-
-        Ok(PrecompileOutput::new(
-            gas_used,
-            reth::primitives::Bytes::from(block_count.to_be_bytes().to_vec()),
-        ))
-    }
-
+    /// TODO (@powvt): manually decode tx data, dont use node for this
     fn decode_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
         let gas_used: u64 = (4_000 + input.len() * 3) as u64;
 
@@ -133,7 +214,6 @@ impl BitcoinRpcPrecompile {
 
         let data = self
             .bitcoin_client
-            .read()
             .decode_raw_transaction(&tx)
             .map_err(|_| {
                 PrecompileErrors::Error(PrecompileError::other(
@@ -170,7 +250,6 @@ impl BitcoinRpcPrecompile {
         let mut spent = |outpoint: &OutPoint| -> Option<TxOut> {
             match self
                 .bitcoin_client
-                .read()
                 .get_raw_transaction(&outpoint.txid, None)
             {
                 Ok(prev_tx) => prev_tx
@@ -233,19 +312,35 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn create_and_sign_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
-        let gas_used: u64 = (5_000 + input.len() * 3) as u64;
-        if gas_used > gas_limit {
-            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
-        }
+    fn create_and_sign_raw_transaction(&self, input: &[u8]) -> PrecompileResult {
+        let gas_used: u64 = 25_000_u64;
 
         let decoded_input: DecodedInput = decode_input(input)?;
-        let utxos = parse_utxos(&decoded_input.utxos)?;
 
-        let total_input: u64 = utxos
-            .iter()
-            .map(|utxo| utxo["amount"].as_u64().unwrap())
-            .sum();
+        // Get bitcoin address for the signer
+        let bitcoin_address = self.derive_btc_address(&decoded_input.signer)?;
+
+        let endpoint = format!(
+            "select-utxos/block/{}/address/{}/amount/{}",
+            decoded_input.block_height, bitcoin_address, decoded_input.amount
+        );
+
+        // Call the UTXO selection service
+        let selected_utxos: UtxoSelectionResponse = self.call_utxo_selection(&endpoint, &())?;
+
+        let inputs: Vec<SignTxInputData> = selected_utxos
+            .selected_utxos
+            .into_iter()
+            .map(|utxo| SignTxInputData {
+                txid: utxo.txid,
+                vout: utxo.vout as u32,
+                amount: utxo.amount as u64,
+            })
+            .collect();
+
+        // Calculate total input amount
+        let total_input: u64 = inputs.iter().map(|input| input.amount).sum();
+
         let fee = 1000000; // TODO: Add dynamic fee estimation
 
         let mut outputs = vec![serde_json::json!({
@@ -265,7 +360,7 @@ impl BitcoinRpcPrecompile {
 
         let sign_request = serde_json::json!({
             "ethereum_address": decoded_input.signer,
-            "inputs": utxos,
+            "inputs": inputs,
             "outputs": outputs,
         });
 
@@ -275,6 +370,8 @@ impl BitcoinRpcPrecompile {
         let signed_tx_hex = sign_response["signed_tx"].as_str().ok_or_else(|| {
             PrecompileErrors::Error(PrecompileError::other("Missing signed_tx in response"))
         })?;
+
+        info!("Signed transaction: {}", signed_tx_hex);
 
         let signed_tx_bytes = hex::decode(signed_tx_hex).map_err(|e| {
             PrecompileErrors::Error(PrecompileError::Other(format!(
@@ -307,12 +404,11 @@ impl StatefulPrecompile for BitcoinRpcPrecompile {
         let method_selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
 
         match method_selector {
-            0x00000000 => self.send_raw_transaction(&input[4..], 100_000),
-            0x00000001 => self.get_block_count(),
+            0x00000001 => self.call_btc_tx_queue(&input[4..], 100_000),
             0x00000002 => self.decode_raw_transaction(&input[4..], 150_000),
             0x00000003 => self.check_signature(&input[4..], 100_000),
             0x00000004 => self.convert_address(&input[4..]),
-            0x00000005 => self.create_and_sign_raw_transaction(&input, 250_000),
+            0x00000005 => self.create_and_sign_raw_transaction(&input),
             _ => Err(PrecompileErrors::Error(PrecompileError::other(
                 "Unsupported Bitcoin RPC method",
             ))),

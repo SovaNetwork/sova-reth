@@ -6,21 +6,17 @@ pub struct DecodedInput {
     pub method_selector: Vec<u8>,
     pub signer: String,
     pub amount: u64,
+    pub block_height: u64,
     pub destination: String,
-    pub utxos: Vec<DynSolValue>,
 }
 
 pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileErrors> {
     let input_type = DynSolType::Tuple(vec![
-        DynSolType::FixedBytes(4),
-        DynSolType::Address,
-        DynSolType::Uint(64),
-        DynSolType::String,
-        DynSolType::Array(Box::new(DynSolType::Tuple(vec![
-            DynSolType::FixedBytes(32),
-            DynSolType::Uint(32),
-            DynSolType::Uint(64),
-        ]))),
+        DynSolType::FixedBytes(4), // method selector
+        DynSolType::Address,       // signer address
+        DynSolType::Uint(64),      // amount
+        DynSolType::Uint(64),      // block_height
+        DynSolType::String,        // destination
     ]);
 
     let decoded = input_type.abi_decode(input).map_err(|e| {
@@ -35,33 +31,14 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileErrors> {
             method_selector: extract_fixed_bytes(&values[0], 4)?,
             signer: extract_address(&values[1])?,
             amount: extract_uint(&values[2])?,
-            destination: extract_string(&values[3])?,
-            utxos: extract_array(&values[4])?,
+            block_height: extract_uint(&values[3])?,
+            destination: extract_string(&values[4])?,
         })
     } else {
         Err(PrecompileErrors::Error(PrecompileError::other(
             "Invalid input structure",
         )))
     }
-}
-
-pub fn parse_utxos(utxos: &[DynSolValue]) -> Result<Vec<serde_json::Value>, PrecompileErrors> {
-    utxos
-        .iter()
-        .map(|utxo| {
-            if let DynSolValue::Tuple(utxo_values) = utxo {
-                Ok(serde_json::json!({
-                    "txid": hex::encode(extract_fixed_bytes(&utxo_values[0], 32)?),
-                    "vout": extract_uint(&utxo_values[1])?,
-                    "amount": extract_uint(&utxo_values[2])?,
-                }))
-            } else {
-                Err(PrecompileErrors::Error(PrecompileError::other(
-                    "Invalid UTXO structure",
-                )))
-            }
-        })
-        .collect()
 }
 
 fn extract_fixed_bytes(value: &DynSolValue, size: usize) -> Result<Vec<u8>, PrecompileErrors> {
@@ -106,16 +83,6 @@ fn extract_string(value: &DynSolValue) -> Result<String, PrecompileErrors> {
     } else {
         Err(PrecompileErrors::Error(PrecompileError::other(
             "Invalid string",
-        )))
-    }
-}
-
-fn extract_array(value: &DynSolValue) -> Result<Vec<DynSolValue>, PrecompileErrors> {
-    if let DynSolValue::Array(arr) = value {
-        Ok(arr.clone())
-    } else {
-        Err(PrecompileErrors::Error(PrecompileError::other(
-            "Invalid array",
         )))
     }
 }

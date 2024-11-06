@@ -40,9 +40,13 @@ pub struct MyEvmConfig {
 
 impl MyEvmConfig {
     pub fn new(config: &CorsaConfig) -> Self {
-        let bitcoin_precompile =
-            BitcoinRpcPrecompile::new(config.bitcoin.as_ref(), config.enclave_url.clone())
-                .expect("Failed to create Bitcoin RPC precompile");
+        let bitcoin_precompile = BitcoinRpcPrecompile::new(
+            config.bitcoin.as_ref(),
+            config.network_signing_url.clone(),
+            config.network_utxo_url.clone(),
+            config.btc_tx_queue_url.clone(),
+        )
+        .expect("Failed to create Bitcoin RPC precompile");
         Self {
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
         }

@@ -21,9 +21,17 @@ pub struct Args {
     #[arg(long, default_value = "password")]
     pub btc_rpc_password: String,
 
-    /// CLI flag to indicate the corsa sequencer url
+    /// CLI flag to indicate the network signing service url
     #[arg(long, default_value = "http://127.0.0.1:5555")]
-    pub enclave_url: String,
+    pub network_signing_url: String,
+
+    /// CLI flag to indicate the network UTXO database url
+    #[arg(long, default_value = "http://127.0.0.1:5557")]
+    pub network_utxo_url: String,
+
+    /// CLI flag to indicate the bitcoin transaction queue url
+    #[arg(long, default_value = "http://127.0.0.1:5558")]
+    pub btc_tx_queue_url: String,
 }
 
 fn parse_network(s: &str) -> Result<Network, &'static str> {

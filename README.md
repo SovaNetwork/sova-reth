@@ -6,12 +6,11 @@ The new precompile is found at address 0x999 and accepts a bytes payload of data
 
 | Precompile Name | Address | Method Identifier (bytes) | Gas Cost | Gas Limit | Description |
 |-----------------|-----|---------------------------|----------|-----------|-------------|
-| sendrawtransaction | 0x999 | 0x00000000 | 10,000 + 3 * input.len() | 100,000 | Sends a raw Bitcoin transaction |
-| getblockcount | 0x999 | 0x00000001 | 2,000 | N/A | Retrieves the current block count |
-| decoderawtransaction | 0x999 | 0x00000002 | 4,000 + 3 * input.len() | 150,000 | Decodes a raw Bitcoin transaction |
-| verifysignature | 0x999 | 0x00000003 | 6,000 + 3 * input.len() | 100,000 | Verifies the signature of a Bitcoin transaction |
-| convertaddress | 0x999 |  0x00000004 | 3,000 | N/A | Converts the Corsa address to the corresponding BTC address |
-| sendbtc | 0x999 |  0x00000005 | 5,000 + 3 * input.len() | 250,000 | Using the Corsa network keys, sign a BTC transaction. The caller of this precompile specifies the recipient BTC address and amount to send in sats. This precompile will create a change transaction if the amount to send is less than the UTXO amount + gas fees.|
+| sendrawtransaction | 0x999 | 0x00000001 | 6,000 + 3 * input.len() | 450,000 | Broadcast a raw Bitcoin transaction. |
+| decoderawtransaction | 0x999 | 0x00000002 | 2,000 + 3 * input.len() | 150,000 | Decode a raw Bitcoin transaction. |
+| verifysignature | 0x999 | 0x00000003 | 4,000 + 3 * input.len() | 300,000 | Verifies the unlocking scripts in a signed transaction are able to spend the specified inputs. |
+| convertaddress | 0x999 |  0x00000004 | 3,000 | N/A | Converts a Corsa address to the corresponding BTC address using the network master key. |
+| createandsignrawtransaction | 0x999 |  0x00000005 | 25,000 | N/A | Using the Corsa network keys, create and sign a BTC transaction for a specific amount. The caller of this precompile specifies the recipient BTC address and amount to send in sats. |
 
 ## Testing
 
@@ -29,15 +28,7 @@ Examples for the specific bitcoin rpc call. Each example shows which data prefix
 > Note: `--data` is prefixed with 0x00000000. After the prefix is the raw signed btc transaction.
 ```sh
 cast call 0x0000000000000000000000000000000000000999 \
---data 0x0000000002000000000101b161898f2ef6bd36e1cee4b9d68c5a1937a5001306e81a0fc30e99b44e8f835a00000000000000000001c0aff629010000001600148267b14c9fc90545c5828cbb9d26e12a9ecb8c160247304402205709263844829d625759b202ecf8d85fc6a2c07f958555d5b32c98e9c8b33c8a02200a6132106329e8dcc9c54bc7444075a90f505909bffb63b65f93257cbe23c9040121025912be1b355b604d151f36348c91976c4cda0c3c9c7fcb4469cdf0213fa216e900000000 \
---rpc-url http://localhost:8545
-```
-
-### getblockcount
-> Note: using the `--data` flag is not necessary. Simply pass the method id. 
-```sh
-cast call 0x0000000000000000000000000000000000000999 \
-0x00000001 \
+--data 0x0000000102000000000101b161898f2ef6bd36e1cee4b9d68c5a1937a5001306e81a0fc30e99b44e8f835a00000000000000000001c0aff629010000001600148267b14c9fc90545c5828cbb9d26e12a9ecb8c160247304402205709263844829d625759b202ecf8d85fc6a2c07f958555d5b32c98e9c8b33c8a02200a6132106329e8dcc9c54bc7444075a90f505909bffb63b65f93257cbe23c9040121025912be1b355b604d151f36348c91976c4cda0c3c9c7fcb4469cdf0213fa216e900000000 \
 --rpc-url http://localhost:8545
 ```
 
@@ -65,8 +56,8 @@ cast call 0x0000000000000000000000000000000000000999 \
 --rpc-url http://localhost:8545
 ```
 
-### sendbtc
-> Note: `--data` is prefixed with 0x00000005. After the prefix is the corsa address of signer, the bitcoin address of the reciever, and the amount to send.
+### createandsignrawtransaction
+> Note: `--data` is prefixed with 0x00000005. After the prefix is the corsa address of signer, the bitcoin address of the receiver, and the amount to send.
 ```sh
 cast call 0x0000000000000000000000000000000000000999 \
 --data 0x00000005 \
@@ -74,10 +65,6 @@ cast call 0x0000000000000000000000000000000000000999 \
 ```
 
 ## TODO
-### Make corsa-reth an L2 using the Optimism flags provided by reth.
-- [ ] Reconfigure the main.rs file to work with the op-stack.
-
-### Expand to multi node testing env
+- [ ] Reconfigure the main.rs file to work in a multinode environment with a consensus client.
 - [ ] The current `main.rs` file sets the NodeBuilder handle config to 'dev mode'. This means that blocks are automatically mined when a transaction is sent to the node. This should be removed when the chain is used in a multi node env.
-- [ ] Bitcoin RPC calls need to be tweaked such that blocks can be canonicalized by other node without having to repeat bitcoin rpc calls made by the block builder.
-    - Does the Sequencer make all these bitcoin rpc calls? Just write calls?
+- [ ] Does the reth-node need a Bitcoin client attached?
