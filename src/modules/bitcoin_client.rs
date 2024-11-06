@@ -24,14 +24,6 @@ impl BitcoinClientWrapper {
         Ok(Self { client })
     }
 
-    pub fn send_raw_transaction(&self, tx: &Transaction) -> Result<Txid, bitcoincore_rpc::Error> {
-        self.client.send_raw_transaction(tx)
-    }
-
-    pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
-        self.client.get_block_count()
-    }
-
     pub fn decode_raw_transaction(
         &self,
         tx: &Transaction,
@@ -46,6 +38,4 @@ impl BitcoinClientWrapper {
     ) -> Result<Transaction, bitcoincore_rpc::Error> {
         self.client.get_raw_transaction(txid, block_hash)
     }
-
-    // Add more methods as needed...
 }

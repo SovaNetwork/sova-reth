@@ -16,7 +16,9 @@ pub struct BitcoinConfig {
 #[derive(Clone)]
 pub struct CorsaConfig {
     pub bitcoin: Arc<BitcoinConfig>,
-    pub enclave_url: String,
+    pub network_signing_url: String,
+    pub network_utxo_url: String,
+    pub btc_tx_queue_url: String,
 }
 
 impl CorsaConfig {
@@ -30,7 +32,9 @@ impl CorsaConfig {
 
         CorsaConfig {
             bitcoin: Arc::new(bitcoin_config),
-            enclave_url: args.enclave_url.clone(),
+            network_signing_url: args.network_signing_url.clone(),
+            network_utxo_url: args.network_utxo_url.clone(),
+            btc_tx_queue_url: args.btc_tx_queue_url.clone(),
         }
     }
 }
