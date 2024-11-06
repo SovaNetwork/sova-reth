@@ -24,6 +24,7 @@ use super::{
 };
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct UtxoSelectionResponse {
     block_height: i32,
     address: String,
@@ -33,6 +34,7 @@ struct UtxoSelectionResponse {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct UtxoUpdate {
     id: String,
     address: String,
@@ -408,7 +410,7 @@ impl StatefulPrecompile for BitcoinRpcPrecompile {
             0x00000002 => self.decode_raw_transaction(&input[4..], 150_000),
             0x00000003 => self.check_signature(&input[4..], 100_000),
             0x00000004 => self.convert_address(&input[4..]),
-            0x00000005 => self.create_and_sign_raw_transaction(&input),
+            0x00000005 => self.create_and_sign_raw_transaction(input),
             _ => Err(PrecompileErrors::Error(PrecompileError::other(
                 "Unsupported Bitcoin RPC method",
             ))),
