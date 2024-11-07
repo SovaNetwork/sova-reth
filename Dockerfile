@@ -49,4 +49,11 @@ EXPOSE 8545
 ENTRYPOINT ["/bin/sh", "-c"]
 
 # Set the default command
-CMD ["corsa-reth --btc-network $BTC_NETWORK --network-url $BTC_RPC_URL --btc-rpc-username $BTC_RPC_USER --btc-rpc-password $BTC_RPC_PASSWORD"]
+CMD ["corsa-reth \
+    --btc-network $BTC_NETWORK \
+    --network-url $BTC_RPC_URL \
+    --btc-rpc-username $BTC_RPC_USER \
+    --btc-rpc-password $BTC_RPC_PASSWORD \
+    --network-signing-url $NETWORK_SIGNING_URL \
+    --network-utxo-url $NETWORK_UTXO_URL \
+    --btc-tx-queue-url $BTX_TX_QUEUE_URL"]

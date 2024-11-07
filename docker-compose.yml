@@ -5,14 +5,14 @@ services:
       -regtest=1
       -rpcallowip=0.0.0.0/0
       -rpcbind=0.0.0.0
-      -rpcuser=rpcuser
-      -rpcpassword=rpcpassword
+      -rpcuser=user
+      -rpcpassword=password
     ports:
       - "18443:18443"
     networks:
       - corsa_network
     healthcheck:
-      test: ["CMD", "bitcoin-cli", "-regtest", "-rpcuser=rpcuser", "-rpcpassword=rpcpassword", "getblockchaininfo"]
+      test: ["CMD", "bitcoin-cli", "-regtest", "-rpcuser=user", "-rpcpassword=password", "getblockchaininfo"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,8 +24,11 @@ services:
     environment:
       - BTC_NETWORK=regtest
       - BTC_RPC_URL=http://bitcoin
-      - BTC_RPC_USER=rpcuser
-      - BTC_RPC_PASSWORD=rpcpassword
+      - BTC_RPC_USER=user
+      - BTC_RPC_PASSWORD=password
+      - NETWORK_SIGNING_URL=http://corsa-enclave:5555
+      - NETWORK_UTXO_URL=http://hyperstate-utxos:5557
+      - BTX_TX_QUEUE_URL=http://bitcoin-tx-queue:5558
     ports:
       - "8545:8545"
     networks:
