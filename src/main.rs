@@ -174,19 +174,21 @@ where
 }
 
 fn main() {
-    Cli::<Args>::parse().run(|builder, corsa_args| async move {
-        let handle = builder
-            // use the default ethereum node types
-            .with_types::<EthereumNode>()
-            // Configure the components of the node
-            // use default ethereum components except for the executor
-            .with_components(
-                EthereumNode::components().executor(MyExecutorBuilder::new(CorsaConfig::new(&corsa_args).clone())),
-            )
-            .with_add_ons::<EthereumAddOns>()
-            .launch()
-            .await?;
+    Cli::<Args>::parse()
+        .run(|builder, corsa_args| async move {
+            let handle = builder
+                // use the default ethereum node types
+                .with_types::<EthereumNode>()
+                // Configure the components of the node
+                // use default ethereum components except for the executor
+                .with_components(EthereumNode::components().executor(MyExecutorBuilder::new(
+                    CorsaConfig::new(&corsa_args).clone(),
+                )))
+                .with_add_ons::<EthereumAddOns>()
+                .launch()
+                .await?;
 
             handle.wait_for_node_exit().await
-    }).unwrap();
+        })
+        .unwrap();
 }
