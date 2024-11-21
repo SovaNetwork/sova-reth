@@ -8,3 +8,6 @@ target/
 
 # VSCode
 .vscode
+
+/data
+/data-2

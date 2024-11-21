@@ -1975,7 +1975,7 @@ dependencies = [
 
 [[package]]
 name = "corsa-reth"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "alloy-dyn-abi 0.8.7",
  "alloy-primitives 0.8.7",

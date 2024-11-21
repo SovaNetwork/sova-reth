@@ -4,7 +4,8 @@ use clap::Parser;
 use parking_lot::RwLock;
 
 use reth::{
-    builder::{components::ExecutorBuilder, BuilderContext, NodeBuilder},
+    builder::{components::ExecutorBuilder, BuilderContext},
+    cli::Cli,
     primitives::{address, revm_primitives::Env, Bytes},
     revm::{
         handler::register::EvmHandler,
@@ -12,25 +13,22 @@ use reth::{
         precompile::{Precompile, PrecompileSpecId},
         ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
     },
-    tasks::TaskManager,
 };
 use reth_chainspec::{ChainSpec, Head};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{ConfigureEvm, ConfigureEvmEnv, FullNodeTypes};
-use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
 use reth_node_ethereum::{node::EthereumAddOns, EthExecutorProvider, EthereumNode};
 use reth_primitives::{
     revm_primitives::{AnalysisKind, CfgEnvWithHandlerCfg, TxEnv},
     Address, Header, TransactionSigned, U256,
 };
-use reth_tracing::{tracing::info, RethTracer, Tracer};
 
 mod cli;
 mod config;
 mod modules;
 
 use cli::Args;
-use config::{custom_chain, CorsaConfig};
+use config::CorsaConfig;
 use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 
 #[derive(Clone)]
@@ -175,37 +173,20 @@ where
     }
 }
 
-#[tokio::main]
-async fn main() -> eyre::Result<()> {
-    let _guard = RethTracer::new().init()?;
+fn main() {
+    Cli::<Args>::parse().run(|builder, corsa_args| async move {
+        let handle = builder
+            // use the default ethereum node types
+            .with_types::<EthereumNode>()
+            // Configure the components of the node
+            // use default ethereum components except for the executor
+            .with_components(
+                EthereumNode::components().executor(MyExecutorBuilder::new(CorsaConfig::new(&corsa_args).clone())),
+            )
+            .with_add_ons::<EthereumAddOns>()
+            .launch()
+            .await?;
 
-    let tasks = TaskManager::current();
-
-    let args = Args::parse();
-    let app_config = CorsaConfig::new(&args);
-
-    let node_config = NodeConfig::test()
-        .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
-        .with_rpc(RpcServerArgs {
-            http: true,
-            http_addr: "0.0.0.0".parse().expect("Invalid IP address"), // listen on all available network interfaces
-            http_port: 8545,
-            ..RpcServerArgs::default()
-        })
-        .with_chain(custom_chain());
-
-    let handle = NodeBuilder::new(node_config)
-        .testing_node(tasks.executor())
-        .with_types::<EthereumNode>()
-        .with_components(
-            EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
-        )
-        .with_add_ons::<EthereumAddOns>()
-        .launch()
-        .await
-        .unwrap();
-
-    info!("Corsa EVM node started");
-
-    handle.node_exit_future.await
+            handle.wait_for_node_exit().await
+    }).unwrap();
 }
