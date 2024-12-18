@@ -1,4 +1,4 @@
-use reth_primitives::revm_primitives::PrecompileError;
+use reth::revm::precompile::PrecompileError;
 
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{sol, SolValue};

@@ -1,28 +1,32 @@
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use clap::Parser;
 use parking_lot::RwLock;
 
+use alloy_consensus::Header;
+use alloy_primitives::{address, Address, Bytes, U256};
+
 use reth::{
     builder::{components::ExecutorBuilder, BuilderContext, NodeBuilder},
-    primitives::{address, revm_primitives::Env, Bytes},
     revm::{
         handler::register::EvmHandler,
         inspector_handle_register,
         precompile::{Precompile, PrecompileSpecId},
+        primitives::{BlockEnv, CfgEnvWithHandlerCfg, Env, TxEnv},
         ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
     },
     tasks::TaskManager,
 };
-use reth_chainspec::{ChainSpec, Head};
+use reth_chainspec::ChainSpec;
 use reth_evm_ethereum::EthEvmConfig;
-use reth_node_api::{ConfigureEvm, ConfigureEvmEnv, FullNodeTypes};
-use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
-use reth_node_ethereum::{node::EthereumAddOns, EthExecutorProvider, EthereumNode};
-use reth_primitives::{
-    revm_primitives::{AnalysisKind, CfgEnvWithHandlerCfg, TxEnv},
-    Address, Header, TransactionSigned, U256,
+use reth_node_api::{
+    ConfigureEvm, ConfigureEvmEnv, FullNodeTypes, NextBlockEnvAttributes, NodeTypes,
 };
+use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
+use reth_node_ethereum::{
+    node::EthereumAddOns, BasicBlockExecutorProvider, EthExecutionStrategyFactory, EthereumNode,
+};
+use reth_primitives::{EthPrimitives, TransactionSigned};
 use reth_tracing::{tracing::info, RethTracer, Tracer};
 
 mod cli;
@@ -35,11 +39,14 @@ use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 
 #[derive(Clone)]
 pub struct MyEvmConfig {
+    /// Wrapper around mainnet configuration
+    inner: EthEvmConfig,
+    /// Bitcoin RPC precompile
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
 }
 
 impl MyEvmConfig {
-    pub fn new(config: &CorsaConfig) -> Self {
+    pub fn new(config: &CorsaConfig, chain_spec: Arc<ChainSpec>) -> Self {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
             config.bitcoin.as_ref(),
             config.network_signing_url.clone(),
@@ -48,10 +55,17 @@ impl MyEvmConfig {
         )
         .expect("Failed to create Bitcoin RPC precompile");
         Self {
+            inner: EthEvmConfig::new(chain_spec),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
         }
     }
 
+    /// Sets the precompiles to the EVM handler
+    ///
+    /// This will be invoked when the EVM is created via [ConfigureEvm::evm] or
+    /// [ConfigureEvm::evm_with_inspector]
+    ///
+    /// This will use the default mainnet precompiles and add additional precompiles.
     pub fn set_precompiles<EXT, DB>(
         handler: &mut EvmHandler<EXT, DB>,
         bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
@@ -74,32 +88,13 @@ impl MyEvmConfig {
 }
 
 impl ConfigureEvmEnv for MyEvmConfig {
-    fn fill_cfg_env(
-        &self,
-        cfg_env: &mut CfgEnvWithHandlerCfg,
-        chain_spec: &ChainSpec,
-        header: &Header,
-        total_difficulty: U256,
-    ) {
-        let spec_id = reth_evm_ethereum::revm_spec(
-            chain_spec,
-            &Head {
-                number: header.number,
-                timestamp: header.timestamp,
-                difficulty: header.difficulty,
-                total_difficulty,
-                hash: Default::default(),
-            },
-        );
+    type Header = Header;
+    type Transaction = TransactionSigned;
 
-        cfg_env.chain_id = chain_spec.chain().id();
-        cfg_env.perf_analyse_created_bytecodes = AnalysisKind::Analyse;
-
-        cfg_env.handler_cfg.spec_id = spec_id;
-    }
+    type Error = Infallible;
 
     fn fill_tx_env(&self, tx_env: &mut TxEnv, transaction: &TransactionSigned, sender: Address) {
-        EthEvmConfig::default().fill_tx_env(tx_env, transaction, sender)
+        self.inner.fill_tx_env(tx_env, transaction, sender);
     }
 
     fn fill_tx_env_system_contract_call(
@@ -109,7 +104,25 @@ impl ConfigureEvmEnv for MyEvmConfig {
         contract: Address,
         data: Bytes,
     ) {
-        EthEvmConfig::default().fill_tx_env_system_contract_call(env, caller, contract, data)
+        self.inner
+            .fill_tx_env_system_contract_call(env, caller, contract, data);
+    }
+
+    fn fill_cfg_env(
+        &self,
+        cfg_env: &mut CfgEnvWithHandlerCfg,
+        header: &Self::Header,
+        total_difficulty: U256,
+    ) {
+        self.inner.fill_cfg_env(cfg_env, header, total_difficulty);
+    }
+
+    fn next_cfg_and_block_env(
+        &self,
+        parent: &Self::Header,
+        attributes: NextBlockEnvAttributes,
+    ) -> Result<(CfgEnvWithHandlerCfg, BlockEnv), Self::Error> {
+        self.inner.next_cfg_and_block_env(parent, attributes)
     }
 }
 
@@ -119,7 +132,7 @@ impl ConfigureEvm for MyEvmConfig {
     fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
         EvmBuilder::default()
             .with_db(db)
-            // add additional precompiles
+            // add BTC precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
@@ -158,19 +171,22 @@ impl MyExecutorBuilder {
 
 impl<Node> ExecutorBuilder<Node> for MyExecutorBuilder
 where
-    Node: FullNodeTypes,
+    Node: FullNodeTypes<Types: NodeTypes<ChainSpec = ChainSpec, Primitives = EthPrimitives>>,
 {
     type EVM = MyEvmConfig;
-    type Executor = EthExecutorProvider<Self::EVM>;
+    type Executor = BasicBlockExecutorProvider<EthExecutionStrategyFactory<Self::EVM>>;
 
     async fn build_evm(
         self,
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        let evm_config = MyEvmConfig::new(&self.config);
+        let evm_config = MyEvmConfig::new(&self.config, ctx.chain_spec());
         Ok((
             evm_config.clone(),
-            EthExecutorProvider::new(ctx.chain_spec(), evm_config),
+            BasicBlockExecutorProvider::new(EthExecutionStrategyFactory::new(
+                ctx.chain_spec(),
+                evm_config,
+            )),
         ))
     }
 }
@@ -184,6 +200,8 @@ async fn main() -> eyre::Result<()> {
     let args = Args::parse();
     let app_config = CorsaConfig::new(&args);
 
+    let chain_spec = ChainSpec::builder().genesis(custom_chain()).build();
+
     let node_config = NodeConfig::test()
         .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
         .with_rpc(RpcServerArgs {
@@ -192,7 +210,7 @@ async fn main() -> eyre::Result<()> {
             http_port: 8545,
             ..RpcServerArgs::default()
         })
-        .with_chain(custom_chain());
+        .with_chain(chain_spec);
 
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())
@@ -200,7 +218,7 @@ async fn main() -> eyre::Result<()> {
         .with_components(
             EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
         )
-        .with_add_ons::<EthereumAddOns>()
+        .with_add_ons(EthereumAddOns::default())
         .launch()
         .await
         .unwrap();

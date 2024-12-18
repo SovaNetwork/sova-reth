@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use reth::primitives::Genesis;
-use reth_chainspec::ChainSpec;
+use alloy_genesis::Genesis;
 
 use bitcoin::Network;
 
@@ -40,7 +39,7 @@ impl CorsaConfig {
 }
 
 /// Genesis data for the testnet
-pub fn custom_chain() -> Arc<ChainSpec> {
+pub fn custom_chain() -> Genesis {
     let custom_genesis = r#"
     {
         "nonce": "0x42",
@@ -78,6 +77,6 @@ pub fn custom_chain() -> Arc<ChainSpec> {
         }
     }
     "#;
-    let genesis: Genesis = serde_json::from_str(custom_genesis).unwrap();
-    Arc::new(genesis.into())
+
+    serde_json::from_str(custom_genesis).unwrap()
 }
