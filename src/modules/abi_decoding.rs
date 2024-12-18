@@ -1,5 +1,5 @@
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use reth_primitives::revm_primitives::{PrecompileError, PrecompileErrors};
+use reth::revm::precompile::{PrecompileError, PrecompileErrors};
 
 pub struct DecodedInput {
     #[allow(dead_code)]
