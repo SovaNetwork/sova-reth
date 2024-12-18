@@ -1,5 +1,5 @@
 # Use Rust 1.80.0
-FROM rust:1.80.0-bullseye as builder
+FROM rust:1.83.0-bullseye as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
