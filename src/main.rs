@@ -7,7 +7,14 @@ use alloy_consensus::Header;
 use alloy_primitives::{address, Address, Bytes, U256};
 
 use reth::{
-    builder::{components::ExecutorBuilder, BuilderContext, NodeBuilder},
+    builder::{
+        components::ExecutorBuilder,
+        engine_tree_config::{
+            TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
+        },
+        BuilderContext, EngineNodeLauncher, NodeBuilder,
+    },
+    providers::providers::BlockchainProvider2,
     revm::{
         handler::register::EvmHandler,
         inspector_handle_register,
@@ -200,8 +207,6 @@ async fn main() -> eyre::Result<()> {
     let args = Args::parse();
     let app_config = CorsaConfig::new(&args);
 
-    let chain_spec = ChainSpec::builder().genesis(custom_chain()).build();
-
     let node_config = NodeConfig::test()
         .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
         .with_rpc(RpcServerArgs {
@@ -210,16 +215,31 @@ async fn main() -> eyre::Result<()> {
             http_port: 8545,
             ..RpcServerArgs::default()
         })
-        .with_chain(chain_spec);
+        .with_chain(custom_chain());
+
+    // NOTE(powvt): remove this when cli runner is added
+    // https://github.com/paradigmxyz/reth/issues/13438#issuecomment-2554490575
+    let engine_tree_config = TreeConfig::default()
+        .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
+        .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET);
 
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())
-        .with_types::<EthereumNode>()
+        // NOTE(powvt): remove this when cli runner is added
+        .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
         .with_components(
             EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
         )
         .with_add_ons(EthereumAddOns::default())
-        .launch()
+        // NOTE(powvt): remove this when cli runner is added
+        .launch_with_fn(|builder| {
+            let launcher = EngineNodeLauncher::new(
+                tasks.executor().clone(),
+                builder.config().datadir(),
+                engine_tree_config,
+            );
+            builder.launch_with(launcher)
+        })
         .await
         .unwrap();
 
