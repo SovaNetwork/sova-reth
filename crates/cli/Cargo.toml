@@ -1,0 +1,31 @@
+[package]
+name = "corsa-reth-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+corsa-reth-chainspec.workspace = true
+
+reth-chainspec.workspace = true
+reth-cli.workspace = true
+reth-cli-commands.workspace = true
+reth-cli-runner.workspace = true
+reth-db = { workspace = true, features = ["mdbx"] }
+reth-ethereum-forks.workspace = true
+reth-network-peers.workspace = true
+reth-node-builder.workspace = true
+reth-node-core.workspace = true
+reth-node-metrics.workspace = true
+reth-tracing.workspace = true
+
+alloy-chains.workspace = true
+alloy-consensus.workspace = true
+alloy-genesis.workspace = true
+alloy-primitives.workspace = true
+
+bitcoin.workspace = true
+clap.workspace = true
+derive_more.workspace = true
+eyre.workspace = true
+tracing.workspace = true

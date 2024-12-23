@@ -1,6 +1,8 @@
 use std::{convert::Infallible, sync::Arc};
 
 use clap::Parser;
+
+use corsa_reth_cli::args::CorsaArgs;
 use parking_lot::RwLock;
 
 use alloy_consensus::Header;
@@ -13,18 +15,16 @@ use reth::{
             TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
         },
         BuilderContext, EngineNodeLauncher, NodeBuilder,
-    },
-    providers::providers::BlockchainProvider2,
-    revm::{
+    }, chainspec::EthereumChainSpecParser, providers::providers::BlockchainProvider2, revm::{
         handler::register::EvmHandler,
         inspector_handle_register,
         precompile::{Precompile, PrecompileSpecId},
         primitives::{BlockEnv, CfgEnvWithHandlerCfg, Env, TxEnv},
         ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
-    },
-    tasks::TaskManager,
+    }, tasks::TaskManager
 };
 use reth_chainspec::ChainSpec;
+use reth::cli::Cli;
 use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{
     ConfigureEvm, ConfigureEvmEnv, FullNodeTypes, NextBlockEnvAttributes, NodeTypes,
@@ -36,11 +36,9 @@ use reth_node_ethereum::{
 use reth_primitives::{EthPrimitives, TransactionSigned};
 use reth_tracing::{tracing::info, RethTracer, Tracer};
 
-mod cli;
 mod config;
 mod modules;
 
-use cli::Args;
 use config::{custom_chain, CorsaConfig};
 use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 
@@ -198,52 +196,98 @@ where
     }
 }
 
-#[tokio::main]
-async fn main() -> eyre::Result<()> {
-    let _guard = RethTracer::new().init()?;
+/*
+ NOTE(powvt): IMPORTANT MESSAGE ON THE STATE OF BRANCH DEVELOPMENT!!
+ 
+ THERE ARE A LOT OF EXTRA FILES THAT ARE UNUSED IN THIS BRANCH.
 
-    let tasks = TaskManager::current();
+ REMOVE AND CACHE ALL UNNECESSARY FILES FROM THIS BRANCH BEFORE MERGING!!
 
-    let args = Args::parse();
-    let app_config = CorsaConfig::new(&args);
+*/
+fn main() {
+    reth_cli_util::sigsegv_handler::install();
 
-    let node_config = NodeConfig::test()
-        .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
-        .with_rpc(RpcServerArgs {
-            http: true,
-            http_addr: "0.0.0.0".parse().expect("Invalid IP address"), // listen on all available network interfaces
-            http_port: 8545,
-            ..RpcServerArgs::default()
+    // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
+    if std::env::var_os("RUST_BACKTRACE").is_none() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
+
+    if let Err(err) =
+        Cli::<EthereumChainSpecParser, CorsaArgs>::parse().run(|builder, corsa_args| async move {
+            let engine_tree_config = TreeConfig::default()
+                .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
+                .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET);
+            
+            let handle = builder
+                // use the default ethereum node types
+                .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
+                // Configure the components of the node
+                // use default ethereum components except for the executor
+                .with_components(EthereumNode::components().executor(MyExecutorBuilder::new(
+                    CorsaConfig::new(&corsa_args).clone(),
+                )))
+                .with_add_ons(EthereumAddOns::default())
+                .launch_with_fn(|builder| {
+                    let launcher = EngineNodeLauncher::new(
+                        builder.task_executor().clone(),
+                        builder.config().datadir(),
+                        engine_tree_config,
+                    );
+                    builder.launch_with(launcher)
+                })
+                .await?;
+
+            handle.wait_for_node_exit().await
         })
-        .with_chain(custom_chain());
+    {
+        eprintln!("Error: {err:?}");
+        std::process::exit(1);
+    }
 
-    // NOTE(powvt): remove this when cli runner is added
-    // https://github.com/paradigmxyz/reth/issues/13438#issuecomment-2554490575
-    let engine_tree_config = TreeConfig::default()
-        .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
-        .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET);
+    // let _guard = RethTracer::new().init()?;
 
-    let handle = NodeBuilder::new(node_config)
-        .testing_node(tasks.executor())
-        // NOTE(powvt): remove this when cli runner is added
-        .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
-        .with_components(
-            EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
-        )
-        .with_add_ons(EthereumAddOns::default())
-        // NOTE(powvt): remove this when cli runner is added
-        .launch_with_fn(|builder| {
-            let launcher = EngineNodeLauncher::new(
-                tasks.executor().clone(),
-                builder.config().datadir(),
-                engine_tree_config,
-            );
-            builder.launch_with(launcher)
-        })
-        .await
-        .unwrap();
+    // let tasks = TaskManager::current();
 
-    info!("Corsa EVM node started");
+    // let args = CorsaArgs::parse();
+    // let app_config = CorsaConfig::new(&args);
 
-    handle.node_exit_future.await
+    // let node_config = NodeConfig::test()
+    //     .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
+    //     .with_rpc(RpcServerArgs {
+    //         http: true,
+    //         http_addr: "0.0.0.0".parse().expect("Invalid IP address"), // listen on all available network interfaces
+    //         http_port: 8545,
+    //         ..RpcServerArgs::default()
+    //     })
+    //     .with_chain(custom_chain());
+
+    // // NOTE(powvt): remove this when cli runner is added
+    // // https://github.com/paradigmxyz/reth/issues/13438#issuecomment-2554490575
+    // let engine_tree_config = TreeConfig::default()
+    //     .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
+    //     .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET);
+
+    // let handle = NodeBuilder::new(node_config)
+    //     .testing_node(tasks.executor())
+    //     // NOTE(powvt): remove this when cli runner is added
+    //     .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
+    //     .with_components(
+    //         EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
+    //     )
+    //     .with_add_ons(EthereumAddOns::default())
+    //     // NOTE(powvt): remove this when cli runner is added
+    //     .launch_with_fn(|builder| {
+    //         let launcher = EngineNodeLauncher::new(
+    //             tasks.executor().clone(),
+    //             builder.config().datadir(),
+    //             engine_tree_config,
+    //         );
+    //         builder.launch_with(launcher)
+    //     })
+    //     .await
+    //     .unwrap();
+
+    // info!("Corsa EVM node started");
+
+    // handle.node_exit_future.await
 }

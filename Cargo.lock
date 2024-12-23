@@ -1907,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "corsa-reth"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -1917,12 +1917,15 @@ dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
  "clap",
+ "corsa-reth-chainspec",
+ "corsa-reth-cli",
  "eyre",
  "hex",
  "parking_lot",
  "reqwest",
  "reth",
  "reth-chainspec",
+ "reth-cli-util",
  "reth-evm-ethereum",
  "reth-node-api",
  "reth-node-core",
@@ -1932,8 +1935,52 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "toml",
 ]
+
+[[package]]
+name = "corsa-reth-chainspec"
+version = "0.0.2"
+dependencies = [
+ "alloy-chains",
+ "alloy-consensus",
+ "alloy-genesis",
+ "alloy-primitives",
+ "derive_more",
+ "reth-chainspec",
+ "reth-ethereum-forks",
+ "serde_json",
+]
+
+[[package]]
+name = "corsa-reth-cli"
+version = "0.0.2"
+dependencies = [
+ "alloy-chains",
+ "alloy-consensus",
+ "alloy-genesis",
+ "alloy-primitives",
+ "bitcoin",
+ "clap",
+ "corsa-reth-chainspec",
+ "derive_more",
+ "eyre",
+ "reth-chainspec",
+ "reth-cli",
+ "reth-cli-commands",
+ "reth-cli-runner",
+ "reth-db",
+ "reth-ethereum-forks",
+ "reth-network-peers",
+ "reth-node-builder",
+ "reth-node-core",
+ "reth-node-metrics",
+ "reth-tracing",
+ "tracing",
+]
+
+[[package]]
+name = "corsa-reth-node"
+version = "0.0.2"
 
 [[package]]
 name = "cpufeatures"

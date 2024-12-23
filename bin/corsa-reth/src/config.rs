@@ -6,6 +6,8 @@ use alloy_genesis::Genesis;
 
 use bitcoin::Network;
 
+use corsa_reth_cli::args::CorsaArgs;
+
 #[derive(Clone)]
 pub struct BitcoinConfig {
     pub network: Network,
@@ -23,7 +25,7 @@ pub struct CorsaConfig {
 }
 
 impl CorsaConfig {
-    pub fn new(args: &crate::cli::Args) -> Self {
+    pub fn new(args: &CorsaArgs) -> Self {
         let bitcoin_config = BitcoinConfig {
             network: args.btc_network,
             network_url: args.network_url.clone(),
