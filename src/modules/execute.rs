@@ -247,21 +247,24 @@ where
         block: &BlockWithSenders,
         total_difficulty: U256,
     ) -> Result<ExecuteOutput<Receipt>, BlockExecutionError> {
-        let (storage_accesses, bitcoin_called) = self.inspector.take_access_list();
-        // TODO: Implement proper hash generation
-        let btc_tx_hash = B256::random();
-        self.handle_bitcoin_storage(btc_tx_hash, storage_accesses, bitcoin_called)?;
-
+        // Create the EVM environment for this block's execution
         let env = self.evm_env_for_block(&block.header, total_difficulty);
         let mut evm = self.evm_config.evm_with_env(&mut self.state, env);
 
+        // Track running total of gas used in this block
         let mut cumulative_gas_used = 0;
+        // Pre-allocate vector to store receipts for all transactions
         let mut receipts = Vec::with_capacity(block.body.transactions.len());
 
-        // Execute transactions
+        // Track storage operations that need to be processed
+        let mut pending_storage_operations: Vec<(B256, HashMap<Address, BTreeSet<StorageKey>>, bool)> = Vec::new();
+
+        // Execute each transaction in the block sequentially
         for (sender, transaction) in block.transactions_with_sender() {
+            // Configure the EVM for this specific transaction
             self.evm_config.fill_tx_env(evm.tx_mut(), transaction, *sender);
             
+            // Execute the transaction and get results
             let result_and_state = evm.transact().map_err(|err| {
                 BlockValidationError::EVM {
                     hash: transaction.hash(),
@@ -269,8 +272,20 @@ where
                 }
             })?;
 
+            // After transaction executes, check if it interacted with Bitcoin precompile
+            let (storage_accesses, bitcoin_called) = 
+                self.inspector.take_access_list();
+
+            // If Bitcoin precompile was called, lock affected storage slots
+            if bitcoin_called {
+                let btc_tx_hash = transaction.hash();
+                pending_storage_operations.push((btc_tx_hash, storage_accesses, true));
+            }
+
+            // Add this transaction's gas to running total
             cumulative_gas_used += result_and_state.result.gas_used();
             
+            // Create and store receipt for this transaction
             receipts.push(Receipt {
                 tx_type: transaction.tx_type(),
                 success: result_and_state.result.is_success(),
@@ -279,9 +294,19 @@ where
                 ..Default::default()
             });
 
+            // Commit state changes from this transaction
             evm.db_mut().commit(result_and_state.state);
         }
 
+        // Drop the EVM to release the mutable borrow of self.state
+        drop(evm);
+
+        // Process all the storage operations
+        for (btc_tx_hash, storage_accesses, bitcoin_called) in pending_storage_operations {
+            self.handle_bitcoin_storage(btc_tx_hash, storage_accesses, bitcoin_called)?;
+        }
+
+        // Return summary of all transaction executions
         Ok(ExecuteOutput { receipts, gas_used: cumulative_gas_used })
     }
 
@@ -365,7 +390,7 @@ where
             BitcoinExecutionStrategyFactory {
                 chain_spec: ctx.chain_spec(),
                 evm_config: evm_config.clone(),
-                storage_db: Arc::new(RwLock::new(UnconfirmedBtcStorageDb::default()))
+                storage_db: Arc::new(RwLock::new(UnconfirmedBtcStorageDb::new()))
             };
         let executor = BasicBlockExecutorProvider::new(strategy_factory);
 
