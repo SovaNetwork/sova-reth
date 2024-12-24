@@ -1,21 +1,24 @@
 [package]
 name = "corsa-reth"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 license = "MIT"
 
 [dependencies]
 reth = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
+reth-evm = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3", features = ["test-utils"] }
+reth-revm = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.3" }
 
 alloy-consensus = { version = "0.7.3", default-features = false }
 alloy-dyn-abi = "0.8.11"
+alloy-eips = { version = "0.7.3", default-features = false }
 alloy-genesis = { version = "0.7.3", default-features = false }
 alloy-primitives = { version = "0.8.11", default-features = false }
 alloy-sol-types = "0.8.11"

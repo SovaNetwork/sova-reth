@@ -1907,10 +1907,11 @@ dependencies = [
 
 [[package]]
 name = "corsa-reth"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
+ "alloy-eips",
  "alloy-genesis",
  "alloy-primitives",
  "alloy-sol-types",
@@ -1923,11 +1924,13 @@ dependencies = [
  "reqwest",
  "reth",
  "reth-chainspec",
+ "reth-evm",
  "reth-evm-ethereum",
  "reth-node-api",
  "reth-node-core",
  "reth-node-ethereum",
  "reth-primitives",
+ "reth-revm",
  "reth-tracing",
  "serde",
  "serde_json",
