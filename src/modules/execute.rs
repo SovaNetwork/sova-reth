@@ -18,8 +18,9 @@ use reth_primitives::{BlockWithSenders, EthPrimitives, Receipt, TransactionSigne
 use reth_node_api::{ConfigureEvm, ConfigureEvmEnv, FullNodeTypes, NextBlockEnvAttributes, NodeTypes};
 
 use alloy_primitives::{Address, Bytes, StorageKey, B256, U256};
-use alloy_consensus::Header;
+use alloy_consensus::{Header, Transaction};
 use alloy_eips::eip7685::Requests;
+use reth_revm::primitives::ResultAndState;
 
 use crate::{config::CorsaConfig, modules::btc_storage::{BitcoinStorageInspector, StorageSlotAddress, UnconfirmedBtcStorageDb}};
 use super::{bitcoin_precompile::BitcoinRpcPrecompile, constants::BITCOIN_PRECOMPILE_ADDRESS};
@@ -242,35 +243,52 @@ where
         Ok(())
     }
 
+    /// If a specfic tramsaction interacts with the precompile address, the btc transaction data is added to the lock.
+    ///
+    /// The precompile itself checks if there is a lock on that BTC data. If there is it reverts the precompile execution.
+    ///
+    /// The indexer is the only thing that can unlock BTC data.
     fn execute_transactions(
         &mut self,
         block: &BlockWithSenders,
         total_difficulty: U256,
-    ) -> Result<ExecuteOutput<Receipt>, BlockExecutionError> {
-        // Create the EVM environment for this block's execution
+    ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
         let env = self.evm_env_for_block(&block.header, total_difficulty);
         let mut evm = self.evm_config.evm_with_env(&mut self.state, env);
 
-        // Track running total of gas used in this block
         let mut cumulative_gas_used = 0;
-        // Pre-allocate vector to store receipts for all transactions
         let mut receipts = Vec::with_capacity(block.body.transactions.len());
 
-        // Track storage operations that need to be processed
+        // Track storage operations in this block
         let mut pending_storage_operations: Vec<(B256, HashMap<Address, BTreeSet<StorageKey>>, bool)> = Vec::new();
 
-        // Execute each transaction in the block sequentially
         for (sender, transaction) in block.transactions_with_sender() {
-            // Configure the EVM for this specific transaction
+            // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
+            // must be no greater than the block’s gasLimit.
+            let block_available_gas = block.header.gas_limit - cumulative_gas_used;
+            if transaction.gas_limit() > block_available_gas {
+                return Err(BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
+                    transaction_gas_limit: transaction.gas_limit(),
+                    block_available_gas,
+                }
+                .into())
+            }
+
             self.evm_config.fill_tx_env(evm.tx_mut(), transaction, *sender);
             
             // Execute the transaction and get results
             let result_and_state = evm.transact().map_err(|err| {
+                let new_err = err.map_db_err(|e| e.into());
+                // Ensure hash is calculated for error log, if not already done
                 BlockValidationError::EVM {
-                    hash: transaction.hash(),
-                    error: Box::new(EVMError::Custom(err.to_string())),
+                    hash: transaction.recalculate_hash(),
+                    error: Box::new(new_err),
                 }
             })?;
+            // TODO(powvt): how can `self.system_caller` be implemented? See the optimism execute.rs file
+            // self.system_caller.on_state(&result_and_state.state);
+            let ResultAndState { result, state } = result_and_state;
+            evm.db_mut().commit(state);
 
             // After transaction executes, check if it interacted with Bitcoin precompile
             let (storage_accesses, bitcoin_called) = 
@@ -282,20 +300,20 @@ where
                 pending_storage_operations.push((btc_tx_hash, storage_accesses, true));
             }
 
-            // Add this transaction's gas to running total
-            cumulative_gas_used += result_and_state.result.gas_used();
+            // append gas used
+            cumulative_gas_used += result.gas_used();
             
-            // Create and store receipt for this transaction
+            // Push transaction changeset and calculate header bloom filter for receipt.
             receipts.push(Receipt {
                 tx_type: transaction.tx_type(),
-                success: result_and_state.result.is_success(),
-                cumulative_gas_used,
-                logs: result_and_state.result.into_logs(),
-                ..Default::default()
+                    // Success flag was added in `EIP-658: Embedding transaction status code in
+                    // receipts`.
+                    success: result.is_success(),
+                    cumulative_gas_used,
+                    // convert to reth log
+                    logs: result.into_logs(),
+                    ..Default::default()
             });
-
-            // Commit state changes from this transaction
-            evm.db_mut().commit(result_and_state.state);
         }
 
         // Drop the EVM to release the mutable borrow of self.state
@@ -356,7 +374,7 @@ impl BlockExecutionStrategyFactory for BitcoinExecutionStrategyFactory {
             storage_db: self.storage_db.clone(),
             inspector: BitcoinStorageInspector::new(
                 BITCOIN_PRECOMPILE_ADDRESS,
-                vec![] // Add excluded addresses
+                vec![BITCOIN_PRECOMPILE_ADDRESS]
             ),
         }
     }

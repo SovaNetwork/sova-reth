@@ -109,6 +109,9 @@ impl BitcoinStorageInspector {
     }
 }
 
+/// Record all accessed accounts and storage slots at every transaction execution step.
+/// If there is a call to the precompile address, flag specific transaction.
+/// If flagged all accounts in that transaction that were touched are locked.
 impl<DB> Inspector<DB> for BitcoinStorageInspector
 where
     DB: Database,
@@ -138,6 +141,9 @@ where
                     // Check if this is a call to the Bitcoin precompile
                     if addr == self.bitcoin_precompile_address {
                         self.mark_bitcoin_precompile_call();
+
+                        println!("stack.data(): {:?}", interp.stack().data());
+                        println!("return_data_buffer: {:?}", interp.return_data_buffer);
                     }
                     
                     self.track_address_access(addr);
