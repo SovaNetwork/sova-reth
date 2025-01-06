@@ -43,7 +43,8 @@ async fn main() -> eyre::Result<()> {
         })
         .with_chain(custom_chain());
 
-    // NOTE(powvt): remove this when cli runner is added
+    // NOTE(powvt): remove this when cli runner is added,
+    // experimental will be defult after v1.1.4 and this code can be removed.
     // https://github.com/paradigmxyz/reth/issues/13438#issuecomment-2554490575
     let engine_tree_config = TreeConfig::default()
         .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)

@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
+use alloy_primitives::U256;
 use reth_chainspec::ChainSpec;
 
-use alloy_genesis::Genesis;
+use alloy_genesis::{Genesis, GenesisAccount};
 
 use bitcoin::Network;
+
+use crate::modules::constants::DEV_WHALE_ACCOUNT;
 
 #[derive(Clone)]
 pub struct BitcoinConfig {
@@ -47,15 +50,10 @@ pub fn custom_chain() -> Arc<ChainSpec> {
         "nonce": "0x42",
         "timestamp": "0x0",
         "extraData": "0x5343",
-        "gasLimit": "0x1388",
+        "gasLimit": "0x1c9c380",
         "difficulty": "0x400000000",
         "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "coinbase": "0x0000000000000000000000000000000000000000",
-        "alloc": {
-            "0x1a0Fe90f5Bf076533b2B74a21b3AaDf225CdDfF7": {
-                "balance": "0x52b7d2dcc80cd2e4000000"
-            }
-        },
         "number": "0x0",
         "gasUsed": "0x0",
         "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -81,5 +79,16 @@ pub fn custom_chain() -> Arc<ChainSpec> {
     "#;
 
     let genesis: Genesis = serde_json::from_str(custom_genesis).unwrap();
+
+    // TODO(powvt): remove after testnet
+    let genesis: Genesis = genesis.extend_accounts(
+        vec![(
+            DEV_WHALE_ACCOUNT,
+            GenesisAccount::default().with_balance(
+                U256::from(100_000_000).saturating_mul(U256::from(10).pow(U256::from(18)))
+            )
+        )]
+    );
+
     Arc::new(genesis.into())
 }
