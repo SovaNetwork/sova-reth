@@ -9,20 +9,23 @@ use bitcoin::Network;
 
 use crate::modules::constants::DEV_WHALE_ACCOUNT;
 
-#[derive(Clone)]
-pub struct BitcoinConfig {
-    pub network: Network,
-    pub network_url: String,
-    pub rpc_username: String,
-    pub rpc_password: String,
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CorsaConfig {
     pub bitcoin: Arc<BitcoinConfig>,
     pub network_signing_url: String,
     pub network_utxo_url: String,
     pub btc_tx_queue_url: String,
+}
+
+impl Default for CorsaConfig {
+    fn default() -> Self {
+        Self {
+            bitcoin: Arc::new(BitcoinConfig::default()),
+            network_signing_url: String::default(),
+            network_utxo_url: String::default(),
+            btc_tx_queue_url: String::default(),
+        }
+    }
 }
 
 impl CorsaConfig {
@@ -39,6 +42,25 @@ impl CorsaConfig {
             network_signing_url: args.network_signing_url.clone(),
             network_utxo_url: args.network_utxo_url.clone(),
             btc_tx_queue_url: args.btc_tx_queue_url.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BitcoinConfig {
+    pub network: Network,
+    pub network_url: String,
+    pub rpc_username: String,
+    pub rpc_password: String,
+}
+
+impl Default for BitcoinConfig {
+    fn default() -> Self {
+        Self {
+            network: Network::Regtest,
+            network_url: String::default(),
+            rpc_username: String::default(),
+            rpc_password: String::default(),
         }
     }
 }
