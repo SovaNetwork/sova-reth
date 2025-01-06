@@ -122,6 +122,7 @@ where
         _context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
+        info!("Call to address: {:?}", inputs.target_address);
         if inputs.target_address == self.bitcoin_precompile_address {
             info!("Bitcoin precompile call inputs: {:?}", inputs);
         }

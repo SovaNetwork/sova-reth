@@ -297,7 +297,6 @@ where
 
             info!("Storage accesses: {:?}, bitcoin_called: {}", storage_accesses, bitcoin_called);
 
-
             // If Bitcoin precompile was called, lock affected storage slots
             if bitcoin_called {
                 let btc_tx_hash = transaction.hash();
