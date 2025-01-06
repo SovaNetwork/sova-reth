@@ -1,7 +1,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use alloy_primitives::{Address, StorageKey, B256};
-use reth_revm::{interpreter::{opcode, Interpreter}, Database, EvmContext, Inspector};
+use reth_revm::{interpreter::{opcode, CallInputs, CallOutcome, Interpreter}, Database, EvmContext, Inspector};
+use reth_tracing::tracing::info;
 
 /// Maps storage slots to Bitcoin transaction hashes that locked them
 #[derive(Default)]
@@ -116,6 +117,29 @@ impl<DB> Inspector<DB> for BitcoinStorageInspector
 where
     DB: Database,
 {
+    fn call(
+        &mut self,
+        _context: &mut EvmContext<DB>,
+        inputs: &mut CallInputs,
+    ) -> Option<CallOutcome> {
+        if inputs.target_address == self.bitcoin_precompile_address {
+            info!("Bitcoin precompile call inputs: {:?}", inputs);
+        }
+        None
+    }
+
+    fn call_end(
+        &mut self,
+        _context: &mut EvmContext<DB>,
+        inputs: &CallInputs,
+        outcome: CallOutcome,
+    ) -> CallOutcome {
+        if inputs.target_address == self.bitcoin_precompile_address {
+            info!("Bitcoin precompile call result: {:?}", outcome);
+        }
+        outcome
+    }
+
     fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         match interp.current_opcode() {
             // Track storage operations
@@ -142,8 +166,8 @@ where
                     if addr == self.bitcoin_precompile_address {
                         self.mark_bitcoin_precompile_call();
 
-                        println!("stack.data(): {:?}", interp.stack().data());
-                        println!("return_data_buffer: {:?}", interp.return_data_buffer);
+                        info!("stack.data(): {:?}", interp.stack().data());
+                        info!("return_data_buffer: {:?}", interp.return_data_buffer);
                     }
                     
                     self.track_address_access(addr);
