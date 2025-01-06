@@ -21,6 +21,7 @@ use alloy_primitives::{Address, Bytes, StorageKey, B256, U256};
 use alloy_consensus::{Header, Transaction};
 use alloy_eips::eip7685::Requests;
 use reth_revm::primitives::ResultAndState;
+use reth_tracing::tracing::info;
 
 use crate::{config::CorsaConfig, modules::btc_storage::{BitcoinStorageInspector, StorageSlotAddress, UnconfirmedBtcStorageDb}};
 use super::{bitcoin_precompile::BitcoinRpcPrecompile, constants::BITCOIN_PRECOMPILE_ADDRESS};
@@ -293,6 +294,9 @@ where
             // After transaction executes, check if it interacted with Bitcoin precompile
             let (storage_accesses, bitcoin_called) = 
                 self.inspector.take_access_list();
+
+            info!("Storage accesses: {:?}, bitcoin_called: {}", storage_accesses, bitcoin_called);
+
 
             // If Bitcoin precompile was called, lock affected storage slots
             if bitcoin_called {
