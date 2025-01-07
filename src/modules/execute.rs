@@ -1,3 +1,8 @@
+/// Note - Database utilization:
+/// Inspector - checks if slots are locked (READ)
+/// Strategy - locks slots after successful txs (WRITE)
+/// Factory - shares the same storage instance between components
+
 use std::{collections::{BTreeSet, HashMap}, convert::Infallible, fmt::Display, sync::Arc};
 
 use parking_lot::RwLock;
@@ -175,31 +180,6 @@ where
         EnvWithHandlerCfg::new_with_cfg_env(cfg, block_env, Default::default())
     }
 
-    fn check_locked_slots(&mut self, block: &BlockWithSenders) -> Result<(), BlockExecutionError> {
-        let storage_db = self.storage_db.read();
-        
-        for transaction in block.body.transactions.iter() {
-            let (accessed_storage, _) = self.inspector.take_access_list();
-            for (address, slots) in &accessed_storage {
-                for slot in slots {
-                    let storage_addr = StorageSlotAddress::new(*address, *slot);
-                    if storage_db.is_slot_locked(&storage_addr) {
-                        return Err(BlockExecutionError::Validation(
-                            BlockValidationError::EVM {
-                                hash: transaction.hash(),
-                                error: Box::new(EVMError::Custom(
-                                    "Storage slot is locked by an unconfirmed Bitcoin transaction".into()
-                                ))
-                            }
-                        ));
-                    }
-                }
-            }
-        }
-        
-        Ok(())
-    }
-
     fn handle_bitcoin_storage(
         &self,
         btc_tx_hash: B256,
@@ -238,9 +218,6 @@ where
         let state_clear_flag = self.chain_spec.is_spurious_dragon_active_at_block(block.number);
         self.state.set_state_clear_flag(state_clear_flag);
 
-        // Check for locked slots before execution
-        self.check_locked_slots(block)?;
-
         Ok(())
     }
 
@@ -255,7 +232,7 @@ where
         total_difficulty: U256,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
         let env = self.evm_env_for_block(&block.header, total_difficulty);
-        let mut evm = self.evm_config.evm_with_env(&mut self.state, env);
+        let mut evm = self.evm_config.evm_with_env_and_inspector(&mut self.state, env, &mut self.inspector);
 
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body.transactions.len());
@@ -277,7 +254,7 @@ where
 
             self.evm_config.fill_tx_env(evm.tx_mut(), transaction, *sender);
             
-            // Execute the transaction and get results
+            // Execute the transaction, run the inspector, and get results
             let result_and_state = evm.transact().map_err(|err| {
                 let new_err = err.map_db_err(|e| e.into());
                 // Ensure hash is calculated for error log, if not already done
@@ -286,22 +263,26 @@ where
                     error: Box::new(new_err),
                 }
             })?;
-            // TODO(powvt): how can `self.system_caller` be implemented? See the optimism execute.rs file
-            // self.system_caller.on_state(&result_and_state.state);
-            let ResultAndState { result, state } = result_and_state;
-            evm.db_mut().commit(state);
-
             // After transaction executes, check if it interacted with Bitcoin precompile
-            let (storage_accesses, bitcoin_called) = 
-                self.inspector.take_access_list();
-
+            let storage_accesses = evm.context.external.accessed_storage.clone();
+            let bitcoin_called = evm.context.external.bitcoin_precompile_called;
             info!("Storage accesses: {:?}, bitcoin_called: {}", storage_accesses, bitcoin_called);
 
-            // If Bitcoin precompile was called, lock affected storage slots
+            // Clear inspector state
+            evm.context.external.accessed_storage.clear();
+            evm.context.external.bitcoin_precompile_called = false;
+            
+            // If Bitcoin precompile was called in this tx, lock affected storage slots
             if bitcoin_called {
                 let btc_tx_hash = transaction.hash();
                 pending_storage_operations.push((btc_tx_hash, storage_accesses, true));
             }
+
+            // TODO(powvt): how can `self.system_caller` be implemented? See the optimism execute.rs file
+            // self.system_caller.on_state(&result_and_state.state);
+            let ResultAndState { result, state } = result_and_state;
+
+            evm.db_mut().commit(state);
 
             // append gas used
             cumulative_gas_used += result.gas_used();
@@ -322,7 +303,7 @@ where
         // Drop the EVM to release the mutable borrow of self.state
         drop(evm);
 
-        // Process all the storage operations
+        // Add all locked slots to the locks slots db
         for (btc_tx_hash, storage_accesses, bitcoin_called) in pending_storage_operations {
             self.handle_bitcoin_storage(btc_tx_hash, storage_accesses, bitcoin_called)?;
         }
@@ -351,8 +332,13 @@ where
 
 #[derive(Clone)]
 pub struct BitcoinExecutionStrategyFactory {
+    /// Describes the properties of the chain
     chain_spec: Arc<ChainSpec>,
+    /// Config for EVM that includes Bitcoin precompile setup
     evm_config: BitcoinEvmConfig,
+    /// Shared storage database for tracking locked slots across transactions
+    /// READ: Used by the inspector to check if slots are locked
+    /// WRITE: Used by the strategy to lock slots after successful transactions
     storage_db: Arc<RwLock<UnconfirmedBtcStorageDb>>,
 }
 
@@ -377,24 +363,25 @@ impl BlockExecutionStrategyFactory for BitcoinExecutionStrategyFactory {
             storage_db: self.storage_db.clone(),
             inspector: BitcoinStorageInspector::new(
                 BITCOIN_PRECOMPILE_ADDRESS,
-                vec![BITCOIN_PRECOMPILE_ADDRESS]
+                vec![BITCOIN_PRECOMPILE_ADDRESS],
+                self.storage_db.clone(),
             ),
         }
     }
 }
 
 #[derive(Clone)]
-pub struct MyExecutorBuilder {
+pub struct CorsaExecutorBuilder {
     config: CorsaConfig,
 }
 
-impl MyExecutorBuilder {
+impl CorsaExecutorBuilder {
     pub fn new(config: CorsaConfig) -> Self {
         Self { config }
     }
 }
 
-impl<Node> ExecutorBuilder<Node> for MyExecutorBuilder
+impl<Node> ExecutorBuilder<Node> for CorsaExecutorBuilder
 where
     Node: FullNodeTypes<Types: NodeTypes<ChainSpec = ChainSpec, Primitives = EthPrimitives>>,
 {
@@ -405,13 +392,14 @@ where
         self,
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-
+        let storage_db = Arc::new(RwLock::new(UnconfirmedBtcStorageDb::new()));
         let evm_config = BitcoinEvmConfig::new(&self.config, ctx.chain_spec());
+        
         let strategy_factory =
             BitcoinExecutionStrategyFactory {
                 chain_spec: ctx.chain_spec(),
                 evm_config: evm_config.clone(),
-                storage_db: Arc::new(RwLock::new(UnconfirmedBtcStorageDb::new()))
+                storage_db
             };
         let executor = BasicBlockExecutorProvider::new(strategy_factory);
 

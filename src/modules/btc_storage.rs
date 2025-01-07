@@ -1,11 +1,12 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::{collections::{BTreeSet, HashMap, HashSet}, sync::Arc};
 
-use alloy_primitives::{Address, StorageKey, B256};
-use reth_revm::{interpreter::{opcode, CallInputs, CallOutcome, Interpreter}, Database, EvmContext, Inspector};
+use alloy_primitives::{Address, Bytes, StorageKey, B256};
+use parking_lot::RwLock;
+use reth_revm::{interpreter::{opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult}, Database, EvmContext, Inspector};
 use reth_tracing::tracing::info;
 
 /// Maps storage slots to Bitcoin transaction hashes that locked them
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct UnconfirmedBtcStorageDb {
     /// Maps storage slots to the Bitcoin transaction hash that locked them 
     locked_slots: HashMap<StorageSlotAddress, B256>,
@@ -50,26 +51,33 @@ impl StorageSlotAddress {
 }
 
 /// An Inspector that tracks storage access and Bitcoin precompile interactions
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BitcoinStorageInspector {
     /// Addresses that should be excluded from tracking (e.g., precompiles)
     excluded_addresses: HashSet<Address>,
     /// Maps addresses to their accessed storage slots
-    accessed_storage: HashMap<Address, BTreeSet<StorageKey>>,
+    pub accessed_storage: HashMap<Address, BTreeSet<StorageKey>>,
     /// Whether a Bitcoin precompile was called in this transaction
-    bitcoin_precompile_called: bool,
+    pub bitcoin_precompile_called: bool,
     /// The Bitcoin precompile address
     bitcoin_precompile_address: Address,
+    /// Storage database for checking locked slots
+    storage_db: Arc<RwLock<UnconfirmedBtcStorageDb>>,
 }
 
 impl BitcoinStorageInspector {
     /// Create a new inspector with the given Bitcoin precompile address
-    pub fn new(bitcoin_precompile_address: Address, excluded_addresses: impl IntoIterator<Item = Address>) -> Self {
+    pub fn new(
+        bitcoin_precompile_address: Address,
+        excluded_addresses: impl IntoIterator<Item = Address>,
+        storage_db: Arc<RwLock<UnconfirmedBtcStorageDb>>,
+    ) -> Self {
         Self {
             excluded_addresses: excluded_addresses.into_iter().collect(),
             bitcoin_precompile_address,
             accessed_storage: HashMap::new(),
             bitcoin_precompile_called: false,
+            storage_db,
         }
     }
 
@@ -125,6 +133,25 @@ where
         info!("Call to address: {:?}", inputs.target_address);
         if inputs.target_address == self.bitcoin_precompile_address {
             info!("Bitcoin precompile call inputs: {:?}", inputs);
+            
+            // Check if any accessed storage is locked
+            let storage_db = self.storage_db.read();
+            for (address, slots) in &self.accessed_storage {
+                for slot in slots {
+                    let storage_addr = StorageSlotAddress::new(*address, *slot);
+                    if storage_db.is_slot_locked(&storage_addr) {
+                        // Return reverted outcome
+                        return Some(CallOutcome {
+                            result: InterpreterResult {
+                                result: InstructionResult::Revert,
+                                output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
+                                gas: Gas::new_spent(inputs.gas_limit),
+                            },
+                            memory_offset: inputs.return_memory_offset.clone(),
+                        });
+                    }
+                }
+            }
         }
         None
     }

@@ -6,7 +6,12 @@ use reth::{
         components::PayloadServiceBuilder, engine_tree_config::{
             TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
         }, BuilderContext, EngineNodeLauncher, NodeBuilder
-    }, payload::{EthBuiltPayload, EthPayloadBuilderAttributes}, providers::providers::BlockchainProvider2, rpc::types::engine::PayloadAttributes, tasks::TaskManager, transaction_pool::{PoolTransaction, TransactionPool}
+    },
+    payload::{EthBuiltPayload, EthPayloadBuilderAttributes},
+    providers::providers::BlockchainProvider2,
+    rpc::types::engine::PayloadAttributes,
+    tasks::TaskManager,
+    transaction_pool::{PoolTransaction, TransactionPool}
 };
 
 use reth_chainspec::ChainSpec;
@@ -22,7 +27,7 @@ mod modules;
 
 use cli::Args;
 use config::{custom_chain, CorsaConfig};
-use modules::execute::{BitcoinEvmConfig, MyExecutorBuilder};
+use modules::execute::{BitcoinEvmConfig, CorsaExecutorBuilder};
 
 /// Builds a regular ethereum block executor that uses the custom EVM.
 #[derive(Debug, Default, Clone)]
@@ -86,7 +91,7 @@ async fn main() -> eyre::Result<()> {
         .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
         .with_components(
             EthereumNode::components()
-                .executor(MyExecutorBuilder::new(app_config.clone()))
+                .executor(CorsaExecutorBuilder::new(app_config.clone()))
                 .payload(MyPayloadBuilder {
                     inner: EthereumPayloadBuilder::default(),
                     config: app_config.clone(),
