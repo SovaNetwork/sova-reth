@@ -19,17 +19,17 @@ impl UnconfirmedBtcStorageDb {
         Self::default()
     }
 
-    pub fn lock_slot(&mut self, slot: StorageSlotAddress, btc_tx_hash: B256) {
-        self.locked_slots.insert(slot.clone(), btc_tx_hash);
-        self.tx_slots.entry(btc_tx_hash).or_default().push(slot);
+    pub fn lock_slot(&mut self, slot: StorageSlotAddress, tx_hash: B256) {
+        self.locked_slots.insert(slot.clone(), tx_hash);
+        self.tx_slots.entry(tx_hash).or_default().push(slot);
     }
 
     pub fn is_slot_locked(&self, slot: &StorageSlotAddress) -> bool {
         self.locked_slots.contains_key(slot)
     }
 
-    pub fn unlock_slots_for_transaction(&mut self, btc_tx_hash: B256) {
-        if let Some(slots) = self.tx_slots.remove(&btc_tx_hash) {
+    pub fn unlock_slots_for_transaction(&mut self, tx_hash: B256) {
+        if let Some(slots) = self.tx_slots.remove(&tx_hash) {
             for slot in slots {
                 self.locked_slots.remove(&slot);
             }
@@ -54,15 +54,15 @@ impl StorageSlotAddress {
 #[derive(Debug)]
 pub struct BitcoinStorageInspector {
     /// Addresses that should be excluded from tracking (e.g., precompiles)
-    excluded_addresses: HashSet<Address>,
+    pub excluded_addresses: HashSet<Address>,
     /// Maps addresses to their accessed storage slots
     pub accessed_storage: HashMap<Address, BTreeSet<StorageKey>>,
-    /// Whether a Bitcoin precompile was called in this transaction
-    pub bitcoin_precompile_called: bool,
     /// The Bitcoin precompile address
     bitcoin_precompile_address: Address,
+    /// Whether the btc broadcast raw tx precompile was called
+    pub broadcast_precompile_called: bool,
     /// Storage database for checking locked slots
-    storage_db: Arc<RwLock<UnconfirmedBtcStorageDb>>,
+    pub storage_db: Arc<RwLock<UnconfirmedBtcStorageDb>>,
 }
 
 impl BitcoinStorageInspector {
@@ -74,25 +74,11 @@ impl BitcoinStorageInspector {
     ) -> Self {
         Self {
             excluded_addresses: excluded_addresses.into_iter().collect(),
-            bitcoin_precompile_address,
             accessed_storage: HashMap::new(),
-            bitcoin_precompile_called: false,
+            bitcoin_precompile_address,
+            broadcast_precompile_called: false,
             storage_db,
         }
-    }
-
-    /// Mark that the Bitcoin precompile has been called
-    pub fn mark_bitcoin_precompile_call(&mut self) {
-        self.bitcoin_precompile_called = true;
-    }
-
-    /// Get all storage accesses and whether Bitcoin precompile was called
-    /// Returns (address -> storage_keys mapping, bitcoin_called flag)
-    pub fn take_access_list(&mut self) -> (HashMap<Address, BTreeSet<StorageKey>>, bool) {
-        let storage = std::mem::take(&mut self.accessed_storage);
-        let bitcoin_called = self.bitcoin_precompile_called;
-        self.bitcoin_precompile_called = false;
-        (storage, bitcoin_called)
     }
 
     /// Check if an address should be tracked
@@ -109,18 +95,8 @@ impl BitcoinStorageInspector {
                 .insert(key);
         }
     }
-
-    /// Track an address access
-    fn track_address_access(&mut self, address: Address) {
-        if self.should_track_address(address) {
-            self.accessed_storage.entry(address).or_default();
-        }
-    }
 }
 
-/// Record all accessed accounts and storage slots at every transaction execution step.
-/// If there is a call to the precompile address, flag specific transaction.
-/// If flagged all accounts in that transaction that were touched are locked.
 impl<DB> Inspector<DB> for BitcoinStorageInspector
 where
     DB: Database,
@@ -130,30 +106,48 @@ where
         _context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        info!("Call to address: {:?}", inputs.target_address);
-        if inputs.target_address == self.bitcoin_precompile_address {
-            info!("Bitcoin precompile call inputs: {:?}", inputs);
-            
-            // Check if any accessed storage is locked
-            let storage_db = self.storage_db.read();
-            for (address, slots) in &self.accessed_storage {
-                for slot in slots {
-                    let storage_addr = StorageSlotAddress::new(*address, *slot);
-                    if storage_db.is_slot_locked(&storage_addr) {
-                        // Return reverted outcome
-                        return Some(CallOutcome {
-                            result: InterpreterResult {
-                                result: InstructionResult::Revert,
-                                output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
-                                gas: Gas::new_spent(inputs.gas_limit),
-                            },
-                            memory_offset: inputs.return_memory_offset.clone(),
-                        });
-                    }
-                }
-            }
-        }
-        None
+        info!("----- call hook -----");
+        return Some(CallOutcome {
+            result: InterpreterResult {
+                result: InstructionResult::Revert,
+                output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
+                gas: Gas::new_spent(inputs.gas_limit),
+            },
+            memory_offset: inputs.return_memory_offset.clone(),
+        });
+
+        // if inputs.target_address == self.bitcoin_precompile_address {
+        //     info!("----- call hook -----");
+        //     info!("Bitcoin precompile call inputs: {:?}", inputs);
+
+        //     let input_data = inputs.input.clone();
+        //     let method_selector = u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
+
+        //     // only check `call_btc_tx_queue()` precompile
+        //     if method_selector == 0x00000001 {
+        //         info!("Bitcoin precompile call raw data: {:?}", &input_data[4..]);
+        //         self.broadcast_precompile_called = true;
+
+        //         // Check if any accessed storage is locked
+        //         let storage_db = self.storage_db.read();
+        //         for (address, slots) in &self.accessed_storage {
+        //             for slot in slots {
+        //                 if storage_db.is_slot_locked(&StorageSlotAddress::new(*address, *slot)) {
+        //                     // Return reverted tx result
+        //                     return Some(CallOutcome {
+        //                         result: InterpreterResult {
+        //                             result: InstructionResult::Revert,
+        //                             output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
+        //                             gas: Gas::new_spent(inputs.gas_limit),
+        //                         },
+        //                         memory_offset: inputs.return_memory_offset.clone(),
+        //                     });
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // None
     }
 
     fn call_end(
@@ -163,6 +157,7 @@ where
         outcome: CallOutcome,
     ) -> CallOutcome {
         if inputs.target_address == self.bitcoin_precompile_address {
+            info!("----- call end hook -----");
             info!("Bitcoin precompile call result: {:?}", outcome);
         }
         outcome
@@ -176,29 +171,6 @@ where
                     let address = interp.contract.target_address;
                     let key = StorageKey::from(slot);
                     self.track_storage_access(address, key);
-                }
-            }
-            // Track external code access
-            opcode::EXTCODECOPY | opcode::EXTCODEHASH | opcode::EXTCODESIZE | opcode::BALANCE | opcode::SELFDESTRUCT => {
-                if let Ok(slot) = interp.stack().peek(0) {
-                    let addr = Address::from_word(B256::from(slot.to_be_bytes()));
-                    self.track_address_access(addr);
-                }
-            }
-            // Track call operations
-            opcode::DELEGATECALL | opcode::CALL | opcode::STATICCALL | opcode::CALLCODE => {
-                if let Ok(slot) = interp.stack().peek(1) {
-                    let addr = Address::from_word(B256::from(slot.to_be_bytes()));
-                    
-                    // Check if this is a call to the Bitcoin precompile
-                    if addr == self.bitcoin_precompile_address {
-                        self.mark_bitcoin_precompile_call();
-
-                        info!("stack.data(): {:?}", interp.stack().data());
-                        info!("return_data_buffer: {:?}", interp.return_data_buffer);
-                    }
-                    
-                    self.track_address_access(addr);
                 }
             }
             _ => (),

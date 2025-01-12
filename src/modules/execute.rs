@@ -182,7 +182,7 @@ where
 
     fn handle_bitcoin_storage(
         &self,
-        btc_tx_hash: B256,
+        tx_hash: B256,
         storage_accesses: HashMap<Address, BTreeSet<StorageKey>>,
         bitcoin_called: bool,
     ) -> Result<(), BlockExecutionError> {
@@ -192,7 +192,7 @@ where
                 for slot in slots {
                     storage_db.lock_slot(
                         StorageSlotAddress::new(address, slot),
-                        btc_tx_hash
+                        tx_hash
                     );
                 }
             }
@@ -233,7 +233,7 @@ where
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
         let env = self.evm_env_for_block(&block.header, total_difficulty);
         let mut evm = self.evm_config.evm_with_env_and_inspector(&mut self.state, env, &mut self.inspector);
-
+        info!("Executing transactions evm created");
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body.transactions.len());
 
@@ -265,17 +265,15 @@ where
             })?;
             // After transaction executes, check if it interacted with Bitcoin precompile
             let storage_accesses = evm.context.external.accessed_storage.clone();
-            let bitcoin_called = evm.context.external.bitcoin_precompile_called;
-            info!("Storage accesses: {:?}, bitcoin_called: {}", storage_accesses, bitcoin_called);
+            let broadcast_precompile_called = evm.context.external.broadcast_precompile_called;
 
             // Clear inspector state
             evm.context.external.accessed_storage.clear();
-            evm.context.external.bitcoin_precompile_called = false;
             
             // If Bitcoin precompile was called in this tx, lock affected storage slots
-            if bitcoin_called {
-                let btc_tx_hash = transaction.hash();
-                pending_storage_operations.push((btc_tx_hash, storage_accesses, true));
+            if broadcast_precompile_called {
+                let tx_hash = transaction.hash();
+                pending_storage_operations.push((tx_hash, storage_accesses, true));
             }
 
             // TODO(powvt): how can `self.system_caller` be implemented? See the optimism execute.rs file
@@ -304,8 +302,8 @@ where
         drop(evm);
 
         // Add all locked slots to the locks slots db
-        for (btc_tx_hash, storage_accesses, bitcoin_called) in pending_storage_operations {
-            self.handle_bitcoin_storage(btc_tx_hash, storage_accesses, bitcoin_called)?;
+        for (tx_hash, storage_accesses, bitcoin_called) in pending_storage_operations {
+            self.handle_bitcoin_storage(tx_hash, storage_accesses, bitcoin_called)?;
         }
 
         // Return summary of all transaction executions
@@ -337,8 +335,6 @@ pub struct BitcoinExecutionStrategyFactory {
     /// Config for EVM that includes Bitcoin precompile setup
     evm_config: BitcoinEvmConfig,
     /// Shared storage database for tracking locked slots across transactions
-    /// READ: Used by the inspector to check if slots are locked
-    /// WRITE: Used by the strategy to lock slots after successful transactions
     storage_db: Arc<RwLock<UnconfirmedBtcStorageDb>>,
 }
 
