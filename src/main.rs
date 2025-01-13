@@ -1,6 +1,9 @@
 
+use std::sync::Arc;
+
 use clap::Parser;
 
+use parking_lot::RwLock;
 use reth::{
     builder::{
         components::PayloadServiceBuilder, engine_tree_config::{
@@ -15,6 +18,7 @@ use reth::{
 };
 
 use reth_chainspec::ChainSpec;
+use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{FullNodeTypes, NodeTypesWithEngine, PayloadTypes};
 use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
 use reth_node_ethereum::{node::{EthereumAddOns, EthereumPayloadBuilder}, EthereumNode};
@@ -27,7 +31,7 @@ mod modules;
 
 use cli::Args;
 use config::{custom_chain, CorsaConfig};
-use modules::execute::{BitcoinEvmConfig, CorsaExecutorBuilder};
+use modules::{bitcoin_precompile::BitcoinRpcPrecompile, btc_storage::UnconfirmedBtcStorageDb, execute::{BitcoinEvmConfig, CorsaExecutorBuilder}};
 
 /// Builds a regular ethereum block executor that uses the custom EVM.
 #[derive(Debug, Default, Clone)]
@@ -55,7 +59,20 @@ where
         ctx: &BuilderContext<Node>,
         pool: Pool,
     ) -> eyre::Result<reth::payload::PayloadBuilderHandle<Types::Engine>> {
-        self.inner.spawn(BitcoinEvmConfig::new(&self.config, ctx.chain_spec()), ctx, pool)
+        info!("Spawning custom payload service");
+
+        let storage_db = Arc::new(RwLock::new(UnconfirmedBtcStorageDb::new()));
+        let evm_config = BitcoinEvmConfig {
+            inner: EthEvmConfig::new(ctx.chain_spec()),
+            bitcoin_rpc_precompile: Arc::new(RwLock::new(BitcoinRpcPrecompile::new(
+                self.config.bitcoin.as_ref(),
+                self.config.network_signing_url.clone(),
+                self.config.network_utxo_url.clone(),
+                self.config.btc_tx_queue_url.clone(),
+            ).expect("Failed to create Bitcoin RPC precompile"))),
+            storage_db,
+        };
+        self.inner.spawn(evm_config, ctx, pool)
     }
 }
 
@@ -82,8 +99,8 @@ async fn main() -> eyre::Result<()> {
     // experimental will be defult after v1.1.4 and this code can be removed.
     // https://github.com/paradigmxyz/reth/issues/13438#issuecomment-2554490575
     let engine_tree_config = TreeConfig::default()
-        .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
-        .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET);
+        .with_persistence_threshold(0)
+        .with_memory_block_buffer_target(0);
 
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())

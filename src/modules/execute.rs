@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 
 use reth::{
     builder::{components::ExecutorBuilder, BuilderContext}, providers::ProviderError, revm::{
-        handler::register::EvmHandler, inspector_handle_register, precompile::PrecompileSpecId, primitives::{BlockEnv, CfgEnvWithHandlerCfg, EVMError, Env, EnvWithHandlerCfg, Precompile, TxEnv}, ContextPrecompile, ContextPrecompiles, Database, DatabaseCommit, Evm, EvmBuilder, GetInspector, State
+        handler::register::EvmHandler, inspector_handle_register, precompile::PrecompileSpecId, primitives::{BlockEnv, CfgEnvWithHandlerCfg, Env, EnvWithHandlerCfg, Precompile, TxEnv}, ContextPrecompile, ContextPrecompiles, Database, DatabaseCommit, Evm, EvmBuilder, GetInspector, State
     }
 };
 use reth_chainspec::{ChainSpec, EthereumHardforks};
@@ -31,29 +31,28 @@ use reth_tracing::tracing::info;
 use crate::{config::CorsaConfig, modules::btc_storage::{BitcoinStorageInspector, StorageSlotAddress, UnconfirmedBtcStorageDb}};
 use super::{bitcoin_precompile::BitcoinRpcPrecompile, constants::BITCOIN_PRECOMPILE_ADDRESS};
 
+#[derive(Debug)]
+struct StorageLockedError(String);
+
+impl std::fmt::Display for StorageLockedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for StorageLockedError {}
+
 #[derive(Clone)]
 pub struct BitcoinEvmConfig {
     /// Wrapper around mainnet configuration
-    inner: EthEvmConfig,
+    pub inner: EthEvmConfig,
     /// Bitcoin RPC precompile
-    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    pub bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    /// Storage database for tracking locked slots
+    pub storage_db: Arc<RwLock<UnconfirmedBtcStorageDb>>,
 }
 
 impl BitcoinEvmConfig {
-    pub fn new(config: &CorsaConfig, chain_spec: Arc<ChainSpec>) -> Self {
-        let bitcoin_precompile = BitcoinRpcPrecompile::new(
-            config.bitcoin.as_ref(),
-            config.network_signing_url.clone(),
-            config.network_utxo_url.clone(),
-            config.btc_tx_queue_url.clone(),
-        )
-        .expect("Failed to create Bitcoin RPC precompile");
-        Self {
-            inner: EthEvmConfig::new(chain_spec),
-            bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
-        }
-    }
-
     /// Sets the precompiles to the EVM handler
     ///
     /// This will be invoked when the EVM is created via [ConfigureEvm::evm] or
@@ -120,15 +119,22 @@ impl ConfigureEvmEnv for BitcoinEvmConfig {
 }
 
 impl ConfigureEvm for BitcoinEvmConfig {
-    type DefaultExternalContext<'a> = ();
+    type DefaultExternalContext<'a> = BitcoinStorageInspector;
 
     fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
+        let inspector = BitcoinStorageInspector::new(
+            BITCOIN_PRECOMPILE_ADDRESS,
+            vec![BITCOIN_PRECOMPILE_ADDRESS],
+            self.storage_db.clone(),
+        );
+        
         EvmBuilder::default()
             .with_db(db)
-            // add BTC precompiles
+            .with_external_context(inspector)
             .append_handler_register_box(Box::new(move |handler| {
                 BitcoinEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
+            .append_handler_register(inspector_handle_register)
             .build()
     }
 
@@ -140,7 +146,6 @@ impl ConfigureEvm for BitcoinEvmConfig {
         EvmBuilder::default()
             .with_db(db)
             .with_external_context(inspector)
-            // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 BitcoinEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
@@ -148,7 +153,13 @@ impl ConfigureEvm for BitcoinEvmConfig {
             .build()
     }
 
-    fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
+    fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {
+        BitcoinStorageInspector::new(
+            BITCOIN_PRECOMPILE_ADDRESS,
+            vec![BITCOIN_PRECOMPILE_ADDRESS],
+            self.storage_db.clone(),
+        )
+    }
 }
 
 pub struct BitcoinExecutionStrategy<DB>
@@ -186,17 +197,26 @@ where
         storage_accesses: HashMap<Address, BTreeSet<StorageKey>>,
         bitcoin_called: bool,
     ) -> Result<(), BlockExecutionError> {
-        if bitcoin_called {
-            let mut storage_db = self.storage_db.write();
-            for (address, slots) in storage_accesses {
-                for slot in slots {
-                    storage_db.lock_slot(
-                        StorageSlotAddress::new(address, slot),
-                        tx_hash
-                    );
-                }
-            }
+        if !bitcoin_called || storage_accesses.is_empty() {
+            return Ok(());
         }
+
+        let mut storage_db = self.storage_db.write();
+        
+        // First collect all slots that need to be locked
+        let slots_to_lock: Vec<StorageSlotAddress> = storage_accesses
+            .iter()
+            .flat_map(|(address, slots)| {
+                slots.iter().map(|slot| StorageSlotAddress::new(*address, *slot))
+            })
+            .collect();
+
+        // If no conflicts found, lock all slots
+        info!("Locking {} slots for tx {:?}", slots_to_lock.len(), tx_hash);
+        for slot in slots_to_lock {
+            storage_db.lock_slot(slot, tx_hash);
+        }
+
         Ok(())
     }
 }
@@ -232,13 +252,10 @@ where
         total_difficulty: U256,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
         let env = self.evm_env_for_block(&block.header, total_difficulty);
-        let mut evm = self.evm_config.evm_with_env_and_inspector(&mut self.state, env, &mut self.inspector);
+        let mut evm = self.evm_config.evm_with_env_and_inspector(&mut self.state, env.clone(), &mut self.inspector);
         info!("Executing transactions evm created");
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body.transactions.len());
-
-        // Track storage operations in this block
-        let mut pending_storage_operations: Vec<(B256, HashMap<Address, BTreeSet<StorageKey>>, bool)> = Vec::new();
 
         for (sender, transaction) in block.transactions_with_sender() {
             // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
@@ -263,17 +280,30 @@ where
                     error: Box::new(new_err),
                 }
             })?;
-            // After transaction executes, check if it interacted with Bitcoin precompile
+            // Extract storage access information
             let storage_accesses = evm.context.external.accessed_storage.clone();
             let broadcast_precompile_called = evm.context.external.broadcast_precompile_called;
-
-            // Clear inspector state
-            evm.context.external.accessed_storage.clear();
+            info!("Transaction state - broadcast_called: {}, storage_accesses: {:?}", 
+                broadcast_precompile_called, 
+                storage_accesses
+            );
             
-            // If Bitcoin precompile was called in this tx, lock affected storage slots
+            // Clear the inspector state for the next transaction
+            evm.context.external.accessed_storage.clear();
+            evm.context.external.broadcast_precompile_called = false;
+
+            // Process Bitcoin storage if needed
             if broadcast_precompile_called {
                 let tx_hash = transaction.hash();
-                pending_storage_operations.push((tx_hash, storage_accesses, true));
+                // Release mutable borrow of EVM to handle storage
+                drop(evm);
+                self.handle_bitcoin_storage(tx_hash, storage_accesses, true)?;
+                // Recreate EVM with same environment
+                evm = self.evm_config.evm_with_env_and_inspector(
+                    &mut self.state, 
+                    env.clone(),
+                    &mut self.inspector
+                );
             }
 
             // TODO(powvt): how can `self.system_caller` be implemented? See the optimism execute.rs file
@@ -298,15 +328,6 @@ where
             });
         }
 
-        // Drop the EVM to release the mutable borrow of self.state
-        drop(evm);
-
-        // Add all locked slots to the locks slots db
-        for (tx_hash, storage_accesses, bitcoin_called) in pending_storage_operations {
-            self.handle_bitcoin_storage(tx_hash, storage_accesses, bitcoin_called)?;
-        }
-
-        // Return summary of all transaction executions
         Ok(ExecuteOutput { receipts, gas_used: cumulative_gas_used })
     }
 
@@ -369,11 +390,15 @@ impl BlockExecutionStrategyFactory for BitcoinExecutionStrategyFactory {
 #[derive(Clone)]
 pub struct CorsaExecutorBuilder {
     config: CorsaConfig,
+    storage_db: Option<Arc<RwLock<UnconfirmedBtcStorageDb>>>,
 }
 
 impl CorsaExecutorBuilder {
     pub fn new(config: CorsaConfig) -> Self {
-        Self { config }
+        Self { 
+            config,
+            storage_db: None,
+        }
     }
 }
 
@@ -388,17 +413,30 @@ where
         self,
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        let storage_db = Arc::new(RwLock::new(UnconfirmedBtcStorageDb::new()));
-        let evm_config = BitcoinEvmConfig::new(&self.config, ctx.chain_spec());
+        // Create or use existing storage DB
+        let storage_db = self.storage_db.unwrap_or_else(|| 
+            Arc::new(RwLock::new(UnconfirmedBtcStorageDb::new()))
+        );
         
-        let strategy_factory =
-            BitcoinExecutionStrategyFactory {
-                chain_spec: ctx.chain_spec(),
-                evm_config: evm_config.clone(),
-                storage_db
-            };
+        let evm_config = BitcoinEvmConfig {
+            inner: EthEvmConfig::new(ctx.chain_spec()),
+            bitcoin_rpc_precompile: Arc::new(RwLock::new(BitcoinRpcPrecompile::new(
+                self.config.bitcoin.as_ref(),
+                self.config.network_signing_url.clone(),
+                self.config.network_utxo_url.clone(),
+                self.config.btc_tx_queue_url.clone(),
+            ).expect("Failed to create Bitcoin RPC precompile"))),
+            storage_db: storage_db.clone(),
+        };
+        
+        let strategy_factory = BitcoinExecutionStrategyFactory {
+            chain_spec: ctx.chain_spec(),
+            evm_config: evm_config.clone(),
+            storage_db,
+        };
+        
         let executor = BasicBlockExecutorProvider::new(strategy_factory);
 
-        Ok((evm_config.clone(), executor))
+        Ok((evm_config, executor))
     }
 }

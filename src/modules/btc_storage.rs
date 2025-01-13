@@ -106,48 +106,48 @@ where
         _context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        info!("----- call hook -----");
-        return Some(CallOutcome {
-            result: InterpreterResult {
-                result: InstructionResult::Revert,
-                output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
-                gas: Gas::new_spent(inputs.gas_limit),
-            },
-            memory_offset: inputs.return_memory_offset.clone(),
-        });
+        // info!("----- call hook -----");
+        // return Some(CallOutcome {
+        //     result: InterpreterResult {
+        //         result: InstructionResult::Revert,
+        //         output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
+        //         gas: Gas::new_spent(inputs.gas_limit),
+        //     },
+        //     memory_offset: inputs.return_memory_offset.clone(),
+        // });
 
-        // if inputs.target_address == self.bitcoin_precompile_address {
-        //     info!("----- call hook -----");
-        //     info!("Bitcoin precompile call inputs: {:?}", inputs);
+        if inputs.target_address == self.bitcoin_precompile_address {
+            let input_data = inputs.input.clone();
+            let method_selector = u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
 
-        //     let input_data = inputs.input.clone();
-        //     let method_selector = u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
+            // only check `call_btc_tx_queue()` precompile
+            if method_selector == 0x00000001 {
+                info!("----- broadcast call hook -----");
+                self.broadcast_precompile_called = true;
 
-        //     // only check `call_btc_tx_queue()` precompile
-        //     if method_selector == 0x00000001 {
-        //         info!("Bitcoin precompile call raw data: {:?}", &input_data[4..]);
-        //         self.broadcast_precompile_called = true;
-
-        //         // Check if any accessed storage is locked
-        //         let storage_db = self.storage_db.read();
-        //         for (address, slots) in &self.accessed_storage {
-        //             for slot in slots {
-        //                 if storage_db.is_slot_locked(&StorageSlotAddress::new(*address, *slot)) {
-        //                     // Return reverted tx result
-        //                     return Some(CallOutcome {
-        //                         result: InterpreterResult {
-        //                             result: InstructionResult::Revert,
-        //                             output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
-        //                             gas: Gas::new_spent(inputs.gas_limit),
-        //                         },
-        //                         memory_offset: inputs.return_memory_offset.clone(),
-        //                     });
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-        // None
+                // Check if any accessed storage is locked
+                let storage_db = self.storage_db.read();
+                for (address, slots) in &self.accessed_storage {
+                    for slot in slots {
+                        if storage_db.is_slot_locked(&StorageSlotAddress::new(*address, *slot)) {
+                            info!("Storage slot is locked by an unconfirmed Bitcoin transaction");
+                            // Return reverted tx result
+                            return Some(CallOutcome {
+                                result: InterpreterResult {
+                                    result: InstructionResult::Revert,
+                                    output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
+                                    gas: Gas::new_spent(inputs.gas_limit),
+                                },
+                                memory_offset: inputs.return_memory_offset.clone(),
+                            });
+                        } else {
+                            info!("Storage slot is not locked by an unconfirmed Bitcoin transaction");
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn call_end(
@@ -156,9 +156,13 @@ where
         inputs: &CallInputs,
         outcome: CallOutcome,
     ) -> CallOutcome {
+        let input_data = inputs.input.clone();
+        let method_selector = u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
+
         if inputs.target_address == self.bitcoin_precompile_address {
-            info!("----- call end hook -----");
-            info!("Bitcoin precompile call result: {:?}", outcome);
+            if method_selector == 0x00000001 {
+                info!("----- call end hook -----");
+            }
         }
         outcome
     }
