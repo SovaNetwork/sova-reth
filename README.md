@@ -4,6 +4,8 @@
 
 ![](./assets/sova-reth-prod.png)
 
+[Developer Docs](./docs) | [Run Full Stack](https://github.com/SovaNetwork/running-corsa)
+
 Sova uses a modified version of reth. Reth is an EVM based execution client. Sova adds new Bitcoin precompiles to reth.
 
 ## Precompiles
