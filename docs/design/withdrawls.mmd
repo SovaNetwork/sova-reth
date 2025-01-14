@@ -5,7 +5,7 @@ sequenceDiagram
     participant Sequencer
     participant BTC_Node
 
-    Dapp->>Reth: Initiate Withrdaw on Corsa
+    Dapp->>Reth: Initiate Withrdaw on Sova
     Reth->>Indexer: Fetch spendable UTXOs for uBTC
     Indexer->>Reth: Send spendable UTXOs
     Note over Reth: Build a TX with Ins & Outs

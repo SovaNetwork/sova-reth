@@ -10,14 +10,14 @@ services:
     ports:
       - "18443:18443"
     networks:
-      - corsa_network
+      - sova_network
     healthcheck:
       test: ["CMD", "bitcoin-cli", "-regtest", "-rpcuser=user", "-rpcpassword=password", "getblockchaininfo"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  corsa-reth:
+  sova-reth:
     build:
       context: .
       dockerfile: Dockerfile
@@ -26,13 +26,13 @@ services:
       - BTC_RPC_URL=http://bitcoin
       - BTC_RPC_USER=user
       - BTC_RPC_PASSWORD=password
-      - NETWORK_SIGNING_URL=http://corsa-enclave:5555
+      - NETWORK_SIGNING_URL=http://sova-enclave:5555
       - NETWORK_UTXO_URL=http://hyperstate-utxos:5557
       - BTX_TX_QUEUE_URL=http://bitcoin-tx-queue:5558
     ports:
       - "8545:8545"
     networks:
-      - corsa_network
+      - sova_network
     depends_on:
       bitcoin:
         condition: service_healthy
@@ -52,7 +52,7 @@ services:
   #   volumes:
   #     - ./postgres-data:/var/lib/postgresql/data
   #   networks:
-  #     - corsa_network
+  #     - sova_network
   #   healthcheck:
   #     test: ["CMD-SHELL", "pg_isready -U postgres"]
   #     interval: 5s
@@ -66,33 +66,33 @@ services:
   #   depends_on:
   #     db-blockscout:
   #       condition: service_healthy
-  #     corsa-reth:
+  #     sova-reth:
   #       condition: service_healthy
   #   networks:
-  #     - corsa_network 
+  #     - sova_network 
   #   ports:
   #     - "4000:4000"
   #   environment:
   #     ETHEREUM_JSONRPC_VARIANT: 'geth'
-  #     ETHEREUM_JSONRPC_HTTP_URL: http://corsa-reth:8545
-  #     ETHEREUM_JSONRPC_WS_URL: ws://corsa-reth:8545/
+  #     ETHEREUM_JSONRPC_HTTP_URL: http://sova-reth:8545
+  #     ETHEREUM_JSONRPC_WS_URL: ws://sova-reth:8545/
   #     INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER: 'true'
   #     INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER: 'true'
   #     DATABASE_URL: postgresql://postgres:@db-blockscout:7432/blockscout?ssl=false
   #     ECTO_USE_SSL: 'false'
   #     SECRET_KEY_BASE: '56NtB48ear7+wMSf0IQuWDAAazhpb31qyc7GiyspBP2vh7t5zlCsF5QDv76chXeN'
-  #     NETWORK: 'Corsa'
-  #     SUBNETWORK: 'Corsa'
+  #     NETWORK: 'sova'
+  #     SUBNETWORK: 'sova'
   #     CHAIN_ID: '120893'
   #     NEXT_PUBLIC_AD_BANNER_PROVIDER: none
-  #     NEXT_PUBLIC_NETWORK_LOGO: https://raw.githubusercontent.com/OnCorsa/avs-metadata/main/corsascan_logo.png
-  #     NEXT_PUBLIC_NETWORK_LOGO_DARK: https://raw.githubusercontent.com/OnCorsa/avs-metadata/main/corsascan_logo.png
-  #     NEXT_PUBLIC_NETWORK_ICON: https://raw.githubusercontent.com/OnCorsa/avs-metadata/main/logo.png
-  #     NEXT_PUBLIC_NETWORK_NAME: Corsa
-  #     NEXT_PUBLIC_NETWORK_SHORT_NAME: Corsa
+  #     NEXT_PUBLIC_NETWORK_LOGO: https://raw.githubusercontent.com/Onsova/avs-metadata/main/sovascan_logo.png
+  #     NEXT_PUBLIC_NETWORK_LOGO_DARK: https://raw.githubusercontent.com/Onsova/avs-metadata/main/sovascan_logo.png
+  #     NEXT_PUBLIC_NETWORK_ICON: https://raw.githubusercontent.com/Onsova/avs-metadata/main/logo.png
+  #     NEXT_PUBLIC_NETWORK_NAME: sova
+  #     NEXT_PUBLIC_NETWORK_SHORT_NAME: sova
   #     NEXT_PUBLIC_NETWORK_ID: '120893'
   #   command: /bin/sh -c "bin/blockscout eval Elixir.Explorer.ReleaseTasks.create_and_migrate && bin/blockscout start"
 
 networks:
-  corsa_network:
+  sova_network:
     driver: bridge

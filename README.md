@@ -4,7 +4,7 @@
 
 ![](./assets/sova-reth-prod.png)
 
-[Developer Docs](./docs) | [Run Full Stack](https://github.com/SovaNetwork/running-corsa)
+[Developer Docs](./docs) | [Run Full Stack](https://github.com/SovaNetwork/running-sova)
 
 Sova uses a modified version of reth. Reth is an EVM based execution client. Sova adds new Bitcoin precompiles to reth.
 
@@ -22,7 +22,7 @@ The new precompile is found at address 0x999 and accepts a bytes payload of data
 
 ## Testing
 
-For testing a sova-reth node, it is recommended to run the service along side the [running-corsa](https://github.com/SovaNetwork/running-corsa). That way you have all the auxilerary services running in docker and you can restart the node in this repo as needed without having to restart or run all the other network components separately. The sova-reth service exposes port :8545 for making rpc calls to the node.
+For testing a sova-reth node, it is recommended to run the service along side the [running-sova](https://github.com/SovaNetwork/running-sova). That way you have all the auxilerary services running in docker and you can restart the node in this repo as needed without having to restart or run all the other network components separately. The sova-reth service exposes port :8545 for making rpc calls to the node.
 
 Sova-reth provides a `just` command runner to easily start the node using `just run-chain`. To view the possible flags that can be passed with this command use `just -l` and `just help` to view all commands and flags.
 

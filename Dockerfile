@@ -1,4 +1,4 @@
-# Use Rust 1.80.0
+# Use Rust 1.83.0
 FROM rust:1.83.0-bullseye as builder
 
 # Install build dependencies
@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container
-WORKDIR /usr/src/corsa-reth
+WORKDIR /usr/src/sova-reth
 
 # Copy Cargo.toml and Cargo.lock
 COPY Cargo.toml Cargo.lock ./
@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /usr/local/bin
 
 # Copy the binary from the builder stage
-COPY --from=builder /usr/src/corsa-reth/target/release/corsa-reth .
+COPY --from=builder /usr/src/sova-reth/target/release/sova-reth .
 
 # Expose port 8545 for JSON-RPC
 EXPOSE 8545
@@ -49,7 +49,7 @@ EXPOSE 8545
 ENTRYPOINT ["/bin/sh", "-c"]
 
 # Set the default command
-CMD ["corsa-reth \
+CMD ["sova-reth \
     --btc-network $BTC_NETWORK \
     --network-url $BTC_RPC_URL \
     --btc-rpc-username $BTC_RPC_USER \
