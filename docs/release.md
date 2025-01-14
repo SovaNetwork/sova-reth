@@ -14,4 +14,4 @@ When a new version is released all docker and docker-compose files should be upd
 
 ### PRs
 
-All branches should be as descriptive as possible. PRs should have a general description and a reference to any tests that were run which developing the changes.
+All branches should be as descriptive as possible. PRs should have a general description and a reference to any tests that were run which developing the changes. Please run `cargo fmt` and `cargo clippy` prior to submitting a PR else github CI will fail.
