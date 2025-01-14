@@ -15,14 +15,14 @@ pub struct BitcoinConfig {
 }
 
 #[derive(Clone)]
-pub struct CorsaConfig {
+pub struct SovaConfig {
     pub bitcoin: Arc<BitcoinConfig>,
     pub network_signing_url: String,
     pub network_utxo_url: String,
     pub btc_tx_queue_url: String,
 }
 
-impl CorsaConfig {
+impl SovaConfig {
     pub fn new(args: &crate::cli::Args) -> Self {
         let bitcoin_config = BitcoinConfig {
             network: args.btc_network,
@@ -31,7 +31,7 @@ impl CorsaConfig {
             rpc_password: args.btc_rpc_password.clone(),
         };
 
-        CorsaConfig {
+        SovaConfig {
             bitcoin: Arc::new(bitcoin_config),
             network_signing_url: args.network_signing_url.clone(),
             network_utxo_url: args.network_utxo_url.clone(),
@@ -47,7 +47,7 @@ pub fn custom_chain() -> Arc<ChainSpec> {
         "nonce": "0x42",
         "timestamp": "0x0",
         "extraData": "0x5343",
-        "gasLimit": "0x1388",
+        "gasLimit": "0x1c9c380",
         "difficulty": "0x400000000",
         "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "coinbase": "0x0000000000000000000000000000000000000000",

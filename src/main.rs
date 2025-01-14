@@ -4,7 +4,7 @@ use clap::Parser;
 use parking_lot::RwLock;
 
 use alloy_consensus::Header;
-use alloy_primitives::{address, Address, Bytes, U256};
+use alloy_primitives::{address, Address, Bytes};
 
 use reth::{
     builder::{
@@ -19,12 +19,13 @@ use reth::{
         handler::register::EvmHandler,
         inspector_handle_register,
         precompile::{Precompile, PrecompileSpecId},
-        primitives::{BlockEnv, CfgEnvWithHandlerCfg, Env, TxEnv},
+        primitives::{CfgEnvWithHandlerCfg, Env, TxEnv},
         ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
     },
     tasks::TaskManager,
 };
 use reth_chainspec::ChainSpec;
+use reth_evm::env::EvmEnv;
 use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{
     ConfigureEvm, ConfigureEvmEnv, FullNodeTypes, NextBlockEnvAttributes, NodeTypes,
@@ -41,7 +42,7 @@ mod config;
 mod modules;
 
 use cli::Args;
-use config::{custom_chain, CorsaConfig};
+use config::{custom_chain, SovaConfig};
 use modules::bitcoin_precompile::BitcoinRpcPrecompile;
 
 #[derive(Clone)]
@@ -53,7 +54,7 @@ pub struct MyEvmConfig {
 }
 
 impl MyEvmConfig {
-    pub fn new(config: &CorsaConfig, chain_spec: Arc<ChainSpec>) -> Self {
+    pub fn new(config: &SovaConfig, chain_spec: Arc<ChainSpec>) -> Self {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
             config.bitcoin.as_ref(),
             config.network_signing_url.clone(),
@@ -115,20 +116,15 @@ impl ConfigureEvmEnv for MyEvmConfig {
             .fill_tx_env_system_contract_call(env, caller, contract, data);
     }
 
-    fn fill_cfg_env(
-        &self,
-        cfg_env: &mut CfgEnvWithHandlerCfg,
-        header: &Self::Header,
-        total_difficulty: U256,
-    ) {
-        self.inner.fill_cfg_env(cfg_env, header, total_difficulty);
+    fn fill_cfg_env(&self, cfg_env: &mut CfgEnvWithHandlerCfg, header: &Self::Header) {
+        self.inner.fill_cfg_env(cfg_env, header);
     }
 
     fn next_cfg_and_block_env(
         &self,
         parent: &Self::Header,
         attributes: NextBlockEnvAttributes,
-    ) -> Result<(CfgEnvWithHandlerCfg, BlockEnv), Self::Error> {
+    ) -> Result<EvmEnv, Self::Error> {
         self.inner.next_cfg_and_block_env(parent, attributes)
     }
 }
@@ -167,11 +163,11 @@ impl ConfigureEvm for MyEvmConfig {
 
 #[derive(Clone)]
 pub struct MyExecutorBuilder {
-    config: CorsaConfig,
+    config: SovaConfig,
 }
 
 impl MyExecutorBuilder {
-    pub fn new(config: CorsaConfig) -> Self {
+    pub fn new(config: SovaConfig) -> Self {
         Self { config }
     }
 }
@@ -205,7 +201,7 @@ async fn main() -> eyre::Result<()> {
     let tasks = TaskManager::current();
 
     let args = Args::parse();
-    let app_config = CorsaConfig::new(&args);
+    let app_config = SovaConfig::new(&args);
 
     let node_config = NodeConfig::test()
         .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
@@ -243,7 +239,7 @@ async fn main() -> eyre::Result<()> {
         .await
         .unwrap();
 
-    info!("Corsa EVM node started");
+    info!("Sova EVM node started");
 
     handle.node_exit_future.await
 }
