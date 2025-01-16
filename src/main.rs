@@ -9,12 +9,8 @@ use alloy_primitives::{address, Address, Bytes};
 use reth::{
     builder::{
         components::ExecutorBuilder,
-        engine_tree_config::{
-            TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
-        },
-        BuilderContext, EngineNodeLauncher, NodeBuilder,
+        BuilderContext, NodeBuilder,
     },
-    providers::providers::BlockchainProvider2,
     revm::{
         handler::register::EvmHandler,
         inspector_handle_register,
@@ -130,11 +126,12 @@ impl ConfigureEvmEnv for MyEvmConfig {
 }
 
 impl ConfigureEvm for MyEvmConfig {
-    type DefaultExternalContext<'a> = ();
-
-    fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
+    fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv, tx: TxEnv) -> Evm<'_, (), DB> {
         EvmBuilder::default()
             .with_db(db)
+            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
+            .with_block_env(evm_env.block_env)
+            .with_tx_env(tx)
             // add BTC precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
@@ -142,7 +139,13 @@ impl ConfigureEvm for MyEvmConfig {
             .build()
     }
 
-    fn evm_with_inspector<DB, I>(&self, db: DB, inspector: I) -> Evm<'_, I, DB>
+    fn evm_with_env_and_inspector<DB, I>(
+        &self,
+        db: DB,
+        evm_env: EvmEnv,
+        tx: TxEnv,
+        inspector: I,
+    ) -> Evm<'_, I, DB>
     where
         DB: Database,
         I: GetInspector<DB>,
@@ -150,6 +153,9 @@ impl ConfigureEvm for MyEvmConfig {
         EvmBuilder::default()
             .with_db(db)
             .with_external_context(inspector)
+            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
+            .with_block_env(evm_env.block_env)
+            .with_tx_env(tx)
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
@@ -157,8 +163,6 @@ impl ConfigureEvm for MyEvmConfig {
             .append_handler_register(inspector_handle_register)
             .build()
     }
-
-    fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
 }
 
 #[derive(Clone)]
@@ -213,29 +217,14 @@ async fn main() -> eyre::Result<()> {
         })
         .with_chain(custom_chain());
 
-    // NOTE(powvt): remove this when cli runner is added
-    // https://github.com/paradigmxyz/reth/issues/13438#issuecomment-2554490575
-    let engine_tree_config = TreeConfig::default()
-        .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
-        .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET);
-
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())
-        // NOTE(powvt): remove this when cli runner is added
-        .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
+        .with_types::<EthereumNode>()
         .with_components(
             EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
         )
         .with_add_ons(EthereumAddOns::default())
-        // NOTE(powvt): remove this when cli runner is added
-        .launch_with_fn(|builder| {
-            let launcher = EngineNodeLauncher::new(
-                tasks.executor().clone(),
-                builder.config().datadir(),
-                engine_tree_config,
-            );
-            builder.launch_with(launcher)
-        })
+        .launch()
         .await
         .unwrap();
 
