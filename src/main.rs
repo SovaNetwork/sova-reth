@@ -8,13 +8,10 @@ use alloy_primitives::{address, Address, Bytes};
 
 use reth::{
     builder::{
-        components::ExecutorBuilder,
-        engine_tree_config::{
-            TreeConfig, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET, DEFAULT_PERSISTENCE_THRESHOLD,
-        },
-        BuilderContext, EngineNodeLauncher, NodeBuilder,
+        components::{ExecutorBuilder, PayloadServiceBuilder},
+        BuilderContext, NodeBuilder,
     },
-    providers::providers::BlockchainProvider2,
+    payload::{EthBuiltPayload, EthPayloadBuilderAttributes},
     revm::{
         handler::register::EvmHandler,
         inspector_handle_register,
@@ -22,17 +19,21 @@ use reth::{
         primitives::{CfgEnvWithHandlerCfg, Env, TxEnv},
         ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
     },
+    rpc::types::engine::PayloadAttributes,
     tasks::TaskManager,
+    transaction_pool::{PoolTransaction, TransactionPool},
 };
 use reth_chainspec::ChainSpec;
 use reth_evm::env::EvmEnv;
 use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::{
     ConfigureEvm, ConfigureEvmEnv, FullNodeTypes, NextBlockEnvAttributes, NodeTypes,
+    NodeTypesWithEngine, PayloadTypes,
 };
 use reth_node_core::{args::RpcServerArgs, node_config::NodeConfig};
 use reth_node_ethereum::{
-    node::EthereumAddOns, BasicBlockExecutorProvider, EthExecutionStrategyFactory, EthereumNode,
+    node::{EthereumAddOns, EthereumPayloadBuilder},
+    BasicBlockExecutorProvider, EthExecutionStrategyFactory, EthereumNode,
 };
 use reth_primitives::{EthPrimitives, TransactionSigned};
 use reth_tracing::{tracing::info, RethTracer, Tracer};
@@ -68,12 +69,6 @@ impl MyEvmConfig {
         }
     }
 
-    /// Sets the precompiles to the EVM handler
-    ///
-    /// This will be invoked when the EVM is created via [ConfigureEvm::evm] or
-    /// [ConfigureEvm::evm_with_inspector]
-    ///
-    /// This will use the default mainnet precompiles and add additional precompiles.
     pub fn set_precompiles<EXT, DB>(
         handler: &mut EvmHandler<EXT, DB>,
         bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
@@ -130,11 +125,12 @@ impl ConfigureEvmEnv for MyEvmConfig {
 }
 
 impl ConfigureEvm for MyEvmConfig {
-    type DefaultExternalContext<'a> = ();
-
-    fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
+    fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv, tx: TxEnv) -> Evm<'_, (), DB> {
         EvmBuilder::default()
             .with_db(db)
+            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
+            .with_block_env(evm_env.block_env)
+            .with_tx_env(tx)
             // add BTC precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
@@ -142,7 +138,13 @@ impl ConfigureEvm for MyEvmConfig {
             .build()
     }
 
-    fn evm_with_inspector<DB, I>(&self, db: DB, inspector: I) -> Evm<'_, I, DB>
+    fn evm_with_env_and_inspector<DB, I>(
+        &self,
+        db: DB,
+        evm_env: EvmEnv,
+        tx: TxEnv,
+        inspector: I,
+    ) -> Evm<'_, I, DB>
     where
         DB: Database,
         I: GetInspector<DB>,
@@ -150,6 +152,9 @@ impl ConfigureEvm for MyEvmConfig {
         EvmBuilder::default()
             .with_db(db)
             .with_external_context(inspector)
+            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
+            .with_block_env(evm_env.block_env)
+            .with_tx_env(tx)
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
@@ -157,8 +162,6 @@ impl ConfigureEvm for MyEvmConfig {
             .append_handler_register(inspector_handle_register)
             .build()
     }
-
-    fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
 }
 
 #[derive(Clone)]
@@ -194,6 +197,37 @@ where
     }
 }
 
+/// Builds a regular ethereum block executor that uses the custom EVM.
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct MyPayloadBuilder {
+    inner: EthereumPayloadBuilder,
+    config: SovaConfig,
+}
+
+impl<Types, Node, Pool> PayloadServiceBuilder<Node, Pool> for MyPayloadBuilder
+where
+    Types: NodeTypesWithEngine<ChainSpec = ChainSpec, Primitives = EthPrimitives>,
+    Node: FullNodeTypes<Types = Types>,
+    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>
+        + Unpin
+        + 'static,
+    Types::Engine: PayloadTypes<
+        BuiltPayload = EthBuiltPayload,
+        PayloadAttributes = PayloadAttributes,
+        PayloadBuilderAttributes = EthPayloadBuilderAttributes,
+    >,
+{
+    async fn spawn_payload_service(
+        self,
+        ctx: &BuilderContext<Node>,
+        pool: Pool,
+    ) -> eyre::Result<reth::payload::PayloadBuilderHandle<Types::Engine>> {
+        let evm_config = MyEvmConfig::new(&self.config, ctx.chain_spec());
+        self.inner.spawn(evm_config, ctx, pool)
+    }
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let _guard = RethTracer::new().init()?;
@@ -201,7 +235,15 @@ async fn main() -> eyre::Result<()> {
     let tasks = TaskManager::current();
 
     let args = Args::parse();
-    let app_config = SovaConfig::new(&args);
+    let app_config = SovaConfig::new(
+        args.btc_network,
+        &args.network_url,
+        &args.btc_rpc_username,
+        &args.btc_rpc_password,
+        &args.network_signing_url,
+        &args.network_utxo_url,
+        &args.btc_tx_queue_url,
+    );
 
     let node_config = NodeConfig::test()
         .dev() // enable dev chain features, REMOVE THIS IN PRODUCTION
@@ -213,29 +255,19 @@ async fn main() -> eyre::Result<()> {
         })
         .with_chain(custom_chain());
 
-    // NOTE(powvt): remove this when cli runner is added
-    // https://github.com/paradigmxyz/reth/issues/13438#issuecomment-2554490575
-    let engine_tree_config = TreeConfig::default()
-        .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
-        .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET);
-
     let handle = NodeBuilder::new(node_config)
         .testing_node(tasks.executor())
-        // NOTE(powvt): remove this when cli runner is added
-        .with_types_and_provider::<EthereumNode, BlockchainProvider2<_>>()
+        .with_types::<EthereumNode>()
         .with_components(
-            EthereumNode::components().executor(MyExecutorBuilder::new(app_config.clone())),
+            EthereumNode::components()
+                .executor(MyExecutorBuilder::new(app_config.clone()))
+                .payload(MyPayloadBuilder {
+                    inner: EthereumPayloadBuilder::default(),
+                    config: app_config.clone(), // Initialize with the config
+                }),
         )
         .with_add_ons(EthereumAddOns::default())
-        // NOTE(powvt): remove this when cli runner is added
-        .launch_with_fn(|builder| {
-            let launcher = EngineNodeLauncher::new(
-                tasks.executor().clone(),
-                builder.config().datadir(),
-                engine_tree_config,
-            );
-            builder.launch_with(launcher)
-        })
+        .launch()
         .await
         .unwrap();
 

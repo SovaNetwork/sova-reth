@@ -5,15 +5,15 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-reth = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
-reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
-reth-evm = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
-reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
-reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
-reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
-reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
-reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5", features = ["test-utils"] }
-reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.1.5" }
+reth = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
+reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
+reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
+reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
+reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
+reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0", features = ["test-utils"] }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "11bd9dded36c694afbc8b1b550e690976f8d25f0" }
 
 alloy-consensus = { version = "0.9.2", default-features = false }
 alloy-dyn-abi = "0.8.15"
@@ -25,7 +25,7 @@ bitcoin = { version = "0.31.1", features = ["bitcoinconsensus"] }
 bitcoincore-rpc = "0.18.0"
 
 eyre = "0.6.12"
-tokio = { version = "1.39.3", features = ["full"] }
+tokio = { version = "1.39", default-features = false }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.94"
 toml = "0.8.10"

@@ -6,7 +6,7 @@ use alloy_genesis::Genesis;
 
 use bitcoin::Network;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BitcoinConfig {
     pub network: Network,
     pub network_url: String,
@@ -14,7 +14,7 @@ pub struct BitcoinConfig {
     pub rpc_password: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SovaConfig {
     pub bitcoin: Arc<BitcoinConfig>,
     pub network_signing_url: String,
@@ -23,19 +23,43 @@ pub struct SovaConfig {
 }
 
 impl SovaConfig {
-    pub fn new(args: &crate::cli::Args) -> Self {
+    pub fn new(
+        btc_network: Network,
+        network_url: &str,
+        btc_rpc_username: &str,
+        btc_rpc_password: &str,
+        network_signing_url: &str,
+        network_utxo_url: &str,
+        btc_tx_queue_url: &str,
+    ) -> Self {
         let bitcoin_config = BitcoinConfig {
-            network: args.btc_network,
-            network_url: args.network_url.clone(),
-            rpc_username: args.btc_rpc_username.clone(),
-            rpc_password: args.btc_rpc_password.clone(),
+            network: btc_network,
+            network_url: network_url.to_owned(),
+            rpc_username: btc_rpc_username.to_owned(),
+            rpc_password: btc_rpc_password.to_owned(),
         };
 
         SovaConfig {
             bitcoin: Arc::new(bitcoin_config),
-            network_signing_url: args.network_signing_url.clone(),
-            network_utxo_url: args.network_utxo_url.clone(),
-            btc_tx_queue_url: args.btc_tx_queue_url.clone(),
+            network_signing_url: network_signing_url.to_owned(),
+            network_utxo_url: network_utxo_url.to_owned(),
+            btc_tx_queue_url: btc_tx_queue_url.to_owned(),
+        }
+    }
+}
+
+impl Default for SovaConfig {
+    fn default() -> Self {
+        SovaConfig {
+            bitcoin: Arc::new(BitcoinConfig {
+                network: Network::Bitcoin,
+                network_url: String::new(),
+                rpc_username: String::new(),
+                rpc_password: String::new(),
+            }),
+            network_signing_url: String::new(),
+            network_utxo_url: String::new(),
+            btc_tx_queue_url: String::new(),
         }
     }
 }

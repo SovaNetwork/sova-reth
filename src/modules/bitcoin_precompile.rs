@@ -352,8 +352,6 @@ impl BitcoinRpcPrecompile {
             ))
         })?;
 
-        info!("Signed transaction: {}", signed_tx_hex);
-
         let signed_tx_bytes = hex::decode(signed_tx_hex).map_err(|e| {
             PrecompileErrors::Error(PrecompileError::Other(format!(
                 "Failed to decode signed transaction into hex: {:?}",
