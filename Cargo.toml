@@ -25,7 +25,7 @@ bitcoin = { version = "0.31.1", features = ["bitcoinconsensus"] }
 bitcoincore-rpc = "0.18.0"
 
 eyre = "0.6.12"
-tokio = { version = "1.39.3", features = ["full"] }
+tokio = { version = "1.39", default-features = false }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.94"
 toml = "0.8.10"
