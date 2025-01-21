@@ -8,3 +8,6 @@ target/
 
 # VSCode
 .vscode
+
+# node data
+data/

@@ -1,7 +1,7 @@
 use bitcoin::{BlockHash, Transaction, Txid};
 use bitcoincore_rpc::{json::DecodeRawTransactionResult, Auth, Client, RpcApi};
 
-use crate::config::BitcoinConfig;
+use sova_cli::BitcoinConfig;
 
 pub struct BitcoinClientWrapper {
     client: Client,

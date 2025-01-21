@@ -4,20 +4,17 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 
 use alloy_primitives::Bytes;
-use reth::revm::{
-    precompile::PrecompileOutput,
-    primitives::{Env, PrecompileError, PrecompileErrors, PrecompileResult, StatefulPrecompile},
+
+use reth::revm::primitives::{
+    Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
 };
 use reth_tracing::tracing::{error, info};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut};
 
-use super::{
-    abi_decoding::{decode_input, DecodedInput},
-    abi_encoding::abi_encode_tx_data,
-    bitcoin_client::BitcoinClientWrapper,
-};
-use crate::config::BitcoinConfig;
+use sova_cli::BitcoinConfig;
+
+use crate::{abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput};
 
 #[derive(Deserialize)]
 #[allow(dead_code)]

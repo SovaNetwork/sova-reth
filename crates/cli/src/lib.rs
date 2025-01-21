@@ -1,8 +1,8 @@
+mod chainspec;
+
+pub use chainspec::SovaChainSpecParser;
+
 use std::sync::Arc;
-
-use reth_chainspec::ChainSpec;
-
-use alloy_genesis::Genesis;
 
 use bitcoin::Network;
 
@@ -24,7 +24,7 @@ pub struct SovaConfig {
 
 impl SovaConfig {
     pub fn new(
-        btc_network: Network,
+        btc_network: &Network,
         network_url: &str,
         btc_rpc_username: &str,
         btc_rpc_password: &str,
@@ -33,7 +33,7 @@ impl SovaConfig {
         btc_tx_queue_url: &str,
     ) -> Self {
         let bitcoin_config = BitcoinConfig {
-            network: btc_network,
+            network: *btc_network,
             network_url: network_url.to_owned(),
             rpc_username: btc_rpc_username.to_owned(),
             rpc_password: btc_rpc_password.to_owned(),
@@ -62,48 +62,4 @@ impl Default for SovaConfig {
             btc_tx_queue_url: String::new(),
         }
     }
-}
-
-/// Genesis data for the testnet
-pub fn custom_chain() -> Arc<ChainSpec> {
-    let custom_genesis = r#"
-    {
-        "nonce": "0x42",
-        "timestamp": "0x0",
-        "extraData": "0x5343",
-        "gasLimit": "0x1c9c380",
-        "difficulty": "0x400000000",
-        "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "coinbase": "0x0000000000000000000000000000000000000000",
-        "alloc": {
-            "0x1a0Fe90f5Bf076533b2B74a21b3AaDf225CdDfF7": {
-                "balance": "0x52b7d2dcc80cd2e4000000"
-            }
-        },
-        "number": "0x0",
-        "gasUsed": "0x0",
-        "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "config": {
-            "ethash": {},
-            "chainId": 120893,
-            "homesteadBlock": 0,
-            "eip150Block": 0,
-            "eip155Block": 0,
-            "eip158Block": 0,
-            "byzantiumBlock": 0,
-            "constantinopleBlock": 0,
-            "petersburgBlock": 0,
-            "istanbulBlock": 0,
-            "berlinBlock": 0,
-            "londonBlock": 0,
-            "terminalTotalDifficulty": 0,
-            "terminalTotalDifficultyPassed": true,
-            "shanghaiTime": 0,
-            "cancunTime": 0
-        }
-    }
-    "#;
-
-    let genesis: Genesis = serde_json::from_str(custom_genesis).unwrap();
-    Arc::new(genesis.into())
 }
