@@ -46,7 +46,7 @@ EXPOSE 8545
 ENTRYPOINT ["/bin/sh", "-c"]
 
 # Set the default command
-CMD ["sova-reth \
+CMD ["sova-reth node \
     --btc-network $BTC_NETWORK \
     --network-url $BTC_RPC_URL \
     --btc-rpc-username $BTC_RPC_USER \
