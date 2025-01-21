@@ -15,13 +15,10 @@ WORKDIR /usr/src/sova-reth
 COPY Cargo.toml Cargo.lock ./
 
 # Copy the source code
-COPY src ./src
-
-# Build dependencies
-RUN cargo fetch --locked
+COPY . .
 
 # Build the project
-RUN cargo build --release --locked
+RUN cargo build --release --locked --bin sova-reth
 
 # Start a new stage for a smaller final image
 FROM debian:bullseye-slim
