@@ -55,7 +55,7 @@ CMD ["sova-reth node \
     --network-utxo-url $NETWORK_UTXO_URL \
     --btc-tx-queue-url $BTC_TX_QUEUE_URL \
     --chain $CHAIN \
-    --data-dir /var/lib/sova \
+    --datadir /var/lib/sova \
     --http \
     --http.addr 0.0.0.0 \
     --http.port 8545 \
