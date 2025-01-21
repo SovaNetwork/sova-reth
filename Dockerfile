@@ -65,4 +65,5 @@ CMD ["sova-reth node \
     --http.api all \
     --authrpc.addr 0.0.0.0 \
     --authrpc.port 8551 \
-    --log.stdout.filter $TRACE_LEVEL"]
+    --log.stdout.filter $TRACE_LEVEL \
+    --dev"]
