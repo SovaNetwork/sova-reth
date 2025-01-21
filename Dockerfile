@@ -56,4 +56,16 @@ CMD ["sova-reth \
     --btc-rpc-password $BTC_RPC_PASSWORD \
     --network-signing-url $NETWORK_SIGNING_URL \
     --network-utxo-url $NETWORK_UTXO_URL \
-    --btc-tx-queue-url $BTC_TX_QUEUE_URL"]
+    --btc-tx-queue-url $BTC_TX_QUEUE_URL \
+    --chain $CHAIN \
+    --data-dir /var/lib/sova \
+    --http \
+    --http.addr 0.0.0.0 \
+    --http.port 8545 \
+    --ws \
+    --ws.addr 0.0.0.0 \
+    --ws.port 8546 \
+    --http.api all \
+    --authrpc.addr 0.0.0.0 \
+    --authrpc.port 8551 \
+    --log.stdout.filter $TRACE_LEVEL"]
