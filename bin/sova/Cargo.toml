@@ -1,0 +1,24 @@
+[package]
+name = "sova-reth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sova-cli.workspace = true
+sova-evm.workspace = true
+sova-node.workspace = true
+sova-payload.workspace = true
+
+reth.workspace = true
+reth-cli-util.workspace = true
+reth-cli.workspace = true
+reth-node-ethereum.workspace = true
+
+clap.workspace = true
+
+[[bin]]
+name = "sova-reth"
+path = "src/main.rs"

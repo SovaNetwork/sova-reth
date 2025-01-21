@@ -4,7 +4,7 @@ use bitcoin::Network;
 
 /// Our custom cli args extension that adds flags to configure the bitcoin rpc client
 #[derive(Debug, Clone, Parser)]
-pub struct Args {
+pub struct SovaArgs {
     /// CLI flag to indicate the bitcoin network the bitcoin rpc client will connect to
     #[arg(long, value_parser = parse_network, default_value = "regtest")]
     pub btc_network: Network,
