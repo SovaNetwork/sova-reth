@@ -41,6 +41,18 @@ pub struct MyEvmConfig {
     /// Bitcoin RPC precompile Arc<RwLock<>> is used here since precompiles
     /// needs to be shared across multiple EVM instances
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    /// Storage inspector shared across EVM instances
+    inspector: StorageInspector,
+}
+
+pub trait WithInspector {
+    fn get_inspector(&self) -> &StorageInspector;
+}
+
+impl WithInspector for MyEvmConfig {
+    fn get_inspector(&self) -> &StorageInspector {
+        &self.inspector
+    }
 }
 
 impl MyEvmConfig {
@@ -52,9 +64,14 @@ impl MyEvmConfig {
             config.btc_tx_queue_url.clone(),
         )
         .expect("Failed to create Bitcoin RPC precompile");
+
+        let inspector =
+            StorageInspector::new(BITCOIN_PRECOMPILE_ADDRESS, vec![BITCOIN_PRECOMPILE_ADDRESS]);
+
         Self {
             inner: EthEvmConfig::new(chain_spec),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
+            inspector,
         }
     }
 
@@ -106,11 +123,8 @@ impl ConfigureEvm for MyEvmConfig {
     type Evm<'a, DB: Database + 'a, I: 'a> = EthEvm<'a, I, DB>;
 
     fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv) -> Self::Evm<'_, DB, ()> {
-        let _ = StorageInspector::new(BITCOIN_PRECOMPILE_ADDRESS, vec![BITCOIN_PRECOMPILE_ADDRESS]);
-
         EvmBuilder::default()
             .with_db(db)
-            //.with_external_context(inspector)
             .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
             .with_block_env(evm_env.block_env)
             // add additional precompiles

@@ -7,7 +7,7 @@ use reth::revm::{
 };
 use reth_tracing::tracing::info;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StorageInspector {
     /// Addresses that should be excluded from tracking (e.g., precompiles)
     pub excluded_addresses: HashSet<Address>,
@@ -49,14 +49,16 @@ where
 
             if method_selector == 0x00000001 {
                 info!("----- broadcast call hook -----");
-                // return Some(CallOutcome {
-                //     result: InterpreterResult {
-                //         result: InstructionResult::Revert,
-                //         output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
-                //         gas: Gas::new_spent(inputs.gas_limit),
-                //     },
-                //     memory_offset: inputs.return_memory_offset.clone(),
-                // });
+                return Some(CallOutcome {
+                    result: InterpreterResult {
+                        result: InstructionResult::Revert,
+                        output: Bytes::from(
+                            "Storage slot is locked by an unconfirmed Bitcoin transaction",
+                        ),
+                        gas: Gas::new_spent(inputs.gas_limit),
+                    },
+                    memory_offset: inputs.return_memory_offset.clone(),
+                });
             }
         }
 

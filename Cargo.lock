@@ -8696,18 +8696,48 @@ dependencies = [
  "clap",
  "eyre",
  "reth",
+ "reth-basic-payload-builder",
+ "reth-chainspec",
+ "reth-ethereum-engine-primitives",
+ "reth-ethereum-payload-builder",
+ "reth-evm",
+ "reth-node-api",
+ "reth-node-builder",
  "reth-node-ethereum",
+ "reth-payload-builder",
+ "reth-primitives",
+ "reth-provider",
  "reth-trie-db",
  "sova-cli",
  "sova-evm",
+ "sova-payload",
 ]
 
 [[package]]
 name = "sova-payload"
 version = "0.0.2"
 dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-primitives",
+ "reth",
+ "reth-basic-payload-builder",
+ "reth-chain-state",
+ "reth-chainspec",
+ "reth-errors",
+ "reth-ethereum-engine-primitives",
+ "reth-ethereum-payload-builder",
+ "reth-evm",
+ "reth-evm-ethereum",
+ "reth-execution-types",
  "reth-node-ethereum",
+ "reth-payload-builder",
+ "reth-payload-builder-primitives",
+ "reth-payload-primitives",
+ "reth-primitives-traits",
+ "reth-tracing",
  "sova-cli",
+ "sova-evm",
 ]
 
 [[package]]

@@ -10,9 +10,20 @@ keywords.workspace = true
 [dependencies]
 sova-cli.workspace = true
 sova-evm.workspace = true
+sova-payload.workspace = true
 
 reth.workspace = true
+reth-basic-payload-builder.workspace = true
+reth-chainspec.workspace = true
+reth-ethereum-engine-primitives.workspace = true
+reth-ethereum-payload-builder.workspace = true
+reth-evm.workspace = true
+reth-node-api.workspace = true
+reth-node-builder.workspace = true
 reth-node-ethereum.workspace = true
+reth-payload-builder.workspace = true
+reth-primitives.workspace = true
+reth-provider.workspace = true
 reth-trie-db.workspace = true
 
 bitcoin.workspace = true
