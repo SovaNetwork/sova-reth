@@ -51,7 +51,7 @@ struct SignTxInputData {
     amount: u64,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct BitcoinRpcPrecompile {
     bitcoin_client: Arc<BitcoinClientWrapper>,
     network: Network,

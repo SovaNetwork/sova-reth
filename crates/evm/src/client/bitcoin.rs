@@ -3,6 +3,7 @@ use bitcoincore_rpc::{json::DecodeRawTransactionResult, Auth, Client, RpcApi};
 
 use sova_cli::BitcoinConfig;
 
+#[derive(Debug)]
 pub struct BitcoinClientWrapper {
     client: Client,
 }

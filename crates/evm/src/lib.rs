@@ -1,36 +1,40 @@
 mod abi;
 mod client;
+mod constants;
 mod execute;
+mod inspector;
 mod precompiles;
 
 use crate::precompiles::BitcoinRpcPrecompile;
 pub use abi::*;
 pub use client::*;
+pub use constants::*;
 pub use execute::*;
+pub use inspector::*;
 
 use std::{convert::Infallible, sync::Arc};
 
 use parking_lot::RwLock;
 
 use alloy_consensus::Header;
-use alloy_primitives::{address, Address, Bytes};
+use alloy_primitives::Address;
 
 use reth::revm::{
     handler::register::EvmHandler,
     inspector_handle_register,
     precompile::PrecompileSpecId,
-    primitives::{CfgEnvWithHandlerCfg, Env, Precompile, TxEnv},
-    ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector,
+    primitives::{CfgEnvWithHandlerCfg, Precompile, TxEnv},
+    ContextPrecompile, ContextPrecompiles, Database, EvmBuilder, GetInspector,
 };
 use reth_chainspec::ChainSpec;
 use reth_evm::{env::EvmEnv, ConfigureEvm};
 use reth_node_api::{ConfigureEvmEnv, NextBlockEnvAttributes};
-use reth_node_ethereum::EthEvmConfig;
+use reth_node_ethereum::{evm::EthEvm, EthEvmConfig};
 use reth_primitives::TransactionSigned;
 
 use sova_cli::SovaConfig;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MyEvmConfig {
     /// Wrapper around mainnet configuration
     inner: EthEvmConfig,
@@ -65,7 +69,7 @@ impl MyEvmConfig {
             ContextPrecompiles::new(PrecompileSpecId::from_spec_id(spec_id));
 
         loaded_precompiles.to_mut().insert(
-            address!("0000000000000000000000000000000000000999"),
+            BITCOIN_PRECOMPILE_ADDRESS,
             ContextPrecompile::Ordinary(Precompile::Stateful(Arc::new(
                 BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()),
             ))),
@@ -85,17 +89,6 @@ impl ConfigureEvmEnv for MyEvmConfig {
         self.inner.fill_tx_env(tx_env, transaction, sender);
     }
 
-    fn fill_tx_env_system_contract_call(
-        &self,
-        env: &mut Env,
-        caller: Address,
-        contract: Address,
-        data: Bytes,
-    ) {
-        self.inner
-            .fill_tx_env_system_contract_call(env, caller, contract, data);
-    }
-
     fn fill_cfg_env(&self, cfg_env: &mut CfgEnvWithHandlerCfg, header: &Self::Header) {
         self.inner.fill_cfg_env(cfg_env, header);
     }
@@ -110,26 +103,33 @@ impl ConfigureEvmEnv for MyEvmConfig {
 }
 
 impl ConfigureEvm for MyEvmConfig {
-    fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv, tx: TxEnv) -> Evm<'_, (), DB> {
+    type Evm<'a, DB: Database + 'a, I: 'a> = EthEvm<'a, I, DB>;
+
+    fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv) -> Self::Evm<'_, DB, ()> {
+        let _ = StorageInspector::new(
+            BITCOIN_PRECOMPILE_ADDRESS,
+            vec![BITCOIN_PRECOMPILE_ADDRESS],
+        );
+
         EvmBuilder::default()
             .with_db(db)
+            //.with_external_context(inspector)
             .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
             .with_block_env(evm_env.block_env)
-            .with_tx_env(tx)
-            // add BTC precompiles
+            // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
             .build()
+            .into()
     }
 
     fn evm_with_env_and_inspector<DB, I>(
         &self,
         db: DB,
         evm_env: EvmEnv,
-        tx: TxEnv,
         inspector: I,
-    ) -> Evm<'_, I, DB>
+    ) -> Self::Evm<'_, DB, I>
     where
         DB: Database,
         I: GetInspector<DB>,
@@ -139,12 +139,12 @@ impl ConfigureEvm for MyEvmConfig {
             .with_external_context(inspector)
             .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
             .with_block_env(evm_env.block_env)
-            .with_tx_env(tx)
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
             .append_handler_register(inspector_handle_register)
             .build()
+            .into()
     }
 }
