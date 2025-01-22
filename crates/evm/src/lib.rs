@@ -106,10 +106,7 @@ impl ConfigureEvm for MyEvmConfig {
     type Evm<'a, DB: Database + 'a, I: 'a> = EthEvm<'a, I, DB>;
 
     fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv) -> Self::Evm<'_, DB, ()> {
-        let _ = StorageInspector::new(
-            BITCOIN_PRECOMPILE_ADDRESS,
-            vec![BITCOIN_PRECOMPILE_ADDRESS],
-        );
+        let _ = StorageInspector::new(BITCOIN_PRECOMPILE_ADDRESS, vec![BITCOIN_PRECOMPILE_ADDRESS]);
 
         EvmBuilder::default()
             .with_db(db)

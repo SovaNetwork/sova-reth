@@ -8,5 +8,13 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
+sova-cli.workspace = true
+sova-evm.workspace = true
+
+reth.workspace = true
+reth-node-ethereum.workspace = true
+reth-trie-db.workspace = true
+
 bitcoin.workspace = true
 clap.workspace = true
+eyre.workspace = true

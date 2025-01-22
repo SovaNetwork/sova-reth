@@ -33,9 +33,10 @@ reth-cli = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
+reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
-reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e", features = ["test-utils"] }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
+reth-trie-db = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 
 # alloy
 alloy-consensus = { version = "0.9.2", default-features = false }

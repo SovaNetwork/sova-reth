@@ -100,9 +100,14 @@ where
         &mut self,
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
-        let mut evm = self
-            .evm_config
-            .evm_for_block(&mut self.state, block.header());
+        // use evm with inspector
+        let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
+        let mut evm = self.evm_config.evm_with_env_and_inspector(
+            &mut self.state,
+            cfg_and_block_env,
+            &mut self.inspector,
+        );
+
         info!("Executing transactions evm created");
 
         let mut cumulative_gas_used = 0;
@@ -186,9 +191,9 @@ where
 #[derive(Debug, Clone)]
 pub struct MyExecutionStrategyFactory<EvmConfig = MyEvmConfig> {
     /// Describes the properties of the chain
-    chain_spec: Arc<ChainSpec>,
+    pub chain_spec: Arc<ChainSpec>,
     /// Config for EVM that includes Bitcoin precompile setup
-    evm_config: EvmConfig,
+    pub evm_config: EvmConfig,
 }
 
 impl<EvmConfig> MyExecutionStrategyFactory<EvmConfig> {
@@ -226,10 +231,8 @@ where
             .without_state_clear()
             .build();
 
-        let inspector = StorageInspector::new(
-            BITCOIN_PRECOMPILE_ADDRESS,
-            vec![BITCOIN_PRECOMPILE_ADDRESS],
-        );
+        let inspector =
+            StorageInspector::new(BITCOIN_PRECOMPILE_ADDRESS, vec![BITCOIN_PRECOMPILE_ADDRESS]);
 
         MyExecutionStrategy::new(
             state,
@@ -237,40 +240,5 @@ where
             self.evm_config.clone(),
             inspector,
         )
-    }
-}
-
-#[derive(Clone)]
-pub struct MyExecutorBuilder {
-    config: SovaConfig,
-}
-
-impl MyExecutorBuilder {
-    pub fn new(config: &SovaConfig) -> Self {
-        Self {
-            config: config.clone(),
-        }
-    }
-}
-
-impl<Node> ExecutorBuilder<Node> for MyExecutorBuilder
-where
-    Node: FullNodeTypes<Types: NodeTypes<ChainSpec = ChainSpec, Primitives = EthPrimitives>>,
-{
-    type EVM = MyEvmConfig;
-    type Executor = BasicBlockExecutorProvider<MyExecutionStrategyFactory>;
-
-    async fn build_evm(
-        self,
-        ctx: &BuilderContext<Node>,
-    ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        let evm_config = MyEvmConfig::new(&self.config, ctx.chain_spec());
-        Ok((
-            evm_config.clone(),
-            BasicBlockExecutorProvider::new(MyExecutionStrategyFactory {
-                chain_spec: ctx.chain_spec(),
-                evm_config,
-            }),
-        ))
     }
 }

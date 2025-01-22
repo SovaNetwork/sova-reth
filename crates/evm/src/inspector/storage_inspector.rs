@@ -1,8 +1,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use alloy_primitives::{Address, StorageKey};
+use alloy_primitives::{Address, Bytes, StorageKey};
 use reth::revm::{
-    interpreter::{CallInputs, CallOutcome},
+    interpreter::{CallInputs, CallOutcome, Gas, InstructionResult, InterpreterResult},
     Database, EvmContext, Inspector,
 };
 use reth_tracing::tracing::info;
@@ -43,15 +43,22 @@ where
         info!("----- call hook -----");
         if inputs.target_address == self.bitcoin_precompile_address {
             info!("Bitcoin precompile called");
+            let input_data = inputs.input.clone();
+            let method_selector =
+                u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
+
+            if method_selector == 0x00000001 {
+                info!("----- broadcast call hook -----");
+                // return Some(CallOutcome {
+                //     result: InterpreterResult {
+                //         result: InstructionResult::Revert,
+                //         output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
+                //         gas: Gas::new_spent(inputs.gas_limit),
+                //     },
+                //     memory_offset: inputs.return_memory_offset.clone(),
+                // });
+            }
         }
-        // return Some(CallOutcome {
-        //     result: InterpreterResult {
-        //         result: InstructionResult::Revert,
-        //         output: Bytes::from("Storage slot is locked by an unconfirmed Bitcoin transaction"),
-        //         gas: Gas::new_spent(inputs.gas_limit),
-        //     },
-        //     memory_offset: inputs.return_memory_offset.clone(),
-        // });
 
         None
     }
