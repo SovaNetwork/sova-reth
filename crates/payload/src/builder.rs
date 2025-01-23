@@ -44,7 +44,7 @@ use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives_traits::{Block as _, SignedTransaction};
 use reth_tracing::tracing::{debug, trace, warn};
 
-use sova_evm::{MyEvmConfig, StorageInspector, WithInspector};
+use sova_evm::{MyEvmConfig, WithInspector};
 
 type BestTransactionsIter<Pool> = Box<
     dyn BestTransactions<Item = Arc<ValidPoolTransaction<<Pool as TransactionPool>::Transaction>>>,
@@ -239,8 +239,8 @@ where
 
     // NOTE: UPDATE THESE LINES!!! Need evm with an inspector here
     // let mut evm = evm_config.evm_with_env(&mut db, evm_env);
-    let mut evm =
-        evm_config.evm_with_env_and_inspector(&mut db, evm_env, evm_config.get_inspector().clone());
+    let inspector = evm_config.get_inspector().write();
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, inspector.clone());
 
     let mut receipts = Vec::new();
     while let Some(pool_tx) = best_txs.next() {

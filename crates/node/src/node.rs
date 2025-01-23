@@ -1,6 +1,5 @@
 use reth::{
     builder::{components::PayloadServiceBuilder, PayloadBuilderConfig},
-    rpc::types::engine::PayloadAttributes,
     transaction_pool::{PoolTransaction, TransactionPool},
 };
 use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
@@ -12,11 +11,8 @@ use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{execute::BasicBlockExecutorProvider, ConfigureEvmFor};
 use reth_node_api::TxTy;
 use reth_node_builder::{
-    components::{
-        ComponentsBuilder, ConsensusBuilder, ExecutorBuilder, NetworkBuilder, PoolBuilder,
-    },
+    components::{ComponentsBuilder, ExecutorBuilder},
     node::{FullNodeTypes, NodeTypes, NodeTypesWithEngine},
-    rpc::{EngineValidatorBuilder, RpcAddOns},
     BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadTypes,
 };
 use reth_node_ethereum::{
@@ -24,7 +20,7 @@ use reth_node_ethereum::{
     payload::EthereumPayloadBuilder,
 };
 use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
-use reth_primitives::{EthPrimitives, TransactionSigned};
+use reth_primitives::EthPrimitives;
 use reth_provider::{CanonStateSubscriptions, EthStorage};
 use reth_trie_db::MerklePatriciaTrie;
 

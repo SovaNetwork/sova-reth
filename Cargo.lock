@@ -8678,6 +8678,7 @@ dependencies = [
  "reqwest",
  "reth",
  "reth-chainspec",
+ "reth-db",
  "reth-evm",
  "reth-node-api",
  "reth-node-ethereum",
@@ -8692,6 +8693,7 @@ dependencies = [
 name = "sova-node"
 version = "0.0.2"
 dependencies = [
+ "alloy-primitives",
  "bitcoin",
  "clap",
  "eyre",

@@ -42,17 +42,7 @@ pub struct MyEvmConfig {
     /// needs to be shared across multiple EVM instances
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
     /// Storage inspector shared across EVM instances
-    inspector: StorageInspector,
-}
-
-pub trait WithInspector {
-    fn get_inspector(&self) -> &StorageInspector;
-}
-
-impl WithInspector for MyEvmConfig {
-    fn get_inspector(&self) -> &StorageInspector {
-        &self.inspector
-    }
+    inspector: Arc<RwLock<StorageInspector>>,
 }
 
 impl MyEvmConfig {
@@ -71,7 +61,7 @@ impl MyEvmConfig {
         Self {
             inner: EthEvmConfig::new(chain_spec),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
-            inspector,
+            inspector: Arc::new(RwLock::new(inspector)),
         }
     }
 
@@ -157,5 +147,15 @@ impl ConfigureEvm for MyEvmConfig {
             .append_handler_register(inspector_handle_register)
             .build()
             .into()
+    }
+}
+
+pub trait WithInspector {
+    fn get_inspector(&self) -> &Arc<RwLock<StorageInspector>>;
+}
+
+impl WithInspector for MyEvmConfig {
+    fn get_inspector(&self) -> &Arc<RwLock<StorageInspector>> {
+        &self.inspector
     }
 }

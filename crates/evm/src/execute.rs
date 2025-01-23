@@ -4,7 +4,6 @@ use alloy_consensus::{BlockHeader, Transaction};
 use alloy_eips::eip7685::Requests;
 
 use reth::{
-    builder::{components::ExecutorBuilder, BuilderContext},
     core::primitives::SignedTransaction,
     providers::ProviderError,
     revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit},
@@ -18,14 +17,12 @@ use reth_evm::{
     system_calls::SystemCaller,
     ConfigureEvm, Evm, TxEnvOverrides,
 };
-use reth_node_api::{BlockBody, FullNodeTypes, NodeTypes};
-use reth_node_ethereum::BasicBlockExecutorProvider;
+use reth_node_api::BlockBody;
 use reth_primitives::{EthPrimitives, Receipt, RecoveredBlock};
 
 use reth_tracing::tracing::info;
-use sova_cli::SovaConfig;
 
-use crate::{MyEvmConfig, StorageInspector, BITCOIN_PRECOMPILE_ADDRESS};
+use crate::{MyEvmConfig, WithInspector};
 
 pub struct MyExecutionStrategy<DB, EvmConfig>
 where
@@ -41,20 +38,13 @@ where
     state: State<DB>,
     /// Utility to call system smart contracts.
     system_caller: SystemCaller<EvmConfig, ChainSpec>,
-    /// custom inspector
-    inspector: StorageInspector,
 }
 
 impl<DB, EvmConfig> MyExecutionStrategy<DB, EvmConfig>
 where
     EvmConfig: Clone,
 {
-    pub fn new(
-        state: State<DB>,
-        chain_spec: Arc<ChainSpec>,
-        evm_config: EvmConfig,
-        inspector: StorageInspector,
-    ) -> Self {
+    pub fn new(state: State<DB>, chain_spec: Arc<ChainSpec>, evm_config: EvmConfig) -> Self {
         let system_caller = SystemCaller::new(evm_config.clone(), chain_spec.clone());
         Self {
             state,
@@ -62,7 +52,6 @@ where
             evm_config,
             tx_env_overrides: None,
             system_caller,
-            inspector,
         }
     }
 }
@@ -71,9 +60,9 @@ impl<DB, EvmConfig> BlockExecutionStrategy for MyExecutionStrategy<DB, EvmConfig
 where
     DB: Database<Error: Into<ProviderError> + Display>,
     EvmConfig: ConfigureEvm<
-        Header = alloy_consensus::Header,
-        Transaction = reth_primitives::TransactionSigned,
-    >,
+            Header = alloy_consensus::Header,
+            Transaction = reth_primitives::TransactionSigned,
+        > + WithInspector,
 {
     type DB = DB;
     type Error = BlockExecutionError;
@@ -101,11 +90,12 @@ where
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
         // use evm with inspector
+        let inspector = self.evm_config.get_inspector().write();
         let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
         let mut evm = self.evm_config.evm_with_env_and_inspector(
             &mut self.state,
             cfg_and_block_env,
-            &mut self.inspector,
+            inspector.clone(),
         );
 
         info!("Executing transactions evm created");
@@ -215,7 +205,8 @@ where
         + ConfigureEvm<
             Header = alloy_consensus::Header,
             Transaction = reth_primitives::TransactionSigned,
-        >,
+        >
+        + WithInspector,
 {
     type Primitives = EthPrimitives;
     type Strategy<DB: Database<Error: Into<ProviderError> + Display>> =
@@ -231,14 +222,6 @@ where
             .without_state_clear()
             .build();
 
-        let inspector =
-            StorageInspector::new(BITCOIN_PRECOMPILE_ADDRESS, vec![BITCOIN_PRECOMPILE_ADDRESS]);
-
-        MyExecutionStrategy::new(
-            state,
-            self.chain_spec.clone(),
-            self.evm_config.clone(),
-            inspector,
-        )
+        MyExecutionStrategy::new(state, self.chain_spec.clone(), self.evm_config.clone())
     }
 }
