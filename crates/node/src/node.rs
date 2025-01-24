@@ -128,7 +128,6 @@ where
     }
 }
 
-/// Builds a regular ethereum block executor that uses the custom EVM.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct MyPayloadBuilder {

@@ -12,10 +12,12 @@ sova-cli.workspace = true
 
 reth.workspace = true
 reth-chainspec.workspace = true
+reth-db-api.workspace = true
 reth-evm.workspace = true
 reth-node-api.workspace = true
 reth-node-ethereum.workspace = true
 reth-primitives.workspace = true
+reth-provider.workspace = true
 reth-tracing.workspace = true
 
 alloy-consensus.workspace = true
