@@ -1,23 +1,11 @@
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-use alloy_primitives::{Address, Bytes, StorageKey};
-use reth::{
-    providers::{providers::StaticFileProvider, ProviderFactory},
-    revm::{
-        interpreter::{
-            opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
-        },
-        Database, EvmContext, Inspector,
-    },
+use alloy_primitives::{Address, StorageKey};
+use reth::revm::{
+    interpreter::{opcode, CallInputs, CallOutcome, Interpreter},
+    Database, EvmContext, Inspector,
 };
-use reth_db::{open_db_read_only, DatabaseEnv};
-use reth_node_api::NodeTypesWithDBAdapter;
-use reth_node_ethereum::EthereumNode;
-use reth_tracing::tracing::{error, info};
+use reth_tracing::tracing::info;
 
 #[derive(Clone, Debug)]
 pub struct StorageInspector {
@@ -75,88 +63,8 @@ where
             if method_selector == 0x00000001 {
                 info!("----- broadcast call hook -----");
 
-                // get read access to the database
-                let db_path = PathBuf::from("./data");
-                let db = match open_db_read_only(db_path.join("db").as_path(), Default::default()) {
-                    Ok(db) => db,
-                    Err(err) => {
-                        error!("Failed to open database: {}", err);
-                        return Some(CallOutcome {
-                            result: InterpreterResult {
-                                result: InstructionResult::Revert,
-                                output: Bytes::from("Failed to open database"),
-                                gas: Gas::new_spent(inputs.gas_limit),
-                            },
-                            memory_offset: inputs.return_memory_offset.clone(),
-                        });
-                    }
-                };
-
-                let chain_spec = reth_chainspec::DEV.clone();
-                let static_provider =
-                    match StaticFileProvider::read_only(db_path.join("static_files"), true) {
-                        Ok(provider) => provider,
-                        Err(err) => {
-                            error!("Failed to create static file provider: {}", err);
-                            return Some(CallOutcome {
-                                result: InterpreterResult {
-                                    result: InstructionResult::Revert,
-                                    output: Bytes::from("Failed to create static file provider"),
-                                    gas: Gas::new_spent(inputs.gas_limit),
-                                },
-                                memory_offset: inputs.return_memory_offset.clone(),
-                            });
-                        }
-                    };
-
-                let factory = ProviderFactory::<
-                    NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>,
-                >::new(Arc::new(db), chain_spec, static_provider);
-
-                // get database provider
-                let _provider = match factory.provider_rw() {
-                    Ok(provider) => provider,
-                    Err(err) => {
-                        error!("Failed to create provider: {}", err);
-                        return Some(CallOutcome {
-                            result: InterpreterResult {
-                                result: InstructionResult::Revert,
-                                output: Bytes::from("Failed to create provider"),
-                                gas: Gas::new_spent(inputs.gas_limit),
-                            },
-                            memory_offset: inputs.return_memory_offset.clone(),
-                        });
-                    }
-                };
-
-                // // Check if accessed slots are locked
-                // for slot in self.accessed_storage.iter() {
-                //     let lock = provider.get_storage_slot_lock(slot);
-
-                //     match lock {
-                //         Ok(Some(value)) => {
-                //             println!("TXID is: {}", value.txid);
-                //                 return Some(CallOutcome {
-                //                         result: InterpreterResult {
-                //                             result: InstructionResult::Revert,
-                //                             output: Bytes::from(
-                //                                 "Storage slot is locked by an unconfirmed Bitcoin transaction",
-                //                             ),
-                //                             gas: Gas::new_spent(inputs.gas_limit),
-                //                         },
-                //                         memory_offset: inputs.return_memory_offset.clone(),
-                //                     });
-                //         }
-                //         Ok(None) => {
-                //             println!("No UTXO was found for key {}", key);
-                //             // proceed with precompile execution
-                //         }
-                //         Err(err) => {
-                //             println!("An error occurred reading UTXO: {}", err);
-                //             // TODO(powvt): determine outcome here
-                //         }
-                //     }
-                // }
+                // Are any of the accessed slots locked?
+                // If so, return an revert InstructionResult
             }
         }
 
@@ -179,62 +87,8 @@ where
             if method_selector == 0x00000001 {
                 info!("----- broadcast call end hook -----");
 
-                // get write access to the database
-                let db_path = PathBuf::from("./data");
-                let db = match open_db_read_only(db_path.join("db").as_path(), Default::default()) {
-                    Ok(db) => db,
-                    Err(err) => {
-                        error!("Failed to open database: {}", err);
-                        return CallOutcome {
-                            result: InterpreterResult {
-                                result: InstructionResult::Revert,
-                                output: Bytes::from("Failed to open database"),
-                                gas: Gas::new_spent(inputs.gas_limit),
-                            },
-                            memory_offset: inputs.return_memory_offset.clone(),
-                        };
-                    }
-                };
-
-                let chain_spec = reth_chainspec::DEV.clone();
-                let static_provider =
-                    match StaticFileProvider::read_only(db_path.join("static_files"), true) {
-                        Ok(provider) => provider,
-                        Err(err) => {
-                            error!("Failed to create static file provider: {}", err);
-                            return CallOutcome {
-                                result: InterpreterResult {
-                                    result: InstructionResult::Revert,
-                                    output: Bytes::from("Failed to create static file provider"),
-                                    gas: Gas::new_spent(inputs.gas_limit),
-                                },
-                                memory_offset: inputs.return_memory_offset.clone(),
-                            };
-                        }
-                    };
-
-                let factory = ProviderFactory::<
-                    NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>,
-                >::new(Arc::new(db), chain_spec, static_provider);
-
-                // get database provider
-                let _provider = match factory.provider_rw() {
-                    Ok(provider) => provider,
-                    Err(err) => {
-                        error!("Failed to create provider: {}", err);
-                        return CallOutcome {
-                            result: InterpreterResult {
-                                result: InstructionResult::Revert,
-                                output: Bytes::from("Failed to create provider"),
-                                gas: Gas::new_spent(inputs.gas_limit),
-                            },
-                            memory_offset: inputs.return_memory_offset.clone(),
-                        };
-                    }
-                };
-
-                // convert any accessed storage to locked slots using the precompile return data
-                // write to database here
+                // Lock any SSTORE slots that were touched
+                // prior to the BTC broadcast call
             }
         }
 

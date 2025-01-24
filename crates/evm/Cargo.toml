@@ -12,7 +12,6 @@ sova-cli.workspace = true
 
 reth.workspace = true
 reth-chainspec.workspace = true
-reth-db.workspace = true
 reth-evm.workspace = true
 reth-node-api.workspace = true
 reth-node-ethereum.workspace = true
