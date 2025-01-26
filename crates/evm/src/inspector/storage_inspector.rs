@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use alloy_primitives::{Address, Bytes, StorageKey, U256};
+use alloy_primitives::{keccak256, Address, Bytes, StorageKey, U256};
 use reth::revm::{
     interpreter::{
         opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
@@ -64,14 +64,10 @@ impl StorageInspector {
         let composite = AddressStorageKey((address, slot));
         // Get the encoded bytes
         let encoded = composite.encode();
-        // Use first 32 bytes for our storage key
-        let mut key_bytes = [0u8; 32];
-        key_bytes[..32.min(encoded.len())].copy_from_slice(&encoded[..32.min(encoded.len())]);
-        info!(
-            "Generated storage key - Address: {:?}, Slot: {:?}, Key: {:?}",
-            address, slot, key_bytes
-        );
-        U256::from_be_bytes(key_bytes)
+        // Hash the bytes
+        let hash = keccak256(&encoded);
+        // Convert the hash to U256
+        U256::from_be_bytes(hash.into())
     }
 
     /// Check if a storage slot is locked by reading the slot's state
