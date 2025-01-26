@@ -237,10 +237,15 @@ where
         PayloadBuilderError::Internal(err.into())
     })?;
 
-    // NOTE: UPDATE THESE LINES!!! Need evm with an inspector here
-    // let mut evm = evm_config.evm_with_env(&mut db, evm_env);
-    let inspector = evm_config.get_inspector().write();
-    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, inspector.clone());
+    // evm with inspector
+    let mut inspector_gaurd = evm_config.get_inspector().lock().map_err(|e| {
+        PayloadBuilderError::Internal(RethError::Other(
+            format!("Payload builder: Failed to lock inspector: {}", e).into(),
+        ))
+    })?;
+    let inspector = &mut *inspector_gaurd;
+
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, inspector);
 
     let mut receipts = Vec::new();
     while let Some(pool_tx) = best_txs.next() {

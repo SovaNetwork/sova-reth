@@ -5,16 +5,13 @@ mod execute;
 mod inspector;
 mod precompiles;
 
-use crate::precompiles::BitcoinRpcPrecompile;
 pub use abi::*;
 pub use client::*;
 pub use constants::*;
 pub use execute::*;
 pub use inspector::*;
 
-use std::{convert::Infallible, sync::Arc};
-
-use parking_lot::RwLock;
+use std::{convert::Infallible, sync::{Arc, Mutex}};
 
 use alloy_consensus::Header;
 use alloy_primitives::Address;
@@ -31,18 +28,21 @@ use reth_evm::{env::EvmEnv, ConfigureEvm};
 use reth_node_api::{ConfigureEvmEnv, NextBlockEnvAttributes};
 use reth_node_ethereum::{evm::EthEvm, EthEvmConfig};
 use reth_primitives::TransactionSigned;
+use reth_tracing::tracing::error;
 
 use sova_cli::SovaConfig;
+
+use crate::precompiles::BitcoinRpcPrecompile;
 
 #[derive(Debug, Clone)]
 pub struct MyEvmConfig {
     /// Wrapper around mainnet configuration
     inner: EthEvmConfig,
-    /// Bitcoin RPC precompile Arc<RwLock<>> is used here since precompiles
+    /// Bitcoin RPC precompile Arc<Mutex<>> is used here since precompiles
     /// needs to be shared across multiple EVM instances
-    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    bitcoin_rpc_precompile: Arc<Mutex<BitcoinRpcPrecompile>>,
     /// Storage inspector shared across EVM instances
-    inspector: Arc<RwLock<StorageInspector>>,
+    inspector: Arc<Mutex<StorageInspector>>,
 }
 
 impl MyEvmConfig {
@@ -60,14 +60,14 @@ impl MyEvmConfig {
 
         Self {
             inner: EthEvmConfig::new(chain_spec),
-            bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
-            inspector: Arc::new(RwLock::new(inspector)),
+            bitcoin_rpc_precompile: Arc::new(Mutex::new(bitcoin_precompile)),
+            inspector: Arc::new(Mutex::new(inspector)),
         }
     }
 
     pub fn set_precompiles<EXT, DB>(
         handler: &mut EvmHandler<EXT, DB>,
-        bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+        bitcoin_rpc_precompile: Arc<Mutex<BitcoinRpcPrecompile>>,
     ) where
         DB: Database,
     {
@@ -75,10 +75,18 @@ impl MyEvmConfig {
         let mut loaded_precompiles: ContextPrecompiles<DB> =
             ContextPrecompiles::new(PrecompileSpecId::from_spec_id(spec_id));
 
+        let precompile = match bitcoin_rpc_precompile.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                error!("Critical: Failed to acquire precompile lock: {}", e);
+                return;
+            }
+        };
+
         loaded_precompiles.to_mut().insert(
             BITCOIN_PRECOMPILE_ADDRESS,
             ContextPrecompile::Ordinary(Precompile::Stateful(Arc::new(
-                BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()),
+                BitcoinRpcPrecompile::clone(&precompile),
             ))),
         );
 
@@ -150,12 +158,8 @@ impl ConfigureEvm for MyEvmConfig {
     }
 }
 
-pub trait WithInspector {
-    fn get_inspector(&self) -> &Arc<RwLock<StorageInspector>>;
-}
-
 impl WithInspector for MyEvmConfig {
-    fn get_inspector(&self) -> &Arc<RwLock<StorageInspector>> {
+    fn get_inspector(&self) -> &Arc<Mutex<StorageInspector>> {
         &self.inspector
     }
 }

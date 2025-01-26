@@ -2,3 +2,9 @@ use alloy_primitives::{address, Address};
 
 pub const BITCOIN_PRECOMPILE_ADDRESS: Address =
     address!("0000000000000000000000000000000000000999");
+
+pub const BROADCAST_BTC_TX_ID: u32 = 0x00000001;
+pub const DECODE_BTC_TX_ID: u32 = 0x00000002;
+pub const CHECK_BTC_SIG_ID: u32 = 0x00000003;
+pub const CONVERT_ADDR_ID: u32 = 0x00000004;
+pub const CREATE_AND_SIGN_BTC_TX_ID: u32 = 0x00000005;

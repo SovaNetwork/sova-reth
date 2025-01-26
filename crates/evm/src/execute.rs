@@ -20,8 +20,6 @@ use reth_evm::{
 use reth_node_api::BlockBody;
 use reth_primitives::{EthPrimitives, Receipt, RecoveredBlock};
 
-use reth_tracing::tracing::info;
-
 use crate::{MyEvmConfig, WithInspector};
 
 pub struct MyExecutionStrategy<DB, EvmConfig>
@@ -90,15 +88,19 @@ where
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
         // use evm with inspector
-        let inspector = self.evm_config.get_inspector().write();
+        let mut inspector_guard = self.evm_config.get_inspector().lock().map_err(|e| {
+            BlockExecutionError::Internal(reth_evm::execute::InternalBlockExecutionError::Other(
+                format!("Evm execution: Failed to lock inspector: {}", e).into(),
+            ))
+        })?;
+        let inspector = &mut *inspector_guard;
+
         let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
         let mut evm = self.evm_config.evm_with_env_and_inspector(
             &mut self.state,
             cfg_and_block_env,
-            inspector.clone(),
+            inspector,
         );
-
-        info!("Executing transactions evm created");
 
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body().transaction_count());

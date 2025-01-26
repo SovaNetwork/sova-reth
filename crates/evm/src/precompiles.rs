@@ -14,7 +14,10 @@ use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, T
 
 use sova_cli::BitcoinConfig;
 
-use crate::{abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput};
+use crate::{
+    abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput, BROADCAST_BTC_TX_ID,
+    CHECK_BTC_SIG_ID, CONVERT_ADDR_ID, CREATE_AND_SIGN_BTC_TX_ID, DECODE_BTC_TX_ID,
+};
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -375,11 +378,11 @@ impl StatefulPrecompile for BitcoinRpcPrecompile {
         let method_selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
 
         match method_selector {
-            0x00000001 => self.call_btc_tx_queue(&input[4..], 100_000),
-            0x00000002 => self.decode_raw_transaction(&input[4..], 150_000),
-            0x00000003 => self.check_signature(&input[4..], 100_000),
-            0x00000004 => self.convert_address(&input[4..]),
-            0x00000005 => self.create_and_sign_raw_transaction(input),
+            BROADCAST_BTC_TX_ID => self.call_btc_tx_queue(&input[4..], 100_000),
+            DECODE_BTC_TX_ID => self.decode_raw_transaction(&input[4..], 150_000),
+            CHECK_BTC_SIG_ID => self.check_signature(&input[4..], 100_000),
+            CONVERT_ADDR_ID => self.convert_address(&input[4..]),
+            CREATE_AND_SIGN_BTC_TX_ID => self.create_and_sign_raw_transaction(input),
             _ => Err(PrecompileErrors::Error(PrecompileError::Other(
                 "Unsupported Bitcoin RPC method".into(),
             ))),

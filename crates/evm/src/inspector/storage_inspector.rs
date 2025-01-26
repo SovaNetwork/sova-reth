@@ -1,14 +1,20 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use alloy_primitives::{Address, Bytes, StorageKey, U256};
 use reth::revm::{
     interpreter::{
         opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
+    primitives::EVMError,
     Database, EvmContext, Inspector,
 };
 use reth_db_api::{models::AddressStorageKey, table::Encode};
-use reth_tracing::tracing::{info, warn};
+use reth_tracing::tracing::{error, info};
+
+use crate::BROADCAST_BTC_TX_ID;
 
 #[derive(Clone, Debug)]
 pub struct StorageInspector {
@@ -96,7 +102,7 @@ impl StorageInspector {
             );
             is_locked
         } else {
-            warn!("Error reading lock status");
+            error!("Error reading lock status. ");
             false
         }
     }
@@ -107,7 +113,7 @@ impl StorageInspector {
         context: &mut EvmContext<DB>,
         address: Address,
         slot: StorageKey,
-    ) -> Result<(), DB::Error> {
+    ) -> Result<(), EVMError<DB::Error>> {
         let key_u256 = Self::storage_key_to_u256(address, slot);
 
         info!(
@@ -116,12 +122,12 @@ impl StorageInspector {
         );
 
         // Use sstore through journaled state to set the lock
-        let _ = context.inner.journaled_state.sstore(
+        context.inner.journaled_state.sstore(
             address,
             key_u256,
             U256::from(1),
             &mut context.inner.db,
-        );
+        )?;
 
         Ok(())
     }
@@ -143,9 +149,8 @@ where
             let method_selector =
                 u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
 
-            if method_selector == 0x00000001 {
+            if method_selector == BROADCAST_BTC_TX_ID {
                 info!("----- broadcast call hook -----");
-
                 // Check if any accessed slots are locked
                 for (address, slots) in &self.accessed_storage {
                     for slot in slots {
@@ -183,12 +188,36 @@ where
             let method_selector =
                 u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
 
-            if method_selector == 0x00000001 && outcome.result.result == InstructionResult::Return {
+            if method_selector == BROADCAST_BTC_TX_ID
+                && outcome.result.result == InstructionResult::Return
+            {
                 // Lock all accessed slots if the call was successful
                 for (address, slots) in &self.accessed_storage {
                     for slot in slots {
-                        if self.lock_slot(context, *address, *slot).is_err() {
-                            info!("Error locking slot");
+                        match self.lock_slot(context, *address, *slot) {
+                            Ok(_) => {
+                                // slot locking succeeded
+                                info!(
+                                    "Successfully locked slot - address: {:?}, slot: {:?}",
+                                    address, slot
+                                );
+                            }
+                            Err(_) => {
+                                error!(
+                                    "Failed to lock slot - address: {:?}, slot: {:?}",
+                                    address, slot,
+                                );
+
+                                // Return error outcome, slot locking failed
+                                return CallOutcome {
+                                    result: InterpreterResult {
+                                        result: InstructionResult::Revert,
+                                        output: Bytes::from("Failed to lock storage slot"),
+                                        gas: outcome.result.gas,
+                                    },
+                                    memory_offset: outcome.memory_offset,
+                                };
+                            }
                         }
                     }
                 }
@@ -210,4 +239,8 @@ where
             }
         }
     }
+}
+
+pub trait WithInspector {
+    fn get_inspector(&self) -> &Arc<Mutex<StorageInspector>>;
 }
