@@ -4,14 +4,19 @@ mod constants;
 mod execute;
 mod inspector;
 mod precompiles;
+mod utils;
 
 pub use abi::*;
 pub use client::*;
 pub use constants::*;
 pub use execute::*;
 pub use inspector::*;
+pub use utils::*;
 
-use std::{convert::Infallible, sync::{Arc, Mutex}};
+use std::{
+    convert::Infallible,
+    sync::{Arc, Mutex},
+};
 
 use alloy_consensus::Header;
 use alloy_primitives::Address;

@@ -11,16 +11,15 @@
     Native Bitcoin interations, using Reth
 </h3>
 
+<p align="left">
+  <a href="#overview">Overview</a> •
+  <a href="./docs/README.md">Documentation</a> •
+  <a href="https://github.com/SovaNetwork/running-sova">Run Dev Node</a>
+</p>
+
 <h1 align="center">
     <img src="./assets/sova-reth-prod.png" alt="sova-reth" width="100%" align="center">
 </h1>
-
-<p align="center">
-  <a href="#overview">Overview</a> •
-  <a href="./docs/README.md">Documentation</a> •
-  <a href="https://github.com/SovaNetwork/running-sova">Run Node</a> •
-  <a href="#license">License</a>
-</p>
 
 ## Overview
 

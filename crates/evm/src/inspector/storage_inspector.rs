@@ -1,3 +1,4 @@
+use core::ops::Range;
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     sync::{Arc, Mutex},
@@ -14,7 +15,7 @@ use reth::revm::{
 use reth_db_api::{models::AddressStorageKey, table::Encode};
 use reth_tracing::tracing::{error, info};
 
-use crate::BROADCAST_BTC_TX_ID;
+use crate::{BitcoinMethod, MethodError};
 
 #[derive(Clone, Debug)]
 pub struct StorageInspector {
@@ -65,7 +66,7 @@ impl StorageInspector {
         // Get the encoded bytes
         let encoded = composite.encode();
         // Hash the bytes
-        let hash = keccak256(&encoded);
+        let hash = keccak256(encoded);
         // Convert the hash to U256
         U256::from_be_bytes(hash.into())
     }
@@ -127,6 +128,27 @@ impl StorageInspector {
 
         Ok(())
     }
+
+    /// Parse the Bitcoin method from input data
+    fn get_method(input: &Bytes) -> Result<BitcoinMethod, MethodError> {
+        BitcoinMethod::try_from(input)
+    }
+
+    /// Create a revert outcome with an error message
+    fn create_revert_outcome(
+        message: String,
+        gas_limit: u64,
+        memory_offset: Range<usize>,
+    ) -> CallOutcome {
+        CallOutcome {
+            result: InterpreterResult {
+                result: InstructionResult::Revert,
+                output: Bytes::from(message),
+                gas: Gas::new_spent(gas_limit),
+            },
+            memory_offset,
+        }
+    }
 }
 
 impl<DB> Inspector<DB> for StorageInspector
@@ -141,29 +163,32 @@ where
         info!("----- call hook -----");
         if inputs.target_address == self.bitcoin_precompile_address {
             info!("Bitcoin precompile called");
-            let input_data = inputs.input.clone();
-            let method_selector =
-                u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
 
-            if method_selector == BROADCAST_BTC_TX_ID {
-                info!("----- broadcast call hook -----");
-                // Check if any accessed slots are locked
-                for (address, slots) in &self.accessed_storage {
-                    for slot in slots {
-                        if self.is_slot_locked(context, *address, *slot) {
-                            // Return error outcome if any slot is locked
-                            return Some(CallOutcome {
-                                result: InterpreterResult {
-                                    result: InstructionResult::Revert,
-                                    output: Bytes::from(
-                                        "Storage slot is locked by an unconfirmed Bitcoin transaction",
-                                    ),
-                                    gas: Gas::new_spent(inputs.gas_limit),
-                                },
-                                memory_offset: inputs.return_memory_offset.clone(),
-                            });
+            match Self::get_method(&inputs.input) {
+                Ok(BitcoinMethod::BroadcastTransaction) => {
+                    info!("----- broadcast call hook -----");
+                    // Check if any accessed slots are locked
+                    for (address, slots) in &self.accessed_storage {
+                        for slot in slots {
+                            if self.is_slot_locked(context, *address, *slot) {
+                                return Some(Self::create_revert_outcome(
+                                    "Storage slot is locked by an unconfirmed Bitcoin transaction"
+                                        .to_string(),
+                                    inputs.gas_limit,
+                                    inputs.return_memory_offset.clone(),
+                                ));
+                            }
                         }
                     }
+                }
+                Ok(_) => {} // Other methods we don't care about
+                Err(err) => {
+                    // Return an error if we couldn't parse the method
+                    return Some(Self::create_revert_outcome(
+                        format!("Invalid Bitcoin method: {}", err),
+                        inputs.gas_limit,
+                        inputs.return_memory_offset.clone(),
+                    ));
                 }
             }
         }
@@ -180,48 +205,47 @@ where
         info!("----- call end hook -----");
         if inputs.target_address == self.bitcoin_precompile_address {
             info!("Bitcoin precompile called");
-            let input_data = inputs.input.clone();
-            let method_selector =
-                u32::from_be_bytes([input_data[0], input_data[1], input_data[2], input_data[3]]);
 
-            if method_selector == BROADCAST_BTC_TX_ID
-                && outcome.result.result == InstructionResult::Return
-            {
-                // Lock all accessed slots if the call was successful
-                for (address, slots) in &self.accessed_storage {
-                    for slot in slots {
-                        match self.lock_slot(context, *address, *slot) {
-                            Ok(_) => {
-                                // slot locking succeeded
-                                info!(
-                                    "Successfully locked slot - address: {:?}, slot: {:?}",
-                                    address, slot
-                                );
-                            }
-                            Err(_) => {
-                                error!(
-                                    "Failed to lock slot - address: {:?}, slot: {:?}",
-                                    address, slot,
-                                );
-
-                                // Return error outcome, slot locking failed
-                                return CallOutcome {
-                                    result: InterpreterResult {
-                                        result: InstructionResult::Revert,
-                                        output: Bytes::from("Failed to lock storage slot"),
-                                        gas: outcome.result.gas,
-                                    },
-                                    memory_offset: outcome.memory_offset,
-                                };
+            match Self::get_method(&inputs.input) {
+                Ok(BitcoinMethod::BroadcastTransaction) => {
+                    if outcome.result.result == InstructionResult::Return {
+                        // Lock all accessed slots if the call was successful
+                        for (address, slots) in &self.accessed_storage {
+                            for slot in slots {
+                                match self.lock_slot(context, *address, *slot) {
+                                    Ok(_) => {
+                                        info!(
+                                            "Successfully locked slot - address: {:?}, slot: {:?}",
+                                            address, slot
+                                        );
+                                    }
+                                    Err(_) => {
+                                        error!(
+                                            "Failed to lock slot - address: {:?}, slot: {:?}",
+                                            address, slot,
+                                        );
+                                        return Self::create_revert_outcome(
+                                            "Failed to lock storage slot".to_string(),
+                                            inputs.gas_limit,
+                                            outcome.memory_offset,
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                Ok(_) => {} // Other methods we don't care about
+                Err(err) => {
+                    return Self::create_revert_outcome(
+                        format!("Invalid Bitcoin method: {}", err),
+                        inputs.gas_limit,
+                        outcome.memory_offset,
+                    );
+                }
             }
         }
 
-        let _ = context;
-        let _ = inputs;
         outcome
     }
 

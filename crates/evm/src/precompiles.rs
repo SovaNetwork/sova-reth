@@ -15,8 +15,7 @@ use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, T
 use sova_cli::BitcoinConfig;
 
 use crate::{
-    abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput, BROADCAST_BTC_TX_ID,
-    CHECK_BTC_SIG_ID, CONVERT_ADDR_ID, CREATE_AND_SIGN_BTC_TX_ID, DECODE_BTC_TX_ID,
+    abi_encode_tx_data, decode_input, utils::BitcoinMethod, BitcoinClientWrapper, DecodedInput,
 };
 
 #[derive(Deserialize)]
@@ -369,23 +368,22 @@ impl BitcoinRpcPrecompile {
 
 impl StatefulPrecompile for BitcoinRpcPrecompile {
     fn call(&self, input: &Bytes, _gas_price: u64, _env: &Env) -> PrecompileResult {
-        if input.len() < 4 {
-            return Err(PrecompileErrors::Error(PrecompileError::Other(
-                "Input too short for method selector".into(),
-            )));
-        }
+        let method = BitcoinMethod::try_from(input)
+            .map_err(|e| PrecompileErrors::Error(PrecompileError::Other(e.to_string())))?;
 
-        let method_selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
+        // Skip the selector bytes and get the method's input data
+        let input_data = &input[4..];
 
-        match method_selector {
-            BROADCAST_BTC_TX_ID => self.call_btc_tx_queue(&input[4..], 100_000),
-            DECODE_BTC_TX_ID => self.decode_raw_transaction(&input[4..], 150_000),
-            CHECK_BTC_SIG_ID => self.check_signature(&input[4..], 100_000),
-            CONVERT_ADDR_ID => self.convert_address(&input[4..]),
-            CREATE_AND_SIGN_BTC_TX_ID => self.create_and_sign_raw_transaction(input),
-            _ => Err(PrecompileErrors::Error(PrecompileError::Other(
-                "Unsupported Bitcoin RPC method".into(),
-            ))),
+        match method {
+            BitcoinMethod::BroadcastTransaction => {
+                self.call_btc_tx_queue(input_data, method.gas_limit())
+            }
+            BitcoinMethod::DecodeTransaction => {
+                self.decode_raw_transaction(input_data, method.gas_limit())
+            }
+            BitcoinMethod::CheckSignature => self.check_signature(input_data, method.gas_limit()),
+            BitcoinMethod::ConvertAddress => self.convert_address(input_data),
+            BitcoinMethod::CreateAndSignTransaction => self.create_and_sign_raw_transaction(input),
         }
     }
 }
