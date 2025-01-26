@@ -1,12 +1,32 @@
-# sova-reth
+<h1 align="left">
+    sova-reth
+</h1>
 
-**Native Bitcoin interations, using Reth**
+[![GitHub Release][gh-release]][gh-release]
+[![MIT License][mit-badge]][mit-url]
+[![Apache-2.0 License][apache-badge]][apache-url]
+[![CI Status][actions-badge]][actions-url]
 
-![](./assets/sova-reth-prod.png)
+<h3 align="left">
+    Native Bitcoin interations, using Reth
+</h3>
 
-[Developer Docs](./docs) | [Run Full Stack](https://github.com/SovaNetwork/running-sova)
+<h1 align="center">
+    <img src="./assets/sova-reth-prod.png" alt="sova-reth" width="100%" align="center">
+</h1>
 
-Sova uses a modified version of reth. Reth is an EVM based execution client. Sova adds new Bitcoin precompiles to reth.
+<p align="center">
+  <a href="#overview">Overview</a> •
+  <a href="./docs/README.md">Documentation</a> •
+  <a href="https://github.com/SovaNetwork/running-sova">Run Node</a> •
+  <a href="#license">License</a>
+</p>
+
+## Overview
+
+A Sova node is a modified Reth node. Reth is an EVM based execution client. The primary modification Sova provides are new precompiles which allow developers to interact with a Bitcoin node.
+
+[Reth Github](https://github.com/paradigmxyz/reth)
 
 ## Precompiles
 
@@ -69,3 +89,17 @@ cast call 0x0000000000000000000000000000000000000999 \
 --data 0x00000005 \
 --rpc-url http://localhost:8545
 ```
+
+## License
+
+Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in these crates by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+[mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
+[apache-badge]: https://img.shields.io/badge/license-Apache--2.0-blue.svg
+[mit-url]: LICENSE-MIT
+[apache-url]: LICENSE-APACHE
+[actions-badge]: https://github.com/ithacaxyz/odyssey/workflows/unit/badge.svg
+[actions-url]: https://github.com/SovaNetwork/sova-reth/actions?query=workflow%3ACI+branch%3Amain
+[gh-release]: https://img.shields.io/github/v/release/SovaNetwork/sova-reth
