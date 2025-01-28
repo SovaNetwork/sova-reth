@@ -150,7 +150,7 @@ impl BitcoinRpcPrecompile {
             return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
         }
 
-        // TODO: move deserialization to enclave, return txid in http response
+        // TODO(powvt): only txid is used from this deserialization
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
             PrecompileErrors::Error(PrecompileError::Other(
                 "Failed to deserialize Bitcoin transaction".into(),

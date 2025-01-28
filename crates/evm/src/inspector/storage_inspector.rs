@@ -155,6 +155,7 @@ impl<DB> Inspector<DB> for StorageInspector
 where
     DB: Database,
 {
+    /// Triggered at the beginning of any execution step that is a CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
     fn call(
         &mut self,
         context: &mut EvmContext<DB>,
@@ -196,6 +197,7 @@ where
         None
     }
 
+    /// Triggered at the end of any execution step that is a CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
     fn call_end(
         &mut self,
         context: &mut EvmContext<DB>,
