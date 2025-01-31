@@ -8,14 +8,11 @@ repository.workspace = true
 
 [dependencies]
 sova-cli.workspace = true
-sova-evm.workspace = true
 sova-node.workspace = true
-sova-payload.workspace = true
 
 reth.workspace = true
 reth-cli-util.workspace = true
-reth-cli.workspace = true
-reth-node-ethereum.workspace = true
+reth-tracing.workspace = true
 
 clap.workspace = true
 

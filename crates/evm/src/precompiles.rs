@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use alloy_primitives::Bytes;
 
-use reth::revm::primitives::{
+use reth_revm::primitives::{
     Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
 };
 use reth_tracing::tracing::{error, info};

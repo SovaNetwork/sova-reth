@@ -9,12 +9,29 @@ keywords.workspace = true
 
 [dependencies]
 sova-cli.workspace = true
-sova-node.workspace = true
 sova-evm.workspace = true
 
-reth.workspace = true
+reth-basic-payload-builder.workspace = true
+reth-chain-state.workspace = true
 reth-chainspec.workspace = true
+reth-ethereum-payload-builder.workspace = true
+reth-errors.workspace = true
+reth-evm.workspace = true
+reth-evm-ethereum.workspace = true
+reth-execution-types.workspace = true
 reth-node-ethereum.workspace = true
+reth-payload-builder.workspace = true
+reth-payload-builder-primitives.workspace = true
+reth-payload-primitives.workspace = true
 reth-primitives.workspace = true
+reth-primitives-traits.workspace = true
+reth-provider.workspace = true
+reth-revm.workspace = true
+reth-tracing.workspace = true
+reth-transaction-pool.workspace = true
+
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-primitives.workspace = true
 
 eyre.workspace = true
