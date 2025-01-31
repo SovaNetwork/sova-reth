@@ -8,8 +8,8 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
-reth.workspace = true
 reth-chainspec.workspace = true
+reth-revm.workspace = true
 
 alloy-consensus.workspace = true
 alloy-genesis.workspace = true

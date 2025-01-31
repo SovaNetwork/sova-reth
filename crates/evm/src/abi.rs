@@ -2,7 +2,7 @@ use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{sol, SolValue};
 
-use reth::revm::precompile::{PrecompileError, PrecompileErrors};
+use reth_revm::precompile::{PrecompileError, PrecompileErrors};
 
 use bitcoin::hashes::Hash;
 use bitcoin::Network;

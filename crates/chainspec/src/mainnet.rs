@@ -5,6 +5,7 @@ use std::{
 
 use alloy_genesis::{Genesis, GenesisAccount};
 use alloy_primitives::{address, b256, Address, Bytes, U256};
+
 use reth_chainspec::{Chain, ChainSpec, ChainSpecBuilder, DepositContract};
 
 use crate::constants::{deposit_contract_storage, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE};

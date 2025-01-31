@@ -1,3 +1,3 @@
 mod bitcoin;
 
-pub use bitcoin::*;
+pub use bitcoin::BitcoinClientWrapper;
