@@ -33,9 +33,11 @@ reth-chain-state = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-cli = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
+reth-consensus = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-errors = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
+reth-ethereum-consensus = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
 reth-execution-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }

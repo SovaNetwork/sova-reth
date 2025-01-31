@@ -1,15 +1,18 @@
 use std::{fmt::Display, sync::Arc};
 
 use alloy_consensus::{BlockHeader, Transaction};
-use alloy_eips::eip7685::Requests;
+use alloy_eips::{eip6110, eip7685::Requests};
 
 use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_consensus::ConsensusError;
+use reth_ethereum_consensus::validate_block_post_execution;
 use reth_evm::{
     execute::{
-        BlockExecutionError, BlockExecutionStrategy, BlockExecutionStrategyFactory,
-        BlockValidationError, ExecuteOutput,
+        balance_increment_state, BlockExecutionError, BlockExecutionStrategy,
+        BlockExecutionStrategyFactory, BlockValidationError, ExecuteOutput,
     },
-    system_calls::SystemCaller,
+    state_change::post_block_balance_increments,
+    system_calls::{OnStateHook, SystemCaller},
     ConfigureEvm, Evm, TxEnvOverrides,
 };
 use reth_node_api::BlockBody;
@@ -46,8 +49,8 @@ where
             state,
             chain_spec,
             evm_config,
-            tx_env_overrides: None,
             system_caller,
+            tx_env_overrides: None,
         }
     }
 }
@@ -72,11 +75,17 @@ where
         &mut self,
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<(), Self::Error> {
-        // Set state clear flag if the block is after the Spurious Dragon hardfork
-        let state_clear_flag = self
-            .chain_spec
-            .is_spurious_dragon_active_at_block(block.number);
+        // Set state clear flag if the block is after the Spurious Dragon hardfork.
+        let state_clear_flag =
+            (*self.chain_spec).is_spurious_dragon_active_at_block(block.number());
         self.state.set_state_clear_flag(state_clear_flag);
+
+        let mut evm = self
+            .evm_config
+            .evm_for_block(&mut self.state, block.header());
+
+        self.system_caller
+            .apply_pre_execution_changes(block.header(), &mut evm)?;
 
         Ok(())
     }
@@ -85,14 +94,12 @@ where
         &mut self,
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
-        let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
         let mut evm = self
             .evm_config
-            .evm_with_env(&mut self.state, cfg_and_block_env);
+            .evm_for_block(&mut self.state, block.header());
 
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body().transaction_count());
-
         for (sender, transaction) in block.transactions_with_sender() {
             // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
             // must be no greater than the block’s gasLimit.
@@ -144,7 +151,6 @@ where
                 },
             );
         }
-
         Ok(ExecuteOutput {
             receipts,
             gas_used: cumulative_gas_used,
@@ -153,10 +159,62 @@ where
 
     fn apply_post_execution_changes(
         &mut self,
-        _block: &RecoveredBlock<reth_primitives::Block>,
-        _receipts: &[Receipt],
+        block: &RecoveredBlock<reth_primitives::Block>,
+        receipts: &[Receipt],
     ) -> Result<Requests, Self::Error> {
-        Ok(Requests::default())
+        let mut evm = self
+            .evm_config
+            .evm_for_block(&mut self.state, block.header());
+
+        let requests = if self
+            .chain_spec
+            .is_prague_active_at_timestamp(block.timestamp)
+        {
+            // Collect all EIP-6110 deposits
+            let deposit_requests = reth_evm_ethereum::eip6110::parse_deposits_from_receipts(
+                &self.chain_spec,
+                receipts,
+            )?;
+
+            let mut requests = Requests::default();
+
+            if !deposit_requests.is_empty() {
+                requests.push_request_with_type(eip6110::DEPOSIT_REQUEST_TYPE, deposit_requests);
+            }
+
+            requests.extend(self.system_caller.apply_post_execution_changes(&mut evm)?);
+            requests
+        } else {
+            Requests::default()
+        };
+        drop(evm);
+
+        let balance_increments = post_block_balance_increments(&self.chain_spec, block);
+
+        // NOTE(powvt): This is a special case for the Ethereum DAO hardfork. Sova does not inherit this history.
+        // // Irregular state change at Ethereum DAO hardfork
+        // if self.chain_spec.fork(EthereumHardfork::Dao).transitions_at_block(block.number()) {
+        //     // drain balances from hardcoded addresses.
+        //     let drained_balance: u128 = self
+        //         .state
+        //         .drain_balances(DAO_HARDFORK_ACCOUNTS)
+        //         .map_err(|_| BlockValidationError::IncrementBalanceFailed)?
+        //         .into_iter()
+        //         .sum();
+
+        //     // return balance to DAO beneficiary.
+        //     *balance_increments.entry(DAO_HARDFORK_BENEFICIARY).or_default() += drained_balance;
+        // }
+
+        // increment balances
+        self.state
+            .increment_balances(balance_increments.clone())
+            .map_err(|_| BlockValidationError::IncrementBalanceFailed)?;
+        // call state hook with changes due to balance increments.
+        let balance_state = balance_increment_state(&balance_increments, &mut self.state)?;
+        self.system_caller.on_state(&balance_state);
+
+        Ok(requests)
     }
 
     fn state_ref(&self) -> &State<DB> {
@@ -165,6 +223,19 @@ where
 
     fn state_mut(&mut self) -> &mut State<DB> {
         &mut self.state
+    }
+
+    fn with_state_hook(&mut self, hook: Option<Box<dyn OnStateHook>>) {
+        self.system_caller.with_state_hook(hook);
+    }
+
+    fn validate_block_post_execution(
+        &self,
+        block: &RecoveredBlock<reth_primitives::Block>,
+        receipts: &[Receipt],
+        requests: &Requests,
+    ) -> Result<(), ConsensusError> {
+        validate_block_post_execution(block, &self.chain_spec.clone(), receipts, requests)
     }
 }
 
