@@ -2,10 +2,13 @@ mod abi;
 mod client;
 mod execute;
 mod precompiles;
+mod inspector;
 
 pub use abi::*;
 pub use client::*;
 pub use execute::*;
+pub use inspector::SovaInspector;
+use inspector::WithInspector;
 
 use crate::precompiles::BitcoinRpcPrecompile;
 
@@ -38,6 +41,8 @@ pub struct MyEvmConfig {
     /// Bitcoin RPC precompile Arc<RwLock<>> is used here since precompiles
     /// needs to be shared across multiple EVM instances
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    /// Engine inspector to track and inspcect bitcoin transactions
+    inspector: Arc<RwLock<SovaInspector>>,
 }
 
 impl MyEvmConfig {
@@ -58,6 +63,7 @@ impl MyEvmConfig {
         Self {
             inner: EthEvmConfig::new(chain_spec),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
+            inspector,
         }
     }
 
@@ -143,5 +149,11 @@ impl ConfigureEvm for MyEvmConfig {
             .append_handler_register(inspector_handle_register)
             .build()
             .into()
+    }
+}
+
+impl WithInspector for MyEvmConfig {
+    fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
+        &self.inspector
     }
 }
