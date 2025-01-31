@@ -21,7 +21,7 @@ use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
 use reth_revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit};
 
-use crate::MyEvmConfig;
+use crate::{inspector::WithInspector, MyEvmConfig};
 
 pub struct MyExecutionStrategy<DB, EvmConfig>
 where
@@ -61,7 +61,7 @@ where
     EvmConfig: ConfigureEvm<
         Header = alloy_consensus::Header,
         Transaction = reth_primitives::TransactionSigned,
-    >,
+    > + WithInspector,
 {
     type DB = DB;
     type Error = BlockExecutionError;
@@ -94,9 +94,19 @@ where
         &mut self,
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
+        let mut inspector = self.evm_config.with_inspector().write();
+
+        let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
+
         let mut evm = self
-            .evm_config
-            .evm_for_block(&mut self.state, block.header());
+            .evm_config.evm_with_env_and_inspector(
+                &mut self.state,
+            cfg_and_block_env,
+            &mut *inspector,
+        );
+        // let mut evm = self
+        //     .evm_config
+        //     .evm_for_block(&mut self.state, block.header());
 
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body().transaction_count());
@@ -266,7 +276,7 @@ where
         + ConfigureEvm<
             Header = alloy_consensus::Header,
             Transaction = reth_primitives::TransactionSigned,
-        >,
+        > + WithInspector,
 {
     type Primitives = EthPrimitives;
     type Strategy<DB: Database<Error: Into<ProviderError> + Display>> =
