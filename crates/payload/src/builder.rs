@@ -106,7 +106,7 @@ where
             .map_err(PayloadBuilderError::other)?;
 
         let pool = args.pool.clone();
-        default_ethereum_payload(
+        default_sova_payload(
             self.evm_config.clone(),
             self.builder_config.clone(),
             args,
@@ -136,7 +136,7 @@ where
 
         let pool = args.pool.clone();
 
-        default_ethereum_payload(
+        default_sova_payload(
             self.evm_config.clone(),
             self.builder_config.clone(),
             args,
@@ -148,21 +148,21 @@ where
     }
 }
 
-/// Constructs an Ethereum transaction payload using the best transactions from the pool.
+/// Constructs a Sova transaction payload using the best transactions from the pool.
 ///
-/// Given build arguments including an Ethereum client, transaction pool,
+/// Given build arguments including an Sova client, transaction pool,
 /// and configuration, this function creates a transaction payload. Returns
 /// a result indicating success with the payload or an error in case of failure.
 #[inline]
-pub fn default_ethereum_payload<EC, Pool, Client, F>(
-    evm_config: EC,
+pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
+    evm_config: EvmConfig,
     builder_config: EthereumBuilderConfig,
     args: BuildArguments<Pool, Client, EthPayloadBuilderAttributes, EthBuiltPayload>,
     evm_env: EvmEnv,
     best_txs: F,
 ) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError>
 where
-    EC: ConfigureEvm<Header = Header, Transaction = TransactionSigned>,
+    EvmConfig: ConfigureEvm<Header = Header, Transaction = TransactionSigned>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
     F: FnOnce(BestTransactionsAttributes) -> BestTransactionsIter<Pool>,
