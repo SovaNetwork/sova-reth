@@ -1,10 +1,11 @@
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, path::PathBuf, sync::Arc};
 
 use alloy_consensus::{BlockHeader, Transaction};
 use alloy_eips::{eip6110, eip7685::Requests};
 
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_consensus::ConsensusError;
+use reth_db::open_db;
 use reth_ethereum_consensus::validate_block_post_execution;
 use reth_evm::{
     execute::{
@@ -20,6 +21,7 @@ use reth_primitives::{EthPrimitives, Receipt, RecoveredBlock};
 use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
 use reth_revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit};
+use reth_tracing::tracing::info;
 
 use crate::{inspector::WithInspector, MyEvmConfig};
 
