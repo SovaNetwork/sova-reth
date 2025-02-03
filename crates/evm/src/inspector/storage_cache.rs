@@ -1,6 +1,22 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::{collections::{BTreeSet, HashMap, HashSet}, ops::Add};
 
 use alloy_primitives::{Address, StorageKey};
+
+pub struct AccessedStorage (HashMap<Address, BTreeSet<StorageKey>>);
+
+impl AccessedStorage {
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    fn entry(&mut self, address: Address) -> &mut BTreeSet<StorageKey> {
+        self.0.entry(address).or_default()
+    }
+
+    fn insert(&mut self, address: Address, storage_key: StorageKey) {
+        self.entry(address).insert(storage_key);
+    }
+}
 
 pub struct StorageCache {
     /// Bitcoin precompile address used for filtering calls to the broadcast tx method
@@ -8,7 +24,7 @@ pub struct StorageCache {
     /// excluded addresses from the inspector
     excluded_addresses: HashSet<Address>,
     /// cache of addresses and storage slots touched during a tx
-    accessed_storage: HashMap<Address, BTreeSet<StorageKey>>,
+    accessed_storage: AccessedStorage,
 }
 
 impl StorageCache {
@@ -19,7 +35,7 @@ impl StorageCache {
         Self {
             bitcoin_precompile_address,
             excluded_addresses: excluded_addresses.into_iter().collect(),
-            accessed_storage: HashMap::new(),
+            accessed_storage: AccessedStorage::new(),
         }
     }
 
