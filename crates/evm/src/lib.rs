@@ -1,24 +1,20 @@
-mod abi;
-mod client;
+mod constants;
 mod execute;
 mod inspector;
-mod precompile_utils;
 mod precompiles;
 
-pub use abi::*;
-pub use client::*;
+use constants::BTC_PRECOMPILE_ADDRESS;
 pub use execute::*;
-pub use inspector::SovaInspector;
+use inspector::SovaInspector;
 use inspector::WithInspector;
-
-use crate::precompiles::BitcoinRpcPrecompile;
+use precompiles::BitcoinRpcPrecompile;
 
 use std::{convert::Infallible, sync::Arc};
 
 use parking_lot::RwLock;
 
 use alloy_consensus::Header;
-use alloy_primitives::{address, Address};
+use alloy_primitives::Address;
 
 use reth_chainspec::ChainSpec;
 use reth_evm::{env::EvmEnv, ConfigureEvm};
@@ -39,10 +35,9 @@ use sova_cli::SovaConfig;
 pub struct MyEvmConfig {
     /// Wrapper around mainnet configuration
     inner: EthEvmConfig,
-    /// Bitcoin RPC precompile Arc<RwLock<>> is used here since precompiles
-    /// needs to be shared across multiple EVM instances
+    /// Bitcoin precompile execution logic
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
-    /// Engine inspector to track and inspcect bitcoin transactions
+    /// Engine inspector used to track bitcoin precompile execution for double spends
     inspector: Arc<RwLock<SovaInspector>>,
 }
 
@@ -60,6 +55,12 @@ impl MyEvmConfig {
             config.btc_tx_queue_url.clone(),
         )
         .expect("Failed to create Bitcoin RPC precompile");
+
+        let inspector = Arc::new(RwLock::new(SovaInspector::new(
+            BTC_PRECOMPILE_ADDRESS,
+            vec![(BTC_PRECOMPILE_ADDRESS)],
+            config.storage_slot_provider_url.clone(),
+        )));
 
         Self {
             inner: EthEvmConfig::new(chain_spec),
@@ -79,7 +80,7 @@ impl MyEvmConfig {
             ContextPrecompiles::new(PrecompileSpecId::from_spec_id(spec_id));
 
         loaded_precompiles.to_mut().insert(
-            address!("0000000000000000000000000000000000000999"),
+            BTC_PRECOMPILE_ADDRESS,
             ContextPrecompile::Ordinary(Precompile::Stateful(Arc::new(
                 BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()),
             ))),

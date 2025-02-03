@@ -8678,8 +8678,6 @@ dependencies = [
  "reqwest",
  "reth-chainspec",
  "reth-consensus",
- "reth-db",
- "reth-db-api",
  "reth-ethereum-consensus",
  "reth-evm",
  "reth-evm-ethereum",

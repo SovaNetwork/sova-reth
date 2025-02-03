@@ -22,13 +22,13 @@ impl StorageSlotProvider {
 }
 
 impl SlotProvider for StorageSlotProvider {
-    fn get_locks(&self, storage: AccessedStorage) -> Result<Vec<bool>, String> {
+    fn get_locks(&self, _storage: AccessedStorage) -> Result<Vec<bool>, String> {
         // TODO: Implement this
 
         Ok(vec![])
     }
 
-    fn lock_slots(&self, storage: AccessedStorage) -> Result<(), String> {
+    fn lock_slots(&self, _storage: AccessedStorage) -> Result<(), String> {
         // TODO: Implement this
 
         Ok(())

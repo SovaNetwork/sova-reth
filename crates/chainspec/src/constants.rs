@@ -1,4 +1,4 @@
-//! These constants we generated from the documentation here:
+//! These constants were generated from the documentation here:
 //! https://github.com/protolambda/merge-genesis-tools/blob/master/README.md#deposit-contract
 
 use std::{collections::BTreeMap, str::FromStr};

@@ -84,13 +84,15 @@ impl SovaNode {
             >,
         >,
     {
-        let btc_network: bitcoin::Network = self.args.btc_network.clone().into();
-
-        let sova_config: SovaConfig = SovaConfig::new(
-            &btc_network,
+        let btc_config: BitcoinConfig = BitcoinConfig::new(
+            self.args.btc_network.clone().into(),
             &self.args.network_url,
             &self.args.btc_rpc_username,
             &self.args.btc_rpc_password,
+        );
+
+        let sova_config: SovaConfig = SovaConfig::new(
+            btc_config,
             &self.args.network_signing_url,
             &self.args.network_utxo_url,
             &self.args.btc_tx_queue_url,

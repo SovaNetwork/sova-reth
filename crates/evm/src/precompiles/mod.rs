@@ -1,5 +1,13 @@
+mod abi;
+mod btc_client;
+mod precompile_utils;
+
+pub use precompile_utils::{BitcoinMethod, MethodError};
+
 use std::sync::Arc;
 
+use abi::{abi_encode_tx_data, decode_input, DecodedInput};
+use btc_client::BitcoinClient;
 use reqwest::blocking::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +20,11 @@ use reth_tracing::tracing::{error, info};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut};
 
+<<<<<<< HEAD:crates/evm/src/precompiles.rs
 use crate::{abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput};
+=======
+use sova_cli::BitcoinConfig;
+>>>>>>> bfb15e5 (precompile updates):crates/evm/src/precompiles/mod.rs
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -51,7 +63,8 @@ struct SignTxInputData {
 
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
-    bitcoin_client: Arc<BitcoinClientWrapper>,
+    bitcoin_client: Arc<BitcoinClient>,
+    network: Network,
     http_client: Arc<ReqwestClient>,
     network: Network,
     network_signing_url: String,

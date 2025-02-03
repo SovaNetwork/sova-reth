@@ -9,7 +9,7 @@ pub enum BitcoinMethod {
     BroadcastTransaction,
     /// Decodes a raw Bitcoin transaction
     DecodeTransaction,
-    /// Checks Bitcoin transaction signatures
+    /// Checks Bitcoin transaction signature
     CheckSignature,
     /// Converts Ethereum address to Bitcoin address
     ConvertAddress,
@@ -18,17 +18,6 @@ pub enum BitcoinMethod {
 }
 
 impl BitcoinMethod {
-    /// Gets the method selector (function ID) for the method
-    pub fn selector(&self) -> u32 {
-        match self {
-            BitcoinMethod::BroadcastTransaction => 0x00000001,
-            BitcoinMethod::DecodeTransaction => 0x00000002,
-            BitcoinMethod::CheckSignature => 0x00000003,
-            BitcoinMethod::ConvertAddress => 0x00000004,
-            BitcoinMethod::CreateAndSignTransaction => 0x00000005,
-        }
-    }
-
     /// Gets the gas limit for the method
     pub fn gas_limit(&self) -> u64 {
         match self {
@@ -99,18 +88,6 @@ impl TryFrom<&Bytes> for BitcoinMethod {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_method_selectors() {
-        assert_eq!(BitcoinMethod::BroadcastTransaction.selector(), 0x00000001);
-        assert_eq!(BitcoinMethod::DecodeTransaction.selector(), 0x00000002);
-        assert_eq!(BitcoinMethod::CheckSignature.selector(), 0x00000003);
-        assert_eq!(BitcoinMethod::ConvertAddress.selector(), 0x00000004);
-        assert_eq!(
-            BitcoinMethod::CreateAndSignTransaction.selector(),
-            0x00000005
-        );
-    }
 
     #[test]
     fn test_parse_method() {

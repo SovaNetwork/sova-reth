@@ -5,31 +5,11 @@ use bitcoincore_rpc::{json::DecodeRawTransactionResult, Auth, Client, RpcApi};
 
 use sova_cli::BitcoinConfig;
 
-pub struct BitcoinClientWrapper {
+pub struct BitcoinClient {
     client: Client,
 }
 
-impl Default for BitcoinClientWrapper {
-    fn default() -> Self {
-        // Create default configuration for local regtest node
-        let config = BitcoinConfig {
-            network: bitcoin::Network::Regtest,
-            network_url: "http://127.0.0.1".to_string(),
-            rpc_username: "user".to_string(),
-            rpc_password: "password".to_string(),
-        };
-
-        Self::new(&config).expect("Failed to create default Bitcoin client")
-    }
-}
-
-impl fmt::Debug for BitcoinClientWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BitcoinClientWrapper").finish()
-    }
-}
-
-impl BitcoinClientWrapper {
+impl BitcoinClient {
     pub fn new(config: &BitcoinConfig) -> Result<Self, bitcoincore_rpc::Error> {
         let port = match config.network {
             bitcoin::Network::Bitcoin => 8332,
