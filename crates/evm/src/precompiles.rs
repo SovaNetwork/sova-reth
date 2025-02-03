@@ -363,23 +363,22 @@ impl BitcoinRpcPrecompile {
 
 impl StatefulPrecompile for BitcoinRpcPrecompile {
     fn call(&self, input: &Bytes, _gas_price: u64, _env: &Env) -> PrecompileResult {
-        if input.len() < 4 {
-            return Err(PrecompileErrors::Error(PrecompileError::Other(
-                "Input too short for method selector".into(),
-            )));
-        }
+        let method = BitcoinMethod::try_from(input)
+            .map_err(|e| PrecompileErrors::Error(PrecompileError::Other(e.to_string())))?;
 
-        let method_selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
+        // Skip the selector bytes and get the method's input data
+        let input_data = &input[4..];
 
-        match method_selector {
-            0x00000001 => self.call_btc_tx_queue(&input[4..], 100_000),
-            0x00000002 => self.decode_raw_transaction(&input[4..], 150_000),
-            0x00000003 => self.check_signature(&input[4..], 100_000),
-            0x00000004 => self.convert_address(&input[4..]),
-            0x00000005 => self.create_and_sign_raw_transaction(input),
-            _ => Err(PrecompileErrors::Error(PrecompileError::Other(
-                "Unsupported Bitcoin RPC method".into(),
-            ))),
+        match method {
+            BitcoinMethod::BroadcastTransaction => {
+                self.call_btc_tx_queue(input_data, method.gas_limit())
+            }
+            BitcoinMethod::DecodeTransaction => {
+                self.decode_raw_transaction(input_data, method.gas_limit())
+            }
+            BitcoinMethod::CheckSignature => self.check_signature(input_data, method.gas_limit()),
+            BitcoinMethod::ConvertAddress => self.convert_address(input_data),
+            BitcoinMethod::CreateAndSignTransaction => self.create_and_sign_raw_transaction(input),
         }
     }
 }

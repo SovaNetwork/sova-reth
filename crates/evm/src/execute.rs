@@ -1,11 +1,10 @@
-use std::{fmt::Display, path::PathBuf, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 use alloy_consensus::{BlockHeader, Transaction};
 use alloy_eips::{eip6110, eip7685::Requests};
 
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_consensus::ConsensusError;
-use reth_db::open_db;
 use reth_ethereum_consensus::validate_block_post_execution;
 use reth_evm::{
     execute::{
@@ -21,7 +20,6 @@ use reth_primitives::{EthPrimitives, Receipt, RecoveredBlock};
 use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
 use reth_revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit};
-use reth_tracing::tracing::info;
 
 use crate::{inspector::WithInspector, MyEvmConfig};
 
@@ -61,9 +59,9 @@ impl<DB, EvmConfig> BlockExecutionStrategy for MyExecutionStrategy<DB, EvmConfig
 where
     DB: Database<Error: Into<ProviderError> + Display>,
     EvmConfig: ConfigureEvm<
-        Header = alloy_consensus::Header,
-        Transaction = reth_primitives::TransactionSigned,
-    > + WithInspector,
+            Header = alloy_consensus::Header,
+            Transaction = reth_primitives::TransactionSigned,
+        > + WithInspector,
 {
     type DB = DB;
     type Error = BlockExecutionError;
@@ -100,9 +98,8 @@ where
 
         let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
 
-        let mut evm = self
-            .evm_config.evm_with_env_and_inspector(
-                &mut self.state,
+        let mut evm = self.evm_config.evm_with_env_and_inspector(
+            &mut self.state,
             cfg_and_block_env,
             &mut *inspector,
         );
@@ -278,7 +275,8 @@ where
         + ConfigureEvm<
             Header = alloy_consensus::Header,
             Transaction = reth_primitives::TransactionSigned,
-        > + WithInspector,
+        >
+        + WithInspector,
 {
     type Primitives = EthPrimitives;
     type Strategy<DB: Database<Error: Into<ProviderError> + Display>> =

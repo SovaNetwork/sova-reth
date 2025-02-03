@@ -94,6 +94,7 @@ impl SovaNode {
             &self.args.network_signing_url,
             &self.args.network_utxo_url,
             &self.args.btc_tx_queue_url,
+            &self.args.storage_slot_provider_url,
         );
         ComponentsBuilder::default()
             .node_types::<Node>()

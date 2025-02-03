@@ -1,63 +1,61 @@
-use std::{path::{Path, PathBuf}, sync::Arc};
+use core::ops::Range;
+use std::sync::Arc;
 
-use alloy_primitives::{Address, StorageKey};
+use alloy_primitives::{Address, Bytes, StorageKey};
 use parking_lot::RwLock;
-use reth_chainspec::ChainSpec;
-use reth_db::{mdbx::{tx::Tx, RW}, open_db, DatabaseEnv, cursor::DbCursorRW};
-use reth_node_api::NodeTypesWithDBAdapter;
-use reth_node_ethereum::EthereumNode;
-use reth_provider::{providers::StaticFileProvider, DatabaseProvider, DatabaseProviderFactory, ProviderFactory};
-use reth_revm::{interpreter::{opcode, CallInputs, CallOutcome, Interpreter}, EvmContext, Inspector};
+
+use reth_revm::{
+    interpreter::{
+        opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
+    },
+    EvmContext, Inspector,
+};
 use reth_tracing::tracing::info;
 
-use super::{storage_cache::StorageCache, table::{StorageLockKey, StorageLockTable}};
+use crate::{
+    inspector::provider::SlotProvider,
+    precompile_utils::{BitcoinMethod, MethodError},
+};
+
+use super::{provider::StorageSlotProvider, storage_cache::StorageCache};
 
 pub struct SovaInspector {
     /// accessed storage cache
     cache: StorageCache,
-    // /// client for calling external storage service
-    // db_provider: DatabaseProvider<Tx<RW>, NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>
+    /// client for calling external storage service
+    storage_slot_provider: StorageSlotProvider,
 }
 
 impl SovaInspector {
     pub fn new(
         bitcoin_precompile_address: Address,
         excluded_addresses: impl IntoIterator<Item = Address>,
-        chain_spec: Arc<ChainSpec>,
+        storage_slot_provider_url: String,
     ) -> Self {
-        // let db_path = std::env::var("RETH_DB_PATH").map_err(|e| format!("Failed to get RETH_DB_PATH: {}", e)).unwrap();
-        // let path = Path::new(&db_path).join("db");
-        // info!("path exists: {:?}", path.exists());
-        // let db = match open_db(path.as_path(), Default::default()) {
-        //     Ok(db) => db,
-        //     Err(e) => {
-        //         panic!("Failed to open db: {}", e);
-        //     }
-        // };
-
-        // let static_file_provider = match StaticFileProvider::read_only(path.join("static_files"), true) {
-        //     Ok(provider) => provider,
-        //     Err(e) => {
-        //         panic!("Failed to create static file provider: {}", e);
-        //     }
-        // };
-
-        // let factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>::new(
-        //     db.into(),
-        //     chain_spec,
-        //     static_file_provider,
-        // );
-
-        // let db_provider = match factory.database_provider_rw() {
-        //     Ok(provider) => provider,
-        //     Err(e) => {
-        //         panic!("Failed to create provider: {}", e);
-        //     }
-        // };
-
         Self {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
-            // db_provider,
+            storage_slot_provider: StorageSlotProvider::new(storage_slot_provider_url),
+        }
+    }
+
+    /// Parse the Bitcoin method from input data
+    fn get_btc_precompile_method(input: &Bytes) -> Result<BitcoinMethod, MethodError> {
+        BitcoinMethod::try_from(input)
+    }
+
+    /// Create a revert outcome with an error message
+    fn create_revert_outcome(
+        message: String,
+        gas_limit: u64,
+        memory_offset: Range<usize>,
+    ) -> CallOutcome {
+        CallOutcome {
+            result: InterpreterResult {
+                result: InstructionResult::Revert,
+                output: Bytes::from(message),
+                gas: Gas::new_spent(gas_limit),
+            },
+            memory_offset,
         }
     }
 }
@@ -66,6 +64,7 @@ impl<DB> Inspector<DB> for SovaInspector
 where
     DB: reth_revm::Database,
 {
+    /// Called on each step of the interpreter
     fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         // optimistically cache storage accesses for if there is a btc tx broadcast
         if interp.current_opcode() == opcode::SSTORE {
@@ -73,52 +72,103 @@ where
                 let address = interp.contract.target_address;
                 let key = StorageKey::from(slot);
                 self.cache.insert_accessed_storage(address, key);
-
-                // // test db
-                // let mut cursor = match self.db_provider.tx_mut().new_cursor::<StorageLockTable>() {
-                //     Ok(cursor) => cursor,
-                //     Err(e) => {
-                //         panic!("Failed to create cursor: {}", e);
-                //     }
-                // };
-
-                // let value: u64 = 0x1234567890;
-                // match cursor.upsert(StorageLockKey {address, slot: key}, &value) {
-                //     Ok(_) => {
-                //         info!("upsert success");
-                //     }
-                //     Err(e) => {
-                //         panic!("Failed to upsert: {}", e);
-                //     }
-                // }
             }
         }
     }
 
+    /// Triggered at the beginning of any execution step that is a
+    /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode.
+    /// This inspector hook is primarily used for storage slot lock enforcement.
     fn call(
         &mut self,
-        context: &mut EvmContext<DB>,
+        _context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        let db = if let Ok(db_path) = std::env::var("RETH_DB_PATH") {
-            let path = Path::new(&db_path).join("db");
-            match reth_db::open_db(&path.as_path(), Default::default()) {
-                Ok(db) => Some(Arc::new(db)),
-                Err(e) => {
-                    info!("Failed to open database at {:?}: {}", path, e);
-                    None
+        info!("----- call hook -----");
+        if inputs.target_address == self.cache.bitcoin_precompile_address {
+            info!("Bitcoin precompile called");
+
+            match Self::get_btc_precompile_method(&inputs.input) {
+                Ok(BitcoinMethod::BroadcastTransaction) => {
+                    info!("----- broadcast call hook -----");
+                    if let Ok(locks) = self
+                        .storage_slot_provider
+                        .get_locks(self.cache.accessed_storage.clone())
+                    {
+                        info!("Locks from provider: {:?}", locks);
+                        if locks.iter().any(|&lock| lock == true) {
+                            return Some(Self::create_revert_outcome(
+                                "Storage slots are locked".to_string(),
+                                inputs.gas_limit,
+                                inputs.return_memory_offset.clone(),
+                            ));
+                        }
+                    }
+                }
+                Ok(_) => {} // Other methods we don't care about
+                Err(err) => {
+                    // Return an error if we couldn't parse the method
+                    return Some(Self::create_revert_outcome(
+                        format!("Invalid Bitcoin method: {}", err),
+                        inputs.gas_limit,
+                        inputs.return_memory_offset.clone(),
+                    ));
                 }
             }
-        } else {
-            info!("RETH_DB_PATH environment variable not set");
-            None
-        };
-
-        // create a new database provider with the db...
-
-        // write to custom table usng the db provider
+        }
 
         None
+    }
+
+    /// Triggered at the end of any execution step that is a
+    /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
+    /// This inspector hook is primarily used for locking accessed
+    /// storage slots if a bitcoin boradcast tx precompile executed successfully.
+    fn call_end(
+        &mut self,
+        _context: &mut EvmContext<DB>,
+        inputs: &CallInputs,
+        outcome: CallOutcome,
+    ) -> CallOutcome {
+        info!("----- call end hook -----");
+        if inputs.target_address == self.cache.bitcoin_precompile_address {
+            info!("Bitcoin precompile called");
+
+            match Self::get_btc_precompile_method(&inputs.input) {
+                Ok(BitcoinMethod::BroadcastTransaction) => {
+                    info!("----- broadcast call end hook -----");
+                    if outcome.result.result == InstructionResult::Return {
+                        // Lock all accessed slots if the call was successful
+                        if let Err(err) = self
+                            .storage_slot_provider
+                            .lock_slots(self.cache.accessed_storage.clone())
+                        {
+                            return Self::create_revert_outcome(
+                                format!("Failed to lock storage slots: {}", err),
+                                inputs.gas_limit,
+                                outcome.memory_offset,
+                            );
+                        }
+                    } else {
+                        return Self::create_revert_outcome(
+                            "Broadcast transaction failed".to_string(),
+                            inputs.gas_limit,
+                            outcome.memory_offset,
+                        );
+                    }
+                }
+                Ok(_) => {} // Other methods we don't care about
+                Err(err) => {
+                    return Self::create_revert_outcome(
+                        format!("Invalid Bitcoin method: {}", err),
+                        inputs.gas_limit,
+                        outcome.memory_offset,
+                    );
+                }
+            }
+        }
+
+        outcome
     }
 }
 

@@ -1,8 +1,9 @@
 mod abi;
 mod client;
 mod execute;
-mod precompiles;
 mod inspector;
+mod precompile_utils;
+mod precompiles;
 
 pub use abi::*;
 pub use client::*;

@@ -32,6 +32,10 @@ pub struct SovaArgs {
     /// CLI flag to indicate the bitcoin transaction queue url
     #[arg(long, default_value = "http://127.0.0.1:5558")]
     pub btc_tx_queue_url: String,
+
+    /// CLI flag to indicate the storage slot provider url
+    #[arg(long, default_value = "http://127.0.0.1.5559")]
+    pub storage_slot_provider_url: String,
 }
 
 fn parse_network_to_wrapper(s: &str) -> Result<BitcoinNetwork, &'static str> {
