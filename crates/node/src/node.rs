@@ -185,7 +185,7 @@ impl MyPayloadBuilder {
     where
         Types: NodeTypesWithEngine<ChainSpec = ChainSpec, Primitives = EthPrimitives>,
         Node: FullNodeTypes<Types = Types>,
-        Evm: ConfigureEvmFor<Types::Primitives>,
+        Evm: ConfigureEvmFor<Types::Primitives> + WithInspector,
         Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
             + Unpin
             + 'static,

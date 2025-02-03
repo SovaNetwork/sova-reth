@@ -103,9 +103,6 @@ where
             cfg_and_block_env,
             &mut *inspector,
         );
-        // let mut evm = self
-        //     .evm_config
-        //     .evm_for_block(&mut self.state, block.header());
 
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body().transaction_count());

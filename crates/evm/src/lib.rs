@@ -6,7 +6,7 @@ mod precompiles;
 use constants::BTC_PRECOMPILE_ADDRESS;
 pub use execute::*;
 use inspector::SovaInspector;
-use inspector::WithInspector;
+pub use inspector::WithInspector;
 use precompiles::BitcoinRpcPrecompile;
 
 use std::{convert::Infallible, sync::Arc};

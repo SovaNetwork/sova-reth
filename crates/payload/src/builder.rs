@@ -41,7 +41,7 @@ use reth_transaction_pool::{
     BestTransactionsAttributes, PoolTransaction, TransactionPool, ValidPoolTransaction,
 };
 
-use sova_evm::MyEvmConfig;
+use sova_evm::{MyEvmConfig, WithInspector};
 
 type BestTransactionsIter<Pool> = Box<
     dyn BestTransactions<Item = Arc<ValidPoolTransaction<<Pool as TransactionPool>::Transaction>>>,
@@ -90,7 +90,7 @@ where
 // Default implementation of [PayloadBuilder] for unit type
 impl<EvmConfig, Pool, Client> PayloadBuilder<Pool, Client> for MyPayloadBuilder<EvmConfig>
 where
-    EvmConfig: ConfigureEvm<Header = Header, Transaction = TransactionSigned>,
+    EvmConfig: ConfigureEvm<Header = Header, Transaction = TransactionSigned> + WithInspector,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
 {
@@ -162,7 +162,7 @@ pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
     best_txs: F,
 ) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError>
 where
-    EvmConfig: ConfigureEvm<Header = Header, Transaction = TransactionSigned>,
+    EvmConfig: ConfigureEvm<Header = Header, Transaction = TransactionSigned> + WithInspector,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
     F: FnOnce(BestTransactionsAttributes) -> BestTransactionsIter<Pool>,
@@ -234,7 +234,9 @@ where
         PayloadBuilderError::Internal(err.into())
     })?;
 
-    let mut evm = evm_config.evm_with_env(&mut db, evm_env);
+    let mut inspector = evm_config.with_inspector().write();
+
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
 
     let mut receipts = Vec::new();
     while let Some(pool_tx) = best_txs.next() {
