@@ -105,7 +105,7 @@ where
             match reth_db::open_db(&path.as_path(), Default::default()) {
                 Ok(db) => Some(Arc::new(db)),
                 Err(e) => {
-                    info!("Failed to open database at {:?}: {}", path, e);
+                    info!("Failed to open database at {:?}: {:?}", path, e);
                     None
                 }
             }
