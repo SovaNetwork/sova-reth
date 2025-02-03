@@ -1,8 +1,7 @@
-use std::{collections::{BTreeSet, HashMap, HashSet}, ops::Add};
-
+use std::collections::{BTreeSet, HashMap, HashSet};
 use alloy_primitives::{Address, StorageKey};
 
-pub struct AccessedStorage (HashMap<Address, BTreeSet<StorageKey>>);
+pub struct AccessedStorage(HashMap<Address, BTreeSet<StorageKey>>);
 
 impl AccessedStorage {
     fn new() -> Self {
@@ -41,7 +40,7 @@ impl StorageCache {
 
     pub fn insert_accessed_storage(&mut self, address: Address, storage_key: StorageKey) {
         if !self.excluded_addresses.contains(&address) {
-            self.accessed_storage.entry(address).or_default().insert(storage_key);
+            self.accessed_storage.insert(address, storage_key);
         }
     }
 }
