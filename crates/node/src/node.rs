@@ -96,7 +96,7 @@ impl SovaNode {
             &self.args.network_signing_url,
             &self.args.network_utxo_url,
             &self.args.btc_tx_queue_url,
-            &self.args.storage_slot_provider_url,
+            &self.args.sentinel_url,
         );
         ComponentsBuilder::default()
             .node_types::<Node>()
@@ -242,7 +242,17 @@ where
         pool: Pool,
     ) -> eyre::Result<PayloadBuilderHandle<Types::Engine>> {
         let evm_config =
+<<<<<<< HEAD
             MyEvmConfig::new(&self.config, ctx.chain_spec(), self.bitcoin_client.clone());
+=======
+            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
+                |e| {
+                    eyre::eyre!(
+                "PayloadServiceBuilder::spawn_payload_service: Failed to create EVM config: {}", e
+            )
+                },
+            )?;
+>>>>>>> d53ec01 (wiring up sentinel service)
         self.spawn(evm_config, ctx, pool)
     }
 }
@@ -274,7 +284,19 @@ where
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
         let evm_config =
+<<<<<<< HEAD
             MyEvmConfig::new(&self.config, ctx.chain_spec(), self.bitcoin_client.clone());
+=======
+            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
+                |e| {
+                    eyre::eyre!(
+                        "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
+                        e
+                    )
+                },
+            )?;
+
+>>>>>>> d53ec01 (wiring up sentinel service)
         Ok((
             evm_config.clone(),
             BasicBlockExecutorProvider::new(MyExecutionStrategyFactory {

@@ -1,20 +1,23 @@
 mod provider;
 mod storage_cache;
 
-use provider::{SlotProvider, StorageSlotProvider};
+use bitcoin::consensus::deserialize;
+use provider::{ProviderError, SlotProvider, StorageSlotProvider};
+use reth_tasks::TaskExecutor;
 use storage_cache::StorageCache;
 
 use core::ops::Range;
 use std::sync::Arc;
 
-use alloy_primitives::{Address, Bytes, StorageKey};
+use alloy_primitives::{Address, Bytes, StorageKey, U256};
 use parking_lot::RwLock;
 
 use reth_revm::{
     interpreter::{
         opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    EvmContext, Inspector,
+    primitives::EVMError,
+    Database, EvmContext, Inspector,
 };
 use reth_tracing::tracing::info;
 
@@ -31,12 +34,15 @@ impl SovaInspector {
     pub fn new(
         bitcoin_precompile_address: Address,
         excluded_addresses: impl IntoIterator<Item = Address>,
-        storage_slot_provider_url: String,
-    ) -> Self {
-        Self {
+        sentinel_url: String,
+        task_executor: TaskExecutor,
+    ) -> Result<Self, ProviderError> {
+        let storage_slot_provider = StorageSlotProvider::new(sentinel_url, task_executor)?;
+
+        Ok(Self {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
-            storage_slot_provider: StorageSlotProvider::new(storage_slot_provider_url),
-        }
+            storage_slot_provider,
+        })
     }
 
     /// Parse the Bitcoin method from input data
@@ -59,20 +65,68 @@ impl SovaInspector {
             memory_offset,
         }
     }
+
+    fn get_slot_value<DB: Database>(
+        &self,
+        context: &mut EvmContext<DB>,
+        address: Address,
+        key: U256,
+    ) -> Result<U256, EVMError<DB::Error>> {
+        match context
+            .inner
+            .journaled_state
+            .sload(address, key, &mut context.inner.db)
+        {
+            Ok(value) => return Ok(value.data),
+            Err(err) => return Err(err),
+        };
+    }
 }
 
 impl<DB> Inspector<DB> for SovaInspector
 where
     DB: reth_revm::Database,
 {
-    /// Called on each step of the interpreter
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
-        // optimistically cache storage accesses for if there is a btc tx broadcast
+    /// Called at beginning of each step of the interpreter
+    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        // cache storage access for reference if there is a btc tx broadcast in this tx
         if interp.current_opcode() == opcode::SSTORE {
             if let Ok(slot) = interp.stack().peek(0) {
                 let address = interp.contract.target_address;
                 let key = StorageKey::from(slot);
-                self.cache.insert_accessed_storage(address, key);
+
+                // get the previous value
+                let previous_value = match self.get_slot_value(context, address, slot) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        panic!("Failed to get previous storage value");
+                    }
+                };
+
+                self.cache
+                    .insert_accessed_storage_before(address, key, previous_value);
+            }
+        }
+    }
+
+    /// Called at beginning of each step of the interpreter
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        // cache storage access for reference if there is a btc tx broadcast in this tx
+        if interp.current_opcode() == opcode::SSTORE {
+            if let Ok(slot) = interp.stack().peek(0) {
+                let address = interp.contract.target_address;
+                let key = StorageKey::from(slot);
+
+                // get the new value
+                let current_value = match self.get_slot_value(context, address, slot) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        panic!("Failed to get current storage value");
+                    }
+                };
+
+                self.cache
+                    .insert_accessed_storage_after(address, key, current_value);
             }
         }
     }
@@ -82,22 +136,22 @@ where
     /// This inspector hook is primarily used for storage slot lock enforcement.
     fn call(
         &mut self,
-        _context: &mut EvmContext<DB>,
+        context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        info!("----- call hook -----");
         if inputs.target_address == self.cache.bitcoin_precompile_address {
+            info!("----- call hook -----");
             info!("Bitcoin precompile called");
 
             match Self::get_btc_precompile_method(&inputs.input) {
                 Ok(BitcoinMethod::BroadcastTransaction) => {
                     info!("----- broadcast call hook -----");
-                    if let Ok(locks) = self
-                        .storage_slot_provider
-                        .get_locks(self.cache.accessed_storage.clone())
-                    {
-                        info!("Locks from provider: {:?}", locks);
-                        if locks.iter().any(|&lock| lock) {
+                    if let Ok(locked) = self.storage_slot_provider.get_locked_status(
+                        self.cache.accessed_storage.clone(),
+                        context.env.block.number,
+                    ) {
+                        info!("Locks from provider: {:?}", locked);
+                        if !locked {
                             return Some(Self::create_revert_outcome(
                                 "Storage slots are locked".to_string(),
                                 inputs.gas_limit,
@@ -127,25 +181,40 @@ where
     /// storage slots if a bitcoin boradcast tx precompile executed successfully.
     fn call_end(
         &mut self,
-        _context: &mut EvmContext<DB>,
+        context: &mut EvmContext<DB>,
         inputs: &CallInputs,
         outcome: CallOutcome,
     ) -> CallOutcome {
-        info!("----- call end hook -----");
         if inputs.target_address == self.cache.bitcoin_precompile_address {
+            info!("----- call end hook -----");
             info!("Bitcoin precompile called");
 
             match Self::get_btc_precompile_method(&inputs.input) {
                 Ok(BitcoinMethod::BroadcastTransaction) => {
                     info!("----- broadcast call end hook -----");
                     if outcome.result.result == InstructionResult::Return {
+                        // get bitcoin transaction data
+                        let tx: bitcoin::Transaction = match deserialize(outcome.output()) {
+                            Ok(tx) => tx,
+                            Err(_) => {
+                                info!("Inspector: Failed to deserialize bitcoin transaction");
+                                return Self::create_revert_outcome(
+                                    "Failed to deserialize bitcoin transaction".to_string(),
+                                    inputs.gas_limit,
+                                    outcome.memory_offset,
+                                );
+                            }
+                        };
+
                         // Lock all accessed slots if the call was successful
-                        if let Err(err) = self
-                            .storage_slot_provider
-                            .lock_slots(self.cache.accessed_storage.clone())
-                        {
+                        if let Err(err) = self.storage_slot_provider.lock_slots(
+                            self.cache.accessed_storage.clone(),
+                            context.env.block.number,
+                            tx.input[0].previous_output.txid,
+                            tx.input[0].previous_output.vout,
+                        ) {
                             return Self::create_revert_outcome(
-                                format!("Failed to lock storage slots: {}", err),
+                                format!("Failed to lock storage slots: {:?}", err),
                                 inputs.gas_limit,
                                 outcome.memory_offset,
                             );

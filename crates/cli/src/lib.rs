@@ -47,7 +47,7 @@ pub struct SovaConfig {
     pub network_signing_url: String,
     pub network_utxo_url: String,
     pub btc_tx_queue_url: String,
-    pub storage_slot_provider_url: String,
+    pub sentinel_url: String,
 }
 
 impl SovaConfig {
@@ -56,14 +56,14 @@ impl SovaConfig {
         network_signing_url: &str,
         network_utxo_url: &str,
         btc_tx_queue_url: &str,
-        storage_slot_provider_url: &str,
+        sentinel_url: &str,
     ) -> Self {
         SovaConfig {
             bitcoin: Arc::new(bitcoin_config),
             network_signing_url: network_signing_url.to_owned(),
             network_utxo_url: network_utxo_url.to_owned(),
             btc_tx_queue_url: btc_tx_queue_url.to_owned(),
-            storage_slot_provider_url: storage_slot_provider_url.to_owned(),
+            sentinel_url: sentinel_url.to_owned(),
         }
     }
 }
@@ -75,7 +75,7 @@ impl Default for SovaConfig {
             network_signing_url: String::new(),
             network_utxo_url: String::new(),
             btc_tx_queue_url: String::new(),
-            storage_slot_provider_url: String::new(),
+            sentinel_url: String::new(),
         }
     }
 }

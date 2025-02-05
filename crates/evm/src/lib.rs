@@ -8,8 +8,9 @@ pub use execute::*;
 use inspector::SovaInspector;
 pub use inspector::WithInspector;
 use precompiles::BitcoinRpcPrecompile;
+use reth_tasks::TaskExecutor;
 
-use std::{convert::Infallible, sync::Arc};
+use std::{convert::Infallible, error::Error, sync::Arc};
 
 use parking_lot::RwLock;
 
@@ -45,28 +46,29 @@ impl MyEvmConfig {
     pub fn new(
         config: &SovaConfig,
         chain_spec: Arc<ChainSpec>,
-        bitcoin_client: Arc<BitcoinClientWrapper>,
-    ) -> Self {
+        task_executor: TaskExecutor,
+    ) -> Result<Self, Box<dyn Error>> {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
             bitcoin_client,
             config.bitcoin.network,
             config.network_signing_url.clone(),
             config.network_utxo_url.clone(),
             config.btc_tx_queue_url.clone(),
-        )
-        .expect("Failed to create Bitcoin RPC precompile");
+        )?;
 
-        let inspector = Arc::new(RwLock::new(SovaInspector::new(
+        let inspector = SovaInspector::new(
             BTC_PRECOMPILE_ADDRESS,
-            vec![(BTC_PRECOMPILE_ADDRESS)],
-            config.storage_slot_provider_url.clone(),
-        )));
+            vec![BTC_PRECOMPILE_ADDRESS],
+            config.sentinel_url.clone(),
+            task_executor,
+        )
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?;
 
-        Self {
+        Ok(Self {
             inner: EthEvmConfig::new(chain_spec),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
-            inspector,
-        }
+            inspector: Arc::new(RwLock::new(inspector)),
+        })
     }
 
     pub fn set_precompiles<EXT, DB>(

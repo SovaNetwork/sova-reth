@@ -1,20 +1,52 @@
-use alloy_primitives::{Address, StorageKey};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
+
+use alloy_primitives::{Address, StorageKey, StorageValue, U256};
 
 #[derive(Clone, Debug)]
-pub struct AccessedStorage(HashMap<Address, BTreeSet<StorageKey>>);
+pub struct SlotData {
+    pub previous_value: StorageValue,
+    pub current_value: StorageValue,
+}
+
+#[derive(Clone, Debug)]
+/// Accessed storage cache: address -> storage slot -> slot data
+pub struct AccessedStorage(HashMap<Address, HashMap<StorageKey, SlotData>>);
 
 impl AccessedStorage {
     fn new() -> Self {
         Self(HashMap::new())
     }
 
-    fn entry(&mut self, address: Address) -> &mut BTreeSet<StorageKey> {
+    fn entry(&mut self, address: Address) -> &mut HashMap<StorageKey, SlotData> {
         self.0.entry(address).or_default()
     }
 
-    fn insert(&mut self, address: Address, storage_key: StorageKey) {
-        self.entry(address).insert(storage_key);
+    pub fn insert(
+        &mut self,
+        address: Address,
+        key: StorageKey,
+        previous: StorageValue,
+        current: StorageValue,
+    ) {
+        self.entry(address).insert(
+            key,
+            SlotData {
+                previous_value: previous,
+                current_value: current,
+            },
+        );
+    }
+
+    pub fn get_address(&self, address: &Address) -> Option<&HashMap<StorageKey, SlotData>> {
+        self.0.get(address)
+    }
+
+    pub fn get_slot(&self, address: &Address, key: &StorageKey) -> Option<&SlotData> {
+        self.0.get(address).and_then(|slots| slots.get(key))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&Address, &HashMap<StorageKey, SlotData>)> {
+        self.0.iter()
     }
 }
 
@@ -39,9 +71,34 @@ impl StorageCache {
         }
     }
 
-    pub fn insert_accessed_storage(&mut self, address: Address, storage_key: StorageKey) {
+    pub fn insert_accessed_storage_before(
+        &mut self,
+        address: Address,
+        key: StorageKey,
+        previous: StorageValue,
+    ) {
         if !self.excluded_addresses.contains(&address) {
-            self.accessed_storage.insert(address, storage_key);
+            self.accessed_storage
+                .insert(address, key, previous, U256::ZERO);
+        }
+    }
+
+    pub fn insert_accessed_storage_after(
+        &mut self,
+        address: Address,
+        key: StorageKey,
+        current: StorageValue,
+    ) {
+        if !self.excluded_addresses.contains(&address) {
+            // If we already have an entry for this address and key,
+            // update its current value while preserving the previous value
+            if let Some(slot_data) = self.accessed_storage.entry(address).get_mut(&key) {
+                slot_data.current_value = current;
+            } else {
+                // If no entry exists, create a new one with zero as previous value
+                self.accessed_storage
+                    .insert(address, key, U256::ZERO, current);
+            }
         }
     }
 }

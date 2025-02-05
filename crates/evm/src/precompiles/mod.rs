@@ -191,10 +191,8 @@ impl BitcoinRpcPrecompile {
         let mut txid_bytes: [u8; 32] = txid.to_raw_hash().to_byte_array();
         txid_bytes.reverse();
 
-        Ok(PrecompileOutput::new(
-            gas_used,
-            Bytes::from(txid_bytes.to_vec()),
-        ))
+        // return entire signed input for deserialization in Inspector::call_end hook so the data can be used to lock the slots
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(input.to_vec())))
     }
 
     fn decode_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
