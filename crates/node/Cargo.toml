@@ -27,6 +27,7 @@ reth-transaction-pool.workspace = true
 reth-trie-db.workspace = true
 
 bitcoin.workspace = true
+bitcoincore-rpc.workspace = true
 
 clap.workspace = true
 eyre.workspace = true

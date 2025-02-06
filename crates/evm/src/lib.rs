@@ -41,14 +41,20 @@ pub struct MyEvmConfig {
 }
 
 impl MyEvmConfig {
-    pub fn new(config: &SovaConfig, chain_spec: Arc<ChainSpec>) -> Self {
+    pub fn new(
+        config: &SovaConfig,
+        chain_spec: Arc<ChainSpec>,
+        bitcoin_client: Arc<BitcoinClientWrapper>,
+    ) -> Self {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
-            config.bitcoin.as_ref(),
+            bitcoin_client,
+            config.bitcoin.network,
             config.network_signing_url.clone(),
             config.network_utxo_url.clone(),
             config.btc_tx_queue_url.clone(),
         )
         .expect("Failed to create Bitcoin RPC precompile");
+
         Self {
             inner: EthEvmConfig::new(chain_spec),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),

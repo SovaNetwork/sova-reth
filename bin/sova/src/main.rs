@@ -22,7 +22,11 @@ fn main() {
         // Sova args are used to provide flags for auxiliary services
         Cli::<SovaChainSpecParser, SovaArgs>::parse().run(|builder, sova_args| async move {
                 info!(target: "reth::cli", "Launching node");
-                let handle = builder.launch_node(SovaNode::new(sova_args)).await?;
+
+                let sova_node = SovaNode::new(sova_args)
+                    .map_err(|e| eyre::eyre!("Failed to create Bitcoin client: {}", e))?;
+
+                let handle = builder.launch_node(sova_node).await?;
                 handle.node_exit_future.await
             })
     {

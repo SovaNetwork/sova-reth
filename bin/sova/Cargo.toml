@@ -15,6 +15,7 @@ reth-cli-util.workspace = true
 reth-tracing.workspace = true
 
 clap.workspace = true
+eyre.workspace = true
 
 [[bin]]
 name = "sova-reth"
