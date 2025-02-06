@@ -12,8 +12,6 @@ use reth_tracing::tracing::{error, info};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut};
 
-use sova_cli::BitcoinConfig;
-
 use crate::{abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput};
 
 #[derive(Deserialize)]
@@ -54,8 +52,8 @@ struct SignTxInputData {
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
     bitcoin_client: Arc<BitcoinClientWrapper>,
-    network: Network,
     http_client: Arc<ReqwestClient>,
+    network: Network,
     network_signing_url: String,
     network_utxo_url: String,
     btc_tx_queue_url: String,
@@ -63,18 +61,18 @@ pub struct BitcoinRpcPrecompile {
 
 impl BitcoinRpcPrecompile {
     pub fn new(
-        config: &BitcoinConfig,
+        bitcoin_client: Arc<BitcoinClientWrapper>,
+        network: Network,
         network_signing_url: String,
         network_utxo_url: String,
         btc_tx_queue_url: String,
     ) -> Result<Self, bitcoincore_rpc::Error> {
-        let client = BitcoinClientWrapper::new(config)?;
         let http_client = ReqwestClient::new();
 
         Ok(Self {
-            bitcoin_client: Arc::new(client),
-            network: config.network,
+            bitcoin_client,
             http_client: Arc::new(http_client),
+            network,
             network_signing_url,
             network_utxo_url,
             btc_tx_queue_url,

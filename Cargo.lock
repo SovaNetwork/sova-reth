@@ -8698,6 +8698,7 @@ name = "sova-node"
 version = "0.0.2"
 dependencies = [
  "bitcoin",
+ "bitcoincore-rpc",
  "clap",
  "eyre",
  "reth-basic-payload-builder",
@@ -8753,6 +8754,7 @@ name = "sova-reth"
 version = "0.0.2"
 dependencies = [
  "clap",
+ "eyre",
  "reth",
  "reth-cli-util",
  "reth-tracing",
