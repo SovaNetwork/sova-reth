@@ -1,7 +1,6 @@
 mod provider;
 mod storage_cache;
 
-use bitcoin::consensus::deserialize;
 use provider::{ProviderError, SlotProvider, StorageSlotProvider};
 use reth_tasks::TaskExecutor;
 use storage_cache::StorageCache;
@@ -151,7 +150,7 @@ where
                         context.env.block.number,
                     ) {
                         info!("Locks from provider: {:?}", locked);
-                        if !locked {
+                        if locked {
                             return Some(Self::create_revert_outcome(
                                 "Storage slots are locked".to_string(),
                                 inputs.gas_limit,
@@ -193,26 +192,17 @@ where
                 Ok(BitcoinMethod::BroadcastTransaction) => {
                     info!("----- broadcast call end hook -----");
                     if outcome.result.result == InstructionResult::Return {
-                        // get bitcoin transaction data
-                        let tx: bitcoin::Transaction = match deserialize(outcome.output()) {
-                            Ok(tx) => tx,
-                            Err(_) => {
-                                info!("Inspector: Failed to deserialize bitcoin transaction");
-                                return Self::create_revert_outcome(
-                                    "Failed to deserialize bitcoin transaction".to_string(),
-                                    inputs.gas_limit,
-                                    outcome.memory_offset,
-                                );
-                            }
-                        };
+                        let broadcast_txid = outcome.result.output[..32].to_vec();
+                        let broadcast_block = u64::from_be_bytes(outcome.result.output[32..40].try_into().unwrap());
 
                         // Lock all accessed slots if the call was successful
                         if let Err(err) = self.storage_slot_provider.lock_slots(
                             self.cache.accessed_storage.clone(),
                             context.env.block.number,
-                            tx.input[0].previous_output.txid,
-                            tx.input[0].previous_output.vout,
+                            broadcast_txid,
+                            broadcast_block,
                         ) {
+                            info!("Failed to lock storage slots: {:?}", err);
                             return Self::create_revert_outcome(
                                 format!("Failed to lock storage slots: {:?}", err),
                                 inputs.gas_limit,
@@ -220,6 +210,7 @@ where
                             );
                         }
                     } else {
+                        info!("Broadcast transaction failed");
                         return Self::create_revert_outcome(
                             "Broadcast transaction failed".to_string(),
                             inputs.gas_limit,

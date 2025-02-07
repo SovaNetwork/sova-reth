@@ -3,6 +3,7 @@ mod btc_client;
 mod precompile_utils;
 
 pub use precompile_utils::{BitcoinMethod, MethodError};
+use reth_tracing::tracing::info;
 
 use std::sync::Arc;
 
@@ -16,15 +17,22 @@ use alloy_primitives::Bytes;
 use reth_revm::primitives::{
     Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
 };
-use reth_tracing::tracing::{error, info};
 
-use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut};
+use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut};
 
 <<<<<<< HEAD:crates/evm/src/precompiles.rs
 use crate::{abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput};
 =======
 use sova_cli::BitcoinConfig;
 >>>>>>> bfb15e5 (precompile updates):crates/evm/src/precompiles/mod.rs
+
+#[derive(Deserialize)]
+struct BroadcastResponse {
+    status: String,
+    txid: Option<Vec<u8>>,
+    current_block: u64,
+    error: Option<String>,
+}
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -159,40 +167,44 @@ impl BitcoinRpcPrecompile {
             return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
         }
 
-        let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileErrors::Error(PrecompileError::Other(
-                "Failed to deserialize Bitcoin transaction".into(),
-            ))
-        })?;
-
-        let txid = tx.txid();
-
         let broadcast_request = serde_json::json!({
             "raw_tx": hex::encode(input)
         });
 
-        match self.make_http_request::<_, serde_json::Value>(
+        let broadcast_response: BroadcastResponse = self.make_http_request(
             &self.btc_tx_queue_url,
             "broadcast",
             reqwest::Method::POST,
             Some(&broadcast_request),
-        ) {
-            Ok(_) => {
-                info!(
-                    "Successfully queued transaction for broadcast, txid: {}",
-                    txid
-                );
-            }
-            Err(e) => {
-                error!("Failed to broadcast transaction: {}", e);
-            }
+        ).map_err(|e| {
+            info!("HTTP request to broadcast service failed: {}", e);
+            PrecompileErrors::Error(PrecompileError::Other(format!(
+                "HTTP request to broadcast service failed: {}", e
+            )))
+        })?;
+
+        if broadcast_response.status != "success" {
+            info!(broadcast_response.error);
+            return Err(PrecompileErrors::Error(PrecompileError::Other(
+                broadcast_response.error.unwrap_or_else(|| "Broadcast service error".into())
+            )));
+        } else {
+            info!("Broadcast bitcoin txid: {:?}", broadcast_response.txid);
         }
 
-        let mut txid_bytes: [u8; 32] = txid.to_raw_hash().to_byte_array();
-        txid_bytes.reverse();
+        // Encode the response: txid (32 bytes) followed by current block height (8 bytes)
+        let mut response = Vec::with_capacity(40);
+        
+        // Get txid bytes directly from the response
+        let txid_bytes = broadcast_response.txid.ok_or_else(|| {
+            info!("No txid in broadcast response");
+            PrecompileErrors::Error(PrecompileError::Other("No txid in broadcast response".into()))
+        })?;
+        
+        response.extend_from_slice(&txid_bytes);
+        response.extend_from_slice(&broadcast_response.current_block.to_be_bytes());
 
-        // return entire signed input for deserialization in Inspector::call_end hook so the data can be used to lock the slots
-        Ok(PrecompileOutput::new(gas_used, Bytes::from(input.to_vec())))
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 
     fn decode_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {

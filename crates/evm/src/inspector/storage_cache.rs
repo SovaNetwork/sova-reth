@@ -37,14 +37,6 @@ impl AccessedStorage {
         );
     }
 
-    pub fn get_address(&self, address: &Address) -> Option<&HashMap<StorageKey, SlotData>> {
-        self.0.get(address)
-    }
-
-    pub fn get_slot(&self, address: &Address, key: &StorageKey) -> Option<&SlotData> {
-        self.0.get(address).and_then(|slots| slots.get(key))
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&Address, &HashMap<StorageKey, SlotData>)> {
         self.0.iter()
     }
