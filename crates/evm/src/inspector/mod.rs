@@ -1,8 +1,8 @@
 mod provider;
 mod storage_cache;
 
-use provider::{ProviderError, StorageSlotProvider};
 pub use provider::SlotProvider;
+use provider::{ProviderError, StorageSlotProvider};
 use reth_tasks::TaskExecutor;
 pub use storage_cache::{AccessedStorage, StorageCache};
 
@@ -45,7 +45,8 @@ impl SovaInspector {
         sentinel_url: String,
         task_executor: TaskExecutor,
     ) -> Result<Self, ProviderError> {
-        let storage_slot_provider = Arc::new(StorageSlotProvider::new(sentinel_url, task_executor)?);
+        let storage_slot_provider =
+            Arc::new(StorageSlotProvider::new(sentinel_url, task_executor)?);
 
         Ok(Self {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
@@ -86,20 +87,21 @@ impl SovaInspector {
             .journaled_state
             .sload(address, key, &mut context.inner.db)
         {
-            Ok(value) => return Ok(value.data),
-            Err(err) => return Err(err),
-        };
+            Ok(value) => Ok(value.data),
+            Err(err) => Err(err),
+        }
     }
 
     /// Handle broadcast result and lock slots if necessary, then clear state
-    pub fn handle_broadcast(&mut self, block_number: u64, accessed_storage: AccessedStorage, btc_info: BroadcastResult) -> Result<(), ProviderError> {
+    pub fn handle_broadcast(
+        &mut self,
+        block_number: u64,
+        accessed_storage: AccessedStorage,
+        btc_info: BroadcastResult,
+    ) -> Result<(), ProviderError> {
         if let (Some(txid), Some(block)) = (btc_info.txid, btc_info.block) {
-            self.storage_slot_provider.lock_slots(
-                accessed_storage,
-                block_number,
-                txid,
-                block,
-            )?;
+            self.storage_slot_provider
+                .lock_slots(accessed_storage, block_number, txid, block)?;
         }
 
         Ok(())

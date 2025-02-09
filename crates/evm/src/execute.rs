@@ -9,7 +9,8 @@ use reth_ethereum_consensus::validate_block_post_execution;
 use reth_evm::{
     execute::{
         balance_increment_state, BlockExecutionError, BlockExecutionStrategy,
-        BlockExecutionStrategyFactory, BlockValidationError, ExecuteOutput, InternalBlockExecutionError,
+        BlockExecutionStrategyFactory, BlockValidationError, ExecuteOutput,
+        InternalBlockExecutionError,
     },
     state_change::post_block_balance_increments,
     system_calls::{OnStateHook, SystemCaller},
@@ -21,7 +22,10 @@ use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
 use reth_revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit};
 
-use crate::{inspector::{BroadcastResult, WithInspector}, AccessedStorage, MyEvmConfig};
+use crate::{
+    inspector::{BroadcastResult, WithInspector},
+    AccessedStorage, MyEvmConfig,
+};
 
 pub struct MyExecutionStrategy<DB, EvmConfig>
 where
@@ -241,7 +245,12 @@ where
         inspector.broadcast_result = BroadcastResult::default();
         inspector.cache.accessed_storage = AccessedStorage::default();
 
-        inspector.handle_broadcast(block.number(), self.locks_to_set.clone(), self.btc_info.clone())
+        inspector
+            .handle_broadcast(
+                block.number(),
+                self.locks_to_set.clone(),
+                self.btc_info.clone(),
+            )
             .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
 
         Ok(requests)

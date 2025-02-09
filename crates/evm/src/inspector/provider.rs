@@ -90,7 +90,7 @@ impl SlotProvider for StorageSlotProvider {
                     .map_err(|e| ProviderError::ConnectionError(e.to_string()))?;
 
                 for (address, slots) in storage.iter() {
-                    for (slot, _) in slots {
+                    for slot in slots.keys() {
                         let response: GetSlotStatusResponse = client
                             .get_slot_status(
                                 block.saturating_to::<u64>(),
