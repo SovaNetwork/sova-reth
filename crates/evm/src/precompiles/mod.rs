@@ -171,22 +171,27 @@ impl BitcoinRpcPrecompile {
             "raw_tx": hex::encode(input)
         });
 
-        let broadcast_response: BroadcastResponse = self.make_http_request(
-            &self.btc_tx_queue_url,
-            "broadcast",
-            reqwest::Method::POST,
-            Some(&broadcast_request),
-        ).map_err(|e| {
-            info!("HTTP request to broadcast service failed: {}", e);
-            PrecompileErrors::Error(PrecompileError::Other(format!(
-                "HTTP request to broadcast service failed: {}", e
-            )))
-        })?;
+        let broadcast_response: BroadcastResponse = self
+            .make_http_request(
+                &self.btc_tx_queue_url,
+                "broadcast",
+                reqwest::Method::POST,
+                Some(&broadcast_request),
+            )
+            .map_err(|e| {
+                info!("HTTP request to broadcast service failed: {}", e);
+                PrecompileErrors::Error(PrecompileError::Other(format!(
+                    "HTTP request to broadcast service failed: {}",
+                    e
+                )))
+            })?;
 
         if broadcast_response.status != "success" {
             info!(broadcast_response.error);
             return Err(PrecompileErrors::Error(PrecompileError::Other(
-                broadcast_response.error.unwrap_or_else(|| "Broadcast service error".into())
+                broadcast_response
+                    .error
+                    .unwrap_or_else(|| "Broadcast service error".into()),
             )));
         } else {
             info!("Broadcast bitcoin txid: {:?}", broadcast_response.txid);
@@ -194,13 +199,15 @@ impl BitcoinRpcPrecompile {
 
         // Encode the response: txid (32 bytes) followed by current block height (8 bytes)
         let mut response = Vec::with_capacity(40);
-        
+
         // Get txid bytes directly from the response
         let txid_bytes = broadcast_response.txid.ok_or_else(|| {
             info!("No txid in broadcast response");
-            PrecompileErrors::Error(PrecompileError::Other("No txid in broadcast response".into()))
+            PrecompileErrors::Error(PrecompileError::Other(
+                "No txid in broadcast response".into(),
+            ))
         })?;
-        
+
         response.extend_from_slice(&txid_bytes);
         response.extend_from_slice(&broadcast_response.current_block.to_be_bytes());
 

@@ -54,7 +54,7 @@ pub trait SlotProvider {
     fn lock_slots(
         &self,
         storage: AccessedStorage,
-        block: U256,
+        block: u64,
         btc_txid: Vec<u8>,
         btc_block: u64,
     ) -> Result<(), ProviderError>;
@@ -81,14 +81,14 @@ impl SlotProvider for StorageSlotProvider {
         block: U256,
     ) -> Result<bool, ProviderError> {
         let sentinel_url = self.sentinel_url.clone();
-    
+
         tokio::task::block_in_place(|| {
             let handle = self.task_executor.handle().clone();
             handle.block_on(async {
                 let mut client = SlotLockClient::connect(sentinel_url)
                     .await
                     .map_err(|e| ProviderError::ConnectionError(e.to_string()))?;
-    
+
                 for (address, slots) in storage.iter() {
                     for (slot, _) in slots {
                         let response: GetSlotStatusResponse = client
@@ -100,40 +100,39 @@ impl SlotProvider for StorageSlotProvider {
                             .await
                             .map_err(|e| ProviderError::RpcError(e.to_string()))?
                             .into_inner();
-    
+
                         if response.status == 1 {
                             return Ok(true);
                         }
                     }
                 }
-    
+
                 Ok(false)
             })
         })
     }
-    
 
     fn lock_slots(
         &self,
         storage: AccessedStorage,
-        block: U256,
+        block: u64,
         btc_txid: Vec<u8>,
         btc_block: u64,
     ) -> Result<(), ProviderError> {
         let sentinel_url = self.sentinel_url.clone();
-    
+
         tokio::task::block_in_place(|| {
             let handle = self.task_executor.handle().clone();
             handle.block_on(async {
                 let mut client = SlotLockClient::connect(sentinel_url)
                     .await
                     .map_err(|e| ProviderError::ConnectionError(e.to_string()))?;
-    
+
                 for (address, slots) in storage.iter() {
                     for (slot, slot_data) in slots {
                         let _: LockSlotResponse = client
                             .lock_slot(
-                                block.saturating_to::<u64>(), 
+                                block,
                                 address.to_string(),
                                 slot.to_vec(),
                                 slot_data.previous_value.to_be_bytes_vec(),
@@ -146,10 +145,9 @@ impl SlotProvider for StorageSlotProvider {
                             .into_inner();
                     }
                 }
-    
+
                 Ok(())
             })
         })
     }
-    
 }

@@ -8,12 +8,12 @@ pub struct SlotData {
     pub current_value: StorageValue,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 /// Accessed storage cache: address -> storage slot -> slot data
-pub struct AccessedStorage(HashMap<Address, HashMap<StorageKey, SlotData>>);
+pub struct AccessedStorage(pub HashMap<Address, HashMap<StorageKey, SlotData>>);
 
 impl AccessedStorage {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self(HashMap::new())
     }
 

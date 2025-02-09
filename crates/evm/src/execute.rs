@@ -9,7 +9,7 @@ use reth_ethereum_consensus::validate_block_post_execution;
 use reth_evm::{
     execute::{
         balance_increment_state, BlockExecutionError, BlockExecutionStrategy,
-        BlockExecutionStrategyFactory, BlockValidationError, ExecuteOutput,
+        BlockExecutionStrategyFactory, BlockValidationError, ExecuteOutput, InternalBlockExecutionError,
     },
     state_change::post_block_balance_increments,
     system_calls::{OnStateHook, SystemCaller},
@@ -21,7 +21,7 @@ use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
 use reth_revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit};
 
-use crate::{inspector::WithInspector, MyEvmConfig};
+use crate::{inspector::{BroadcastResult, WithInspector}, AccessedStorage, MyEvmConfig};
 
 pub struct MyExecutionStrategy<DB, EvmConfig>
 where
@@ -37,6 +37,10 @@ where
     state: State<DB>,
     /// Utility to call system smart contracts.
     system_caller: SystemCaller<EvmConfig, ChainSpec>,
+    /// storage to lock
+    locks_to_set: AccessedStorage,
+    /// bitcoin info
+    btc_info: BroadcastResult,
 }
 
 impl<DB, EvmConfig> MyExecutionStrategy<DB, EvmConfig>
@@ -51,6 +55,8 @@ where
             evm_config,
             system_caller,
             tx_env_overrides: None,
+            locks_to_set: AccessedStorage::default(),
+            btc_info: BroadcastResult::default(),
         }
     }
 }
@@ -94,9 +100,11 @@ where
         &mut self,
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
-        let mut inspector = self.evm_config.with_inspector().write();
-
         let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
+
+        // Get a reference to the inspector lock
+        let inspector_lock = self.evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
 
         let mut evm = self.evm_config.evm_with_env_and_inspector(
             &mut self.state,
@@ -106,6 +114,7 @@ where
 
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body().transaction_count());
+
         for (sender, transaction) in block.transactions_with_sender() {
             // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
             // must be no greater than the block’s gasLimit.
@@ -157,6 +166,7 @@ where
                 },
             );
         }
+
         Ok(ExecuteOutput {
             receipts,
             gas_used: cumulative_gas_used,
@@ -219,6 +229,20 @@ where
         // call state hook with changes due to balance increments.
         let balance_state = balance_increment_state(&balance_increments, &mut self.state)?;
         self.system_caller.on_state(&balance_state);
+
+        // Preform slot locking
+        // TODO(powvt): handle situations where there could be multiple txs with locks to set and enforce
+        let inspector_lock = self.evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
+
+        self.locks_to_set = inspector.cache.accessed_storage.clone();
+        self.btc_info = inspector.broadcast_result.clone();
+
+        inspector.broadcast_result = BroadcastResult::default();
+        inspector.cache.accessed_storage = AccessedStorage::default();
+
+        inspector.handle_broadcast(block.number(), self.locks_to_set.clone(), self.btc_info.clone())
+            .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
 
         Ok(requests)
     }
