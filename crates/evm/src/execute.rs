@@ -41,10 +41,6 @@ where
     state: State<DB>,
     /// Utility to call system smart contracts.
     system_caller: SystemCaller<EvmConfig, ChainSpec>,
-    /// storage to lock
-    locks_to_set: AccessedStorage,
-    /// bitcoin info
-    btc_info: BroadcastResult,
 }
 
 impl<DB, EvmConfig> MyExecutionStrategy<DB, EvmConfig>
@@ -59,8 +55,6 @@ where
             evm_config,
             system_caller,
             tx_env_overrides: None,
-            locks_to_set: AccessedStorage::default(),
-            btc_info: BroadcastResult::default(),
         }
     }
 }
@@ -234,24 +228,33 @@ where
         let balance_state = balance_increment_state(&balance_increments, &mut self.state)?;
         self.system_caller.on_state(&balance_state);
 
-        // Preform slot locking
-        // TODO(powvt): handle situations where there could be multiple txs with locks to set and enforce
-        let inspector_lock = self.evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
+        // Handle any pending broadcasts from the inspector
+        {
+            let inspector_lock = self.evm_config.with_inspector();
+            let mut inspector = inspector_lock.write();
 
-        self.locks_to_set = inspector.cache.accessed_storage.clone();
-        self.btc_info = inspector.broadcast_result.clone();
+            // Take ownership of the pending state to process
+            let accessed_storage = std::mem::replace(
+                &mut inspector.cache.accessed_storage,
+                AccessedStorage::default(),
+            );
+            let broadcast_result =
+                std::mem::replace(&mut inspector.broadcast_result, BroadcastResult::default());
 
-        inspector.broadcast_result = BroadcastResult::default();
-        inspector.cache.accessed_storage = AccessedStorage::default();
-
-        inspector
-            .handle_broadcast(
-                block.number(),
-                self.locks_to_set.clone(),
-                self.btc_info.clone(),
-            )
-            .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
+            // Process any broadcasts that occurred
+            if let (Some(btc_txid), Some(btc_block)) =
+                (broadcast_result.txid, broadcast_result.block)
+            {
+                inspector
+                    .lock_accessed_storage_for_btc_tx(
+                        block.number(),
+                        accessed_storage,
+                        btc_txid,
+                        btc_block,
+                    )
+                    .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
+            }
+        }
 
         Ok(requests)
     }

@@ -2,7 +2,7 @@ mod provider;
 mod storage_cache;
 
 pub use provider::SlotProvider;
-use provider::{ProviderError, StorageSlotProvider};
+use provider::{SlotProviderError, StorageSlotProvider};
 use reth_tasks::TaskExecutor;
 pub use storage_cache::{AccessedStorage, StorageCache};
 
@@ -44,7 +44,7 @@ impl SovaInspector {
         excluded_addresses: impl IntoIterator<Item = Address>,
         sentinel_url: String,
         task_executor: TaskExecutor,
-    ) -> Result<Self, ProviderError> {
+    ) -> Result<Self, SlotProviderError> {
         let storage_slot_provider =
             Arc::new(StorageSlotProvider::new(sentinel_url, task_executor)?);
 
@@ -76,6 +76,7 @@ impl SovaInspector {
         }
     }
 
+    /// Get the value of a storage slot using journaled state sload
     fn get_slot_value<DB: Database>(
         &self,
         context: &mut EvmContext<DB>,
@@ -92,66 +93,139 @@ impl SovaInspector {
         }
     }
 
-    /// Handle broadcast result and lock slots if necessary, then clear state
-    pub fn handle_broadcast(
+    /// Call storage slot provider to lock slots
+    pub fn lock_accessed_storage_for_btc_tx(
         &mut self,
         block_number: u64,
         accessed_storage: AccessedStorage,
-        btc_info: BroadcastResult,
-    ) -> Result<(), ProviderError> {
-        if let (Some(txid), Some(block)) = (btc_info.txid, btc_info.block) {
-            self.storage_slot_provider
-                .lock_slots(accessed_storage, block_number, txid, block)?;
+        btc_txid: Vec<u8>,
+        btc_block: u64,
+    ) -> Result<(), SlotProviderError> {
+        self.storage_slot_provider
+            .lock_slots(accessed_storage, block_number, btc_txid, btc_block)
+    }
+
+    /// Call storage slot provider to check if slots are locked
+    fn handle_lock_checks(
+        &mut self,
+        context: &mut EvmContext<impl Database>,
+        inputs: &CallInputs,
+    ) -> Option<CallOutcome> {
+        // cannot call bitcoin broadcast precompile more than once in a tx
+        if self.broadcast_result.txid.is_some() {
+            info!("Broadcast btc precompile already called in this tx");
+            return Some(Self::create_revert_outcome(
+                "Broadcast btc precompile already called in this tx".to_string(),
+                inputs.gas_limit,
+                inputs.return_memory_offset.clone(),
+            ));
         }
 
-        Ok(())
+        // check if storage slots are locked
+        if let Ok(locked) = self.storage_slot_provider.get_locked_status(
+            self.cache.accessed_storage.clone(),
+            context.env.block.number.saturating_to::<u64>(),
+        ) {
+            info!("Lock status from provider: {:?}", locked);
+            if locked {
+                return Some(Self::create_revert_outcome(
+                    "Storage slots are locked".to_string(),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ));
+            }
+        }
+        None
     }
-}
 
-impl<DB> Inspector<DB> for SovaInspector
-where
-    DB: reth_revm::Database,
-{
+    /// Cache the broadcast btc precompile result for future use by ExecutionStrategy
+    fn handle_cache_btc_data(
+        &mut self,
+        inputs: &CallInputs,
+        outcome: &CallOutcome,
+    ) -> Option<CallOutcome> {
+        // check if call was successful
+        if outcome.result.result != InstructionResult::Return {
+            info!("Broadcast btc precompile execution failed");
+            return Some(Self::create_revert_outcome(
+                "Broadcast btc precompile execution failed".to_string(),
+                inputs.gas_limit,
+                outcome.memory_offset.clone(),
+            ));
+        }
+
+        let broadcast_txid = outcome.result.output[..32].to_vec();
+        let broadcast_block = u64::from_be_bytes(outcome.result.output[32..40].try_into().unwrap());
+
+        // set broadcast txid and block in broadcast result
+        self.broadcast_result = BroadcastResult {
+            txid: Some(broadcast_txid),
+            block: Some(broadcast_block),
+        };
+
+        None
+    }
+
     /// Called at beginning of each step of the interpreter
     /// Cache storage access if there is a btc tx broadcast in this tx
-    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        if interp.current_opcode() == opcode::SSTORE {
-            if let Ok(slot) = interp.stack().peek(0) {
-                let address = interp.contract.target_address;
-                let key = StorageKey::from(slot);
+    fn step_inner(&mut self, interp: &mut Interpreter, context: &mut EvmContext<impl Database>) {
+        if interp.current_opcode() != opcode::SSTORE {
+            return;
+        }
 
-                // get the previous value and cache it
-                let previous_value = match self.get_slot_value(context, address, slot) {
-                    Ok(value) => value,
-                    Err(_) => {
-                        panic!("Failed to get previous storage value");
-                    }
-                };
+        let Ok(slot) = interp.stack().peek(0) else {
+            return;
+        };
 
+        let address = interp.contract.target_address;
+        let key = StorageKey::from(slot);
+
+        // get the previous value and cache it
+        match self.get_slot_value(context, address, slot) {
+            Ok(previous_value) => {
                 self.cache
                     .insert_accessed_storage_before(address, key, previous_value);
+            }
+            Err(_) => {
+                info!("SovaInspector::step_inner(): Failed to get previous storage value. Address: {:?}, Slot: {:?}", address, slot);
+
+                // Set the interpreter result to Revert
+                // This is important as storage errors could result in inaccurate sentinel data
+                interp.instruction_result = InstructionResult::Revert;
             }
         }
     }
 
     /// Called at end of each step of the interpreter.
     /// Cache storage access if there is a btc tx broadcast in this tx
-    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        if interp.current_opcode() == opcode::SSTORE {
-            if let Ok(slot) = interp.stack().peek(0) {
-                let address = interp.contract.target_address;
-                let key = StorageKey::from(slot);
+    fn step_end_inner(
+        &mut self,
+        interp: &mut Interpreter,
+        context: &mut EvmContext<impl Database>,
+    ) {
+        if interp.current_opcode() != opcode::SSTORE {
+            return;
+        }
 
-                // get the new value after opcode execution and cache it
-                let current_value = match self.get_slot_value(context, address, slot) {
-                    Ok(value) => value,
-                    Err(_) => {
-                        panic!("Failed to get current storage value");
-                    }
-                };
+        let Ok(slot) = interp.stack().peek(0) else {
+            return;
+        };
 
+        let address = interp.contract.target_address;
+        let key = StorageKey::from(slot);
+
+        // get the new value after opcode execution and cache it
+        match self.get_slot_value(context, address, slot) {
+            Ok(current_value) => {
                 self.cache
                     .insert_accessed_storage_after(address, key, current_value);
+            }
+            Err(_) => {
+                info!("SovaInspector::step_end_inner(): Failed to get current storage value. Address: {:?}, Slot: {:?}", address, slot);
+
+                // Set the interpreter result to Revert
+                // This is important as storage errors could result in inaccurate sentinel data
+                interp.instruction_result = InstructionResult::Revert;
             }
         }
     }
@@ -161,105 +235,90 @@ where
     /// This inspector hook is primarily used for storage slot lock enforcement.
     /// Any cached storage access prior to a broadcast btc tx CALL will be checked for a lock.
     /// Only one btc broadcast tx call is allowed per tx.
-    fn call(
+    fn call_inner(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut EvmContext<impl Database>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        if inputs.target_address == self.cache.bitcoin_precompile_address {
-            info!("----- call hook -----");
-            info!("Bitcoin precompile called");
-
-            match Self::get_btc_precompile_method(&inputs.input) {
-                Ok(BitcoinMethod::BroadcastTransaction) => {
-                    info!("----- broadcast call hook -----");
-                    // check if there has already been a broadcast in this tx
-                    if self.broadcast_result.txid.is_some() {
-                        info!("Broadcast transaction already called");
-                        return Some(Self::create_revert_outcome(
-                            "Broadcast transaction already called".to_string(),
-                            inputs.gas_limit,
-                            inputs.return_memory_offset.clone(),
-                        ));
-                    }
-                    // check if storage slots are locked
-                    if let Ok(locked) = self.storage_slot_provider.get_locked_status(
-                        self.cache.accessed_storage.clone(),
-                        context.env.block.number,
-                    ) {
-                        info!("Lock status from provider: {:?}", locked);
-                        if locked {
-                            return Some(Self::create_revert_outcome(
-                                "Storage slots are locked".to_string(),
-                                inputs.gas_limit,
-                                inputs.return_memory_offset.clone(),
-                            ));
-                        }
-                    }
-                }
-                Ok(_) => {} // Other methods we don't care about
-                Err(err) => {
-                    // Return an error if we couldn't parse the method
-                    return Some(Self::create_revert_outcome(
-                        format!("Invalid Bitcoin method: {}", err),
-                        inputs.gas_limit,
-                        inputs.return_memory_offset.clone(),
-                    ));
-                }
-            }
+        if inputs.target_address != self.cache.bitcoin_precompile_address {
+            return None;
         }
 
-        None
+        info!("----- call hook -----");
+        info!("Bitcoin precompile called");
+
+        match Self::get_btc_precompile_method(&inputs.input) {
+            Ok(BitcoinMethod::BroadcastTransaction) => {
+                info!("-> Broadcast call hook");
+                self.handle_lock_checks(context, inputs)
+            }
+            Ok(_) => None, // Other methods we don't care about
+            Err(err) => {
+                // Return an error if we couldn't parse the method
+                Some(Self::create_revert_outcome(
+                    format!("Invalid Bitcoin method: {}", err),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ))
+            }
+        }
     }
 
     /// Triggered at the end of any execution step that is a
     /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
     /// This inspector hook is primarily used for locking accessed
     /// storage slots if a bitcoin broadcast tx precompile executed successfully.
+    fn call_end_inner(&mut self, inputs: &CallInputs, outcome: CallOutcome) -> CallOutcome {
+        if inputs.target_address != self.cache.bitcoin_precompile_address {
+            return outcome;
+        }
+
+        info!("----- call end hook -----");
+        info!("Bitcoin precompile called");
+
+        match Self::get_btc_precompile_method(&inputs.input) {
+            Ok(BitcoinMethod::BroadcastTransaction) => {
+                info!("-> Broadcast call end hook");
+                self.handle_cache_btc_data(inputs, &outcome)
+                    .unwrap_or(outcome)
+            }
+            Ok(_) => outcome, // Other methods we don't care about
+            Err(err) => Self::create_revert_outcome(
+                format!("Invalid Bitcoin method: {}", err),
+                inputs.gas_limit,
+                outcome.memory_offset,
+            ),
+        }
+    }
+}
+
+impl<DB> Inspector<DB> for SovaInspector
+where
+    DB: reth_revm::Database,
+{
+    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        self.step_inner(interp, context);
+    }
+
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        self.step_end_inner(interp, context);
+    }
+
+    fn call(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        inputs: &mut CallInputs,
+    ) -> Option<CallOutcome> {
+        self.call_inner(context, inputs)
+    }
+
     fn call_end(
         &mut self,
         _context: &mut EvmContext<DB>,
         inputs: &CallInputs,
         outcome: CallOutcome,
     ) -> CallOutcome {
-        if inputs.target_address == self.cache.bitcoin_precompile_address {
-            info!("----- call end hook -----");
-            info!("Bitcoin precompile called");
-
-            match Self::get_btc_precompile_method(&inputs.input) {
-                Ok(BitcoinMethod::BroadcastTransaction) => {
-                    info!("----- broadcast call end hook -----");
-                    if outcome.result.result == InstructionResult::Return {
-                        let broadcast_txid = outcome.result.output[..32].to_vec();
-                        let broadcast_block =
-                            u64::from_be_bytes(outcome.result.output[32..40].try_into().unwrap());
-
-                        // set broadcast txid and block in broadcast result
-                        self.broadcast_result = BroadcastResult {
-                            txid: Some(broadcast_txid),
-                            block: Some(broadcast_block),
-                        };
-                    } else {
-                        info!("Broadcast transaction failed");
-                        return Self::create_revert_outcome(
-                            "Broadcast transaction failed".to_string(),
-                            inputs.gas_limit,
-                            outcome.memory_offset,
-                        );
-                    }
-                }
-                Ok(_) => {} // Other methods we don't care about
-                Err(err) => {
-                    return Self::create_revert_outcome(
-                        format!("Invalid Bitcoin method: {}", err),
-                        inputs.gas_limit,
-                        outcome.memory_offset,
-                    );
-                }
-            }
-        }
-
-        outcome
+        self.call_end_inner(inputs, outcome)
     }
 }
 

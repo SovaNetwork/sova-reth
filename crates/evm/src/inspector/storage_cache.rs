@@ -25,14 +25,14 @@ impl AccessedStorage {
         &mut self,
         address: Address,
         key: StorageKey,
-        previous: StorageValue,
-        current: StorageValue,
+        previous_value: StorageValue,
+        current_value: StorageValue,
     ) {
         self.entry(address).insert(
             key,
             SlotData {
-                previous_value: previous,
-                current_value: current,
+                previous_value,
+                current_value,
             },
         );
     }
@@ -69,7 +69,9 @@ impl StorageCache {
         key: StorageKey,
         previous: StorageValue,
     ) {
+        // Only insert if the address is not in the excluded addresses
         if !self.excluded_addresses.contains(&address) {
+            // insert the slot data, setting the current value to zero
             self.accessed_storage
                 .insert(address, key, previous, U256::ZERO);
         }
@@ -81,6 +83,7 @@ impl StorageCache {
         key: StorageKey,
         current: StorageValue,
     ) {
+        // Only insert if the address is not in the excluded addresses
         if !self.excluded_addresses.contains(&address) {
             // If we already have an entry for this address and key,
             // update its current value while preserving the previous value
