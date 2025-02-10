@@ -22,10 +22,7 @@ use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
 use reth_revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit};
 
-use crate::{
-    inspector::{BroadcastResult, WithInspector},
-    AccessedStorage, MyEvmConfig,
-};
+use crate::{inspector::WithInspector, MyEvmConfig};
 
 pub struct MyExecutionStrategy<DB, EvmConfig>
 where
@@ -90,6 +87,11 @@ where
 
         self.system_caller
             .apply_pre_execution_changes(block.header(), &mut evm)?;
+
+        // Clear storage cache for new block
+        let inspector_lock = self.evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
+        inspector.cache.clear_cache();
 
         Ok(())
     }
@@ -228,32 +230,14 @@ where
         let balance_state = balance_increment_state(&balance_increments, &mut self.state)?;
         self.system_caller.on_state(&balance_state);
 
-        // Handle any pending broadcasts from the inspector
+        // Handle locking of storage slots for any broadcasts in this block
         {
             let inspector_lock = self.evm_config.with_inspector();
             let mut inspector = inspector_lock.write();
 
-            // Take ownership of the pending state to process
-            let accessed_storage = std::mem::replace(
-                &mut inspector.cache.accessed_storage,
-                AccessedStorage::default(),
-            );
-            let broadcast_result =
-                std::mem::replace(&mut inspector.broadcast_result, BroadcastResult::default());
-
-            // Process any broadcasts that occurred
-            if let (Some(btc_txid), Some(btc_block)) =
-                (broadcast_result.txid, broadcast_result.block)
-            {
-                inspector
-                    .lock_accessed_storage_for_btc_tx(
-                        block.number(),
-                        accessed_storage,
-                        btc_txid,
-                        btc_block,
-                    )
-                    .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
-            }
+            inspector
+                .lock_accessed_storage_for_block(block.number())
+                .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
         }
 
         Ok(requests)

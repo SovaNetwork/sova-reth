@@ -197,7 +197,7 @@ impl BitcoinRpcPrecompile {
             let mut txid_array = [0u8; 32];
             txid_array.copy_from_slice(&broadcast_response.txid.clone().unwrap());
             let hash = Hash::from_bytes_ref(&txid_array);
-            let txid = bitcoin::Txid::from_raw_hash(hash.clone());
+            let txid = bitcoin::Txid::from_raw_hash(*hash);
             info!("Broadcast bitcoin txid: {:?}", txid.to_raw_hash());
         }
 

@@ -41,7 +41,7 @@ use reth_transaction_pool::{
     BestTransactionsAttributes, PoolTransaction, TransactionPool, ValidPoolTransaction,
 };
 
-use sova_evm::{AccessedStorage, BroadcastResult, MyEvmConfig, WithInspector};
+use sova_evm::{MyEvmConfig, WithInspector};
 
 type BestTransactionsIter<Pool> = Box<
     dyn BestTransactions<Item = Arc<ValidPoolTransaction<<Pool as TransactionPool>::Transaction>>>,
@@ -238,8 +238,8 @@ where
     let mut inspector = inspector_lock.write();
 
     // Ensure we clear inspector state at the start of payload building
-    inspector.broadcast_result = BroadcastResult::default();
-    inspector.cache.accessed_storage = AccessedStorage::default();
+    // Initialize new storage tracking for this block
+    inspector.cache.clear_cache();
 
     let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
 

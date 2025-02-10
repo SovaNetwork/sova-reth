@@ -4,7 +4,7 @@ mod storage_cache;
 pub use provider::SlotProvider;
 use provider::{SlotProviderError, StorageSlotProvider};
 use reth_tasks::TaskExecutor;
-pub use storage_cache::{AccessedStorage, StorageCache};
+pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;
 use std::sync::Arc;
@@ -23,19 +23,11 @@ use reth_tracing::tracing::info;
 
 use crate::precompiles::{BitcoinMethod, MethodError};
 
-#[derive(Clone, Default)]
-pub struct BroadcastResult {
-    pub txid: Option<Vec<u8>>,
-    pub block: Option<u64>,
-}
-
 pub struct SovaInspector {
     /// accessed storage cache
     pub cache: StorageCache,
     /// client for calling external storage service
     pub storage_slot_provider: Arc<StorageSlotProvider>,
-    /// Result of the last broadcast call
-    pub broadcast_result: BroadcastResult,
 }
 
 impl SovaInspector {
@@ -51,7 +43,6 @@ impl SovaInspector {
         Ok(Self {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
             storage_slot_provider,
-            broadcast_result: BroadcastResult::default(),
         })
     }
 
@@ -111,19 +102,23 @@ impl SovaInspector {
         context: &mut EvmContext<impl Database>,
         inputs: &CallInputs,
     ) -> Option<CallOutcome> {
-        // cannot call bitcoin broadcast precompile more than once in a tx
-        if self.broadcast_result.txid.is_some() {
-            info!("Broadcast btc precompile already called in this tx");
+        // Check if any of the broadcast storage slots are already in block storage
+        if self
+            .cache
+            .block_accessed_storage
+            .contains_any(&self.cache.broadcast_accessed_storage)
+        {
+            info!("Storage slots already accessed in this block");
             return Some(Self::create_revert_outcome(
-                "Broadcast btc precompile already called in this tx".to_string(),
+                "Storage slots already accessed in this block".to_string(),
                 inputs.gas_limit,
                 inputs.return_memory_offset.clone(),
             ));
         }
 
-        // check if storage slots are locked
+        // check if the new storage slots in broadcast_accessed_storage are already locked
         if let Ok(locked) = self.storage_slot_provider.get_locked_status(
-            self.cache.accessed_storage.clone(),
+            self.cache.broadcast_accessed_storage.clone(),
             context.env.block.number.saturating_to::<u64>(),
         ) {
             info!("Lock status from provider: {:?}", locked);
@@ -158,12 +153,41 @@ impl SovaInspector {
         let broadcast_block = u64::from_be_bytes(outcome.result.output[32..40].try_into().unwrap());
 
         // set broadcast txid and block in broadcast result
-        self.broadcast_result = BroadcastResult {
+        let broadcast_result = BroadcastResult {
             txid: Some(broadcast_txid),
             block: Some(broadcast_block),
         };
 
+        // Commit the broadcast storage to block storage and lock data
+        self.cache.commit_broadcast(broadcast_result);
+
         None
+    }
+
+    /// Lock all accessed storage slots at end of block
+    pub fn lock_accessed_storage_for_block(
+        &mut self,
+        block_number: u64,
+    ) -> Result<(), SlotProviderError> {
+        // For each broadcast transaction
+        for (broadcast_result, accessed_storage) in self.cache.lock_data.iter() {
+            if let (Some(btc_txid), Some(btc_block)) =
+                (broadcast_result.txid.as_ref(), broadcast_result.block)
+            {
+                // Lock the storage with this transaction's details
+                self.storage_slot_provider.lock_slots(
+                    accessed_storage.clone(),
+                    block_number,
+                    btc_txid.clone(),
+                    btc_block,
+                )?;
+            }
+        }
+
+        // Clear the cache for next block
+        self.cache.clear_cache();
+
+        Ok(())
     }
 
     /// Called at beginning of each step of the interpreter
