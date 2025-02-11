@@ -19,6 +19,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Install Protobuf Compiler (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      
+    - name: Install Protobuf Compiler (macOS)
+      if: matrix.os == 'macos-latest'
+      run: brew install protobuf
+      
+    - name: Install Protobuf Compiler (Windows)
+      if: matrix.os == 'windows-latest'
+      run: choco install protoc
+
     - name: Build
       run: cargo build --verbose
 
@@ -27,6 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+
+    - name: Install Protobuf Compiler
+      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
     
     - name: Install Rust
       uses: actions-rs/toolchain@v1
