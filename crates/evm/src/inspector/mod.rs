@@ -9,8 +9,9 @@ pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 use core::ops::Range;
 use std::sync::Arc;
 
-use alloy_primitives::{Address, Bytes, StorageKey, U256};
 use parking_lot::RwLock;
+
+use alloy_primitives::{Address, Bytes, StorageKey, U256};
 
 use reth_revm::{
     interpreter::{

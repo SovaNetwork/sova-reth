@@ -4,11 +4,11 @@ mod inspector;
 mod precompiles;
 
 use constants::BTC_PRECOMPILE_ADDRESS;
-pub use execute::*;
+pub use execute::MyExecutionStrategyFactory;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, WithInspector};
+pub use precompiles::BitcoinClient;
 use precompiles::BitcoinRpcPrecompile;
-use reth_tasks::TaskExecutor;
 
 use std::{convert::Infallible, error::Error, sync::Arc};
 
@@ -29,6 +29,7 @@ use reth_revm::{
     primitives::{CfgEnvWithHandlerCfg, Precompile, TxEnv},
     ContextPrecompile, ContextPrecompiles, Database, EvmBuilder, GetInspector,
 };
+use reth_tasks::TaskExecutor;
 
 use sova_cli::SovaConfig;
 
@@ -46,11 +47,16 @@ impl MyEvmConfig {
     pub fn new(
         config: &SovaConfig,
         chain_spec: Arc<ChainSpec>,
+        bitcoin_client: Arc<BitcoinClient>,
         task_executor: TaskExecutor,
     ) -> Result<Self, Box<dyn Error>> {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
             bitcoin_client,
+<<<<<<< HEAD
             config.bitcoin.network,
+=======
+            config.bitcoin_config.network,
+>>>>>>> bd6c001 (bitcoin client cleanup)
             config.network_signing_url.clone(),
             config.network_utxo_url.clone(),
             config.btc_tx_queue_url.clone(),

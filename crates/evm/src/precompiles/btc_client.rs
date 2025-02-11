@@ -9,6 +9,26 @@ pub struct BitcoinClient {
     client: Client,
 }
 
+impl Default for BitcoinClient {
+    fn default() -> Self {
+        // Create default configuration for local regtest node
+        let config = BitcoinConfig {
+            network: bitcoin::Network::Regtest,
+            network_url: "http://127.0.0.1".to_string(),
+            rpc_username: "user".to_string(),
+            rpc_password: "password".to_string(),
+        };
+
+        Self::new(&config).expect("Failed to create default Bitcoin client")
+    }
+}
+
+impl fmt::Debug for BitcoinClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BitcoinClient").finish()
+    }
+}
+
 impl BitcoinClient {
     pub fn new(config: &BitcoinConfig) -> Result<Self, bitcoincore_rpc::Error> {
         let port = match config.network {

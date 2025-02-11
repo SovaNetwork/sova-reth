@@ -43,7 +43,7 @@ impl Default for BitcoinConfig {
 
 #[derive(Clone, Debug)]
 pub struct SovaConfig {
-    pub bitcoin: Arc<BitcoinConfig>,
+    pub bitcoin_config: Arc<BitcoinConfig>,
     pub network_signing_url: String,
     pub network_utxo_url: String,
     pub btc_tx_queue_url: String,
@@ -59,7 +59,7 @@ impl SovaConfig {
         sentinel_url: &str,
     ) -> Self {
         SovaConfig {
-            bitcoin: Arc::new(bitcoin_config),
+            bitcoin_config: Arc::new(bitcoin_config),
             network_signing_url: network_signing_url.to_owned(),
             network_utxo_url: network_utxo_url.to_owned(),
             btc_tx_queue_url: btc_tx_queue_url.to_owned(),
@@ -71,7 +71,7 @@ impl SovaConfig {
 impl Default for SovaConfig {
     fn default() -> Self {
         SovaConfig {
-            bitcoin: Arc::new(BitcoinConfig::default()),
+            bitcoin_config: Arc::new(BitcoinConfig::default()),
             network_signing_url: String::new(),
             network_utxo_url: String::new(),
             btc_tx_queue_url: String::new(),

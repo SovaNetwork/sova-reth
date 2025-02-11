@@ -8,7 +8,7 @@ use reth_tracing::tracing::info;
 use std::sync::Arc;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
-use btc_client::BitcoinClient;
+pub use btc_client::BitcoinClient;
 use reqwest::blocking::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 
@@ -20,12 +20,15 @@ use reth_revm::primitives::{
 
 use bitcoin::{consensus::encode::deserialize, hashes::sha256d::Hash, Network, OutPoint, TxOut};
 
+<<<<<<< HEAD
 <<<<<<< HEAD:crates/evm/src/precompiles.rs
 use crate::{abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput};
 =======
 use sova_cli::BitcoinConfig;
 >>>>>>> bfb15e5 (precompile updates):crates/evm/src/precompiles/mod.rs
 
+=======
+>>>>>>> bd6c001 (bitcoin client cleanup)
 #[derive(Deserialize)]
 struct BroadcastResponse {
     status: String,
@@ -82,18 +85,29 @@ pub struct BitcoinRpcPrecompile {
 
 impl BitcoinRpcPrecompile {
     pub fn new(
+<<<<<<< HEAD
         bitcoin_client: Arc<BitcoinClientWrapper>,
+=======
+        bitcoin_client: Arc<BitcoinClient>,
+>>>>>>> bd6c001 (bitcoin client cleanup)
         network: Network,
         network_signing_url: String,
         network_utxo_url: String,
         btc_tx_queue_url: String,
     ) -> Result<Self, bitcoincore_rpc::Error> {
+<<<<<<< HEAD
         let http_client = ReqwestClient::new();
 
         Ok(Self {
             bitcoin_client,
             http_client: Arc::new(http_client),
             network,
+=======
+        Ok(Self {
+            bitcoin_client,
+            network,
+            http_client: Arc::new(ReqwestClient::new()),
+>>>>>>> bd6c001 (bitcoin client cleanup)
             network_signing_url,
             network_utxo_url,
             btc_tx_queue_url,
