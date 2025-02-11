@@ -12,7 +12,7 @@ env:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -20,17 +20,18 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install Protobuf Compiler (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
-      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      
-    - name: Install Protobuf Compiler (macOS)
-      if: matrix.os == 'macos-latest'
-      run: brew install protobuf
-      
-    - name: Install Protobuf Compiler (Windows)
-      if: matrix.os == 'windows-latest'
-      run: choco install protoc
+    - name: Install Protobuf Compiler
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          brew update && brew install protobuf
+        elif [ "$RUNNER_OS" == "Windows" ]; then
+          curl -Lo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-win64.zip
+          unzip protoc.zip -d /usr/local
+          echo "/usr/local/bin" >> $GITHUB_PATH
+        fi
 
     - name: Build
       run: cargo build --verbose
