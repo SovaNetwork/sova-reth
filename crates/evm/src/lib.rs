@@ -52,11 +52,7 @@ impl MyEvmConfig {
     ) -> Result<Self, Box<dyn Error>> {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
             bitcoin_client,
-<<<<<<< HEAD
-            config.bitcoin.network,
-=======
             config.bitcoin_config.network,
->>>>>>> bd6c001 (bitcoin client cleanup)
             config.network_signing_url.clone(),
             config.network_utxo_url.clone(),
             config.btc_tx_queue_url.clone(),

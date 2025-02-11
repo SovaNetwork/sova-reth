@@ -91,20 +91,12 @@ impl SovaNode {
             .node_types::<Node>()
             .pool(EthereumPoolBuilder::default())
             .payload(MyPayloadBuilder::new(
-<<<<<<< HEAD
-                &sova_config,
-=======
                 &self.sova_config,
->>>>>>> bd6c001 (bitcoin client cleanup)
                 self.bitcoin_client.clone(),
             ))
             .network(EthereumNetworkBuilder::default())
             .executor(MyExecutorBuilder::new(
-<<<<<<< HEAD
-                &sova_config,
-=======
                 &self.sova_config,
->>>>>>> bd6c001 (bitcoin client cleanup)
                 self.bitcoin_client.clone(),
             ))
             .consensus(EthereumConsensusBuilder::default())
@@ -160,19 +152,11 @@ where
 pub struct MyPayloadBuilder {
     pub inner: EthereumPayloadBuilder,
     pub config: SovaConfig,
-<<<<<<< HEAD
-    pub bitcoin_client: Arc<BitcoinClientWrapper>,
-}
-
-impl MyPayloadBuilder {
-    pub fn new(config: &SovaConfig, bitcoin_client: Arc<BitcoinClientWrapper>) -> Self {
-=======
     pub bitcoin_client: Arc<BitcoinClient>,
 }
 
 impl MyPayloadBuilder {
     pub fn new(config: &SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
->>>>>>> bd6c001 (bitcoin client cleanup)
         Self {
             inner: EthereumPayloadBuilder::default(),
             config: config.clone(),
@@ -246,20 +230,6 @@ where
         ctx: &BuilderContext<Node>,
         pool: Pool,
     ) -> eyre::Result<PayloadBuilderHandle<Types::Engine>> {
-<<<<<<< HEAD
-        let evm_config =
-<<<<<<< HEAD
-            MyEvmConfig::new(&self.config, ctx.chain_spec(), self.bitcoin_client.clone());
-=======
-            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
-                |e| {
-                    eyre::eyre!(
-                "PayloadServiceBuilder::spawn_payload_service: Failed to create EVM config: {}", e
-            )
-                },
-            )?;
->>>>>>> d53ec01 (wiring up sentinel service)
-=======
         let evm_config = MyEvmConfig::new(
             &self.config,
             ctx.chain_spec(),
@@ -272,7 +242,7 @@ where
                 e
             )
         })?;
->>>>>>> bd6c001 (bitcoin client cleanup)
+
         self.spawn(evm_config, ctx, pool)
     }
 }
@@ -280,19 +250,11 @@ where
 #[derive(Clone)]
 pub struct MyExecutorBuilder {
     config: SovaConfig,
-<<<<<<< HEAD
-    bitcoin_client: Arc<BitcoinClientWrapper>,
-}
-
-impl MyExecutorBuilder {
-    pub fn new(config: &SovaConfig, bitcoin_client: Arc<BitcoinClientWrapper>) -> Self {
-=======
     bitcoin_client: Arc<BitcoinClient>,
 }
 
 impl MyExecutorBuilder {
     pub fn new(config: &SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
->>>>>>> bd6c001 (bitcoin client cleanup)
         Self {
             config: config.clone(),
             bitcoin_client,
@@ -311,20 +273,6 @@ where
         self,
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-<<<<<<< HEAD
-        let evm_config =
-<<<<<<< HEAD
-            MyEvmConfig::new(&self.config, ctx.chain_spec(), self.bitcoin_client.clone());
-=======
-            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
-                |e| {
-                    eyre::eyre!(
-                        "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
-                        e
-                    )
-                },
-            )?;
-=======
         let evm_config = MyEvmConfig::new(
             &self.config,
             ctx.chain_spec(),
@@ -337,9 +285,7 @@ where
                 e
             )
         })?;
->>>>>>> bd6c001 (bitcoin client cleanup)
 
->>>>>>> d53ec01 (wiring up sentinel service)
         Ok((
             evm_config.clone(),
             BasicBlockExecutorProvider::new(MyExecutionStrategyFactory {
