@@ -44,16 +44,16 @@ jobs:
         cache-on-failure: true
 
     - name: Check formatting
-      run: cargo fmt -- --check
+      run: cargo fmt --all -- --check
 
     - name: Clippy check
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --workspace --all-targets -- -D warnings
 
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --workspace
 
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --workspace
   
   windows-build:
     name: Windows Build
@@ -83,12 +83,12 @@ jobs:
           sudo apt-get install -y mingw-w64 protobuf-compiler
       
       - name: Check formatting
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
       
       - name: Clippy check
-        run: cargo clippy --target x86_64-pc-windows-gnu -- -D warnings
+        run: cargo clippy --workspace --target x86_64-pc-windows-gnu --all-targets -- -D warnings
       
       - name: Build for Windows
         run: |
-          cargo check --target x86_64-pc-windows-gnu
-          cargo build --target x86_64-pc-windows-gnu
+          cargo check --workspace --target x86_64-pc-windows-gnu
+          cargo build --workspace --target x86_64-pc-windows-gnu
