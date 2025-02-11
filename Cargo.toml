@@ -27,9 +27,8 @@ sova-node = { path = "crates/node" }
 sova-payload = { path = "crates/payload" }
 
 # sova external
-# sova-sentinel = { git = "https://github.com/SovaNetwork/sova-sentinel.git", rev = "8edebe9e1207aca76d7450b5160c6fcfef20a120" }
-sova-sentinel-client = { path = "../sova-sentinel/crates/client" }
-sova-sentinel-proto = { path = "../sova-sentinel/crates/proto" }
+sova-sentinel-client = { git = "https://github.com/SovaNetwork/sova-sentinel.git", rev = "2849426464bcdd31f05c291844b5f0b4fa082855" }
+sova-sentinel-proto = { git = "https://github.com/SovaNetwork/sova-sentinel.git", rev = "2849426464bcdd31f05c291844b5f0b4fa082855" }
 
 # reth
 reth = { git = "https://github.com/paradigmxyz/reth.git", rev = "6c3b1b8bcd7f86e115ab4703719056dc8998a00e" }
