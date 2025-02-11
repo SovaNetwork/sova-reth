@@ -1,5 +1,14 @@
+mod abi;
+mod btc_client;
+mod precompile_utils;
+
+pub use precompile_utils::{BitcoinMethod, MethodError};
+use reth_tracing::tracing::info;
+
 use std::sync::Arc;
 
+use abi::{abi_encode_tx_data, decode_input, DecodedInput};
+pub use btc_client::BitcoinClient;
 use reqwest::blocking::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 
@@ -8,11 +17,16 @@ use alloy_primitives::Bytes;
 use reth_revm::primitives::{
     Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
 };
-use reth_tracing::tracing::{error, info};
 
-use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut};
+use bitcoin::{consensus::encode::deserialize, hashes::sha256d::Hash, Network, OutPoint, TxOut};
 
-use crate::{abi_encode_tx_data, decode_input, BitcoinClientWrapper, DecodedInput};
+#[derive(Deserialize)]
+struct BroadcastResponse {
+    status: String,
+    txid: Option<Vec<u8>>,
+    current_block: u64,
+    error: Option<String>,
+}
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -51,9 +65,9 @@ struct SignTxInputData {
 
 #[derive(Clone)]
 pub struct BitcoinRpcPrecompile {
-    bitcoin_client: Arc<BitcoinClientWrapper>,
-    http_client: Arc<ReqwestClient>,
+    bitcoin_client: Arc<BitcoinClient>,
     network: Network,
+    http_client: Arc<ReqwestClient>,
     network_signing_url: String,
     network_utxo_url: String,
     btc_tx_queue_url: String,
@@ -61,18 +75,16 @@ pub struct BitcoinRpcPrecompile {
 
 impl BitcoinRpcPrecompile {
     pub fn new(
-        bitcoin_client: Arc<BitcoinClientWrapper>,
+        bitcoin_client: Arc<BitcoinClient>,
         network: Network,
         network_signing_url: String,
         network_utxo_url: String,
         btc_tx_queue_url: String,
     ) -> Result<Self, bitcoincore_rpc::Error> {
-        let http_client = ReqwestClient::new();
-
         Ok(Self {
             bitcoin_client,
-            http_client: Arc::new(http_client),
             network,
+            http_client: Arc::new(ReqwestClient::new()),
             network_signing_url,
             network_utxo_url,
             btc_tx_queue_url,
@@ -146,42 +158,55 @@ impl BitcoinRpcPrecompile {
             return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
         }
 
-        let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileErrors::Error(PrecompileError::Other(
-                "Failed to deserialize Bitcoin transaction".into(),
-            ))
-        })?;
-
-        let txid = tx.txid();
-
         let broadcast_request = serde_json::json!({
             "raw_tx": hex::encode(input)
         });
 
-        match self.make_http_request::<_, serde_json::Value>(
-            &self.btc_tx_queue_url,
-            "broadcast",
-            reqwest::Method::POST,
-            Some(&broadcast_request),
-        ) {
-            Ok(_) => {
-                info!(
-                    "Successfully queued transaction for broadcast, txid: {}",
-                    txid
-                );
-            }
-            Err(e) => {
-                error!("Failed to broadcast transaction: {}", e);
-            }
+        let broadcast_response: BroadcastResponse = self
+            .make_http_request(
+                &self.btc_tx_queue_url,
+                "broadcast",
+                reqwest::Method::POST,
+                Some(&broadcast_request),
+            )
+            .map_err(|e| {
+                info!("HTTP request to broadcast service failed: {}", e);
+                PrecompileErrors::Error(PrecompileError::Other(format!(
+                    "HTTP request to broadcast service failed: {}",
+                    e
+                )))
+            })?;
+
+        if broadcast_response.status != "success" {
+            info!(broadcast_response.error);
+            return Err(PrecompileErrors::Error(PrecompileError::Other(
+                broadcast_response
+                    .error
+                    .unwrap_or_else(|| "Broadcast service error".into()),
+            )));
+        } else {
+            let mut txid_array = [0u8; 32];
+            txid_array.copy_from_slice(&broadcast_response.txid.clone().unwrap());
+            let hash = Hash::from_bytes_ref(&txid_array);
+            let txid = bitcoin::Txid::from_raw_hash(*hash);
+            info!("Broadcast bitcoin txid: {:?}", txid.to_raw_hash());
         }
 
-        let mut txid_bytes: [u8; 32] = txid.to_raw_hash().to_byte_array();
-        txid_bytes.reverse();
+        // Encode the response: txid (32 bytes) followed by current block height (8 bytes)
+        let mut response = Vec::with_capacity(40);
 
-        Ok(PrecompileOutput::new(
-            gas_used,
-            Bytes::from(txid_bytes.to_vec()),
-        ))
+        // Get txid bytes directly from the response
+        let txid_bytes = broadcast_response.txid.ok_or_else(|| {
+            info!("No txid in broadcast response");
+            PrecompileErrors::Error(PrecompileError::Other(
+                "No txid in broadcast response".into(),
+            ))
+        })?;
+
+        response.extend_from_slice(&txid_bytes);
+        response.extend_from_slice(&broadcast_response.current_block.to_be_bytes());
+
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 
     fn decode_raw_transaction(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
@@ -363,23 +388,22 @@ impl BitcoinRpcPrecompile {
 
 impl StatefulPrecompile for BitcoinRpcPrecompile {
     fn call(&self, input: &Bytes, _gas_price: u64, _env: &Env) -> PrecompileResult {
-        if input.len() < 4 {
-            return Err(PrecompileErrors::Error(PrecompileError::Other(
-                "Input too short for method selector".into(),
-            )));
-        }
+        let method = BitcoinMethod::try_from(input)
+            .map_err(|e| PrecompileErrors::Error(PrecompileError::Other(e.to_string())))?;
 
-        let method_selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
+        // Skip the selector bytes and get the method's input data
+        let input_data = &input[4..];
 
-        match method_selector {
-            0x00000001 => self.call_btc_tx_queue(&input[4..], 100_000),
-            0x00000002 => self.decode_raw_transaction(&input[4..], 150_000),
-            0x00000003 => self.check_signature(&input[4..], 100_000),
-            0x00000004 => self.convert_address(&input[4..]),
-            0x00000005 => self.create_and_sign_raw_transaction(input),
-            _ => Err(PrecompileErrors::Error(PrecompileError::Other(
-                "Unsupported Bitcoin RPC method".into(),
-            ))),
+        match method {
+            BitcoinMethod::BroadcastTransaction => {
+                self.call_btc_tx_queue(input_data, method.gas_limit())
+            }
+            BitcoinMethod::DecodeTransaction => {
+                self.decode_raw_transaction(input_data, method.gas_limit())
+            }
+            BitcoinMethod::CheckSignature => self.check_signature(input_data, method.gas_limit()),
+            BitcoinMethod::ConvertAddress => self.convert_address(input_data),
+            BitcoinMethod::CreateAndSignTransaction => self.create_and_sign_raw_transaction(input),
         }
     }
 }

@@ -10,6 +10,7 @@ use reth_evm::{
     execute::{
         balance_increment_state, BlockExecutionError, BlockExecutionStrategy,
         BlockExecutionStrategyFactory, BlockValidationError, ExecuteOutput,
+        InternalBlockExecutionError,
     },
     state_change::post_block_balance_increments,
     system_calls::{OnStateHook, SystemCaller},
@@ -21,7 +22,7 @@ use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
 use reth_revm::{db::State, primitives::ResultAndState, Database, DatabaseCommit};
 
-use crate::MyEvmConfig;
+use crate::{inspector::WithInspector, MyEvmConfig};
 
 pub struct MyExecutionStrategy<DB, EvmConfig>
 where
@@ -59,9 +60,9 @@ impl<DB, EvmConfig> BlockExecutionStrategy for MyExecutionStrategy<DB, EvmConfig
 where
     DB: Database<Error: Into<ProviderError> + Display>,
     EvmConfig: ConfigureEvm<
-        Header = alloy_consensus::Header,
-        Transaction = reth_primitives::TransactionSigned,
-    >,
+            Header = alloy_consensus::Header,
+            Transaction = reth_primitives::TransactionSigned,
+        > + WithInspector,
 {
     type DB = DB;
     type Error = BlockExecutionError;
@@ -87,6 +88,11 @@ where
         self.system_caller
             .apply_pre_execution_changes(block.header(), &mut evm)?;
 
+        // Clear storage cache for new block
+        let inspector_lock = self.evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
+        inspector.cache.clear_cache();
+
         Ok(())
     }
 
@@ -94,12 +100,21 @@ where
         &mut self,
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
-        let mut evm = self
-            .evm_config
-            .evm_for_block(&mut self.state, block.header());
+        let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
+
+        // Get a reference to the inspector lock
+        let inspector_lock = self.evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
+
+        let mut evm = self.evm_config.evm_with_env_and_inspector(
+            &mut self.state,
+            cfg_and_block_env,
+            &mut *inspector,
+        );
 
         let mut cumulative_gas_used = 0;
         let mut receipts = Vec::with_capacity(block.body().transaction_count());
+
         for (sender, transaction) in block.transactions_with_sender() {
             // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
             // must be no greater than the block’s gasLimit.
@@ -151,6 +166,7 @@ where
                 },
             );
         }
+
         Ok(ExecuteOutput {
             receipts,
             gas_used: cumulative_gas_used,
@@ -214,6 +230,16 @@ where
         let balance_state = balance_increment_state(&balance_increments, &mut self.state)?;
         self.system_caller.on_state(&balance_state);
 
+        // Handle locking of storage slots for any broadcasts in this block
+        {
+            let inspector_lock = self.evm_config.with_inspector();
+            let mut inspector = inspector_lock.write();
+
+            inspector
+                .lock_accessed_storage_for_block(block.number())
+                .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
+        }
+
         Ok(requests)
     }
 
@@ -266,7 +292,8 @@ where
         + ConfigureEvm<
             Header = alloy_consensus::Header,
             Transaction = reth_primitives::TransactionSigned,
-        >,
+        >
+        + WithInspector,
 {
     type Primitives = EthPrimitives;
     type Strategy<DB: Database<Error: Into<ProviderError> + Display>> =

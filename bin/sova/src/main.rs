@@ -24,7 +24,7 @@ fn main() {
                 info!(target: "reth::cli", "Launching node");
 
                 let sova_node = SovaNode::new(sova_args)
-                    .map_err(|e| eyre::eyre!("Failed to create Bitcoin client: {}", e))?;
+                    .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
 
                 let handle = builder.launch_node(sova_node).await?;
                 handle.node_exit_future.await
