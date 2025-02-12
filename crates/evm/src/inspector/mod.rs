@@ -22,13 +22,15 @@ use reth_revm::{
 };
 use reth_tracing::tracing::info;
 
-use crate::precompiles::{BitcoinMethod, MethodError};
+use crate::{precompiles::{BitcoinMethod, MethodError}, BitcoinClient};
 
 pub struct SovaInspector {
     /// accessed storage cache
     pub cache: StorageCache,
     /// client for calling external storage service
     pub storage_slot_provider: Arc<StorageSlotProvider>,
+    /// btc client
+    btc_client: Arc<BitcoinClient>,
 }
 
 impl SovaInspector {
@@ -37,6 +39,7 @@ impl SovaInspector {
         excluded_addresses: impl IntoIterator<Item = Address>,
         sentinel_url: String,
         task_executor: TaskExecutor,
+        btc_client: Arc<BitcoinClient>,
     ) -> Result<Self, SlotProviderError> {
         let storage_slot_provider =
             Arc::new(StorageSlotProvider::new(sentinel_url, task_executor)?);
@@ -44,6 +47,7 @@ impl SovaInspector {
         Ok(Self {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
             storage_slot_provider,
+            btc_client,
         })
     }
 
@@ -100,7 +104,6 @@ impl SovaInspector {
     /// Call storage slot provider to check if slots are locked
     fn handle_lock_checks(
         &mut self,
-        context: &mut EvmContext<impl Database>,
         inputs: &CallInputs,
     ) -> Option<CallOutcome> {
         // Check if any of the broadcast storage slots are already in block storage
@@ -117,21 +120,44 @@ impl SovaInspector {
             ));
         }
 
-        // check if the new storage slots in broadcast_accessed_storage are already locked
-        if let Ok(locked) = self.storage_slot_provider.get_locked_status(
-            self.cache.broadcast_accessed_storage.clone(),
-            context.env.block.number.saturating_to::<u64>(),
-        ) {
-            info!("Lock status from provider: {:?}", locked);
-            if locked {
+        // get current btc block height
+        let current_btc_block_height = match self.btc_client.get_block_height() {
+            Ok(height) => height,
+            Err(err) => {
+                info!("Failed to get current btc block height: {}", err);
                 return Some(Self::create_revert_outcome(
-                    "Storage slots are locked".to_string(),
+                    format!("Failed to get current btc block height: {}", err),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ));
+            }
+        };
+
+        // check if the new storage slots in broadcast_accessed_storage are already locked
+        match self.storage_slot_provider.get_locked_status(
+            self.cache.broadcast_accessed_storage.clone(),
+            current_btc_block_height,
+        ) {
+            Ok(locked) => {
+                info!("Lock status from provider: {:?}", locked);
+                if locked {
+                    return Some(Self::create_revert_outcome(
+                        "Storage slots are locked".to_string(),
+                        inputs.gas_limit,
+                        inputs.return_memory_offset.clone(),
+                    ));
+                }
+                None
+            }
+            Err(err) => {
+                info!("Failed to get lock status from provider: {}", err);
+                return Some(Self::create_revert_outcome(
+                    format!("Failed to get lock status from provider: {}", err),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
             }
         }
-        None
     }
 
     /// Cache the broadcast btc precompile result for future use by ExecutionStrategy
@@ -262,7 +288,7 @@ impl SovaInspector {
     /// Only one btc broadcast tx call is allowed per tx.
     fn call_inner(
         &mut self,
-        context: &mut EvmContext<impl Database>,
+        _context: &mut EvmContext<impl Database>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         if inputs.target_address != self.cache.bitcoin_precompile_address {
@@ -275,7 +301,7 @@ impl SovaInspector {
         match Self::get_btc_precompile_method(&inputs.input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 info!("-> Broadcast call hook");
-                self.handle_lock_checks(context, inputs)
+                self.handle_lock_checks(inputs)
             }
             Ok(_) => None, // Other methods we don't care about
             Err(err) => {
