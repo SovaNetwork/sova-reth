@@ -51,7 +51,7 @@ impl MyEvmConfig {
         task_executor: TaskExecutor,
     ) -> Result<Self, Box<dyn Error>> {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
-            bitcoin_client,
+            bitcoin_client.clone(),
             config.bitcoin_config.network,
             config.network_signing_url.clone(),
             config.network_utxo_url.clone(),
@@ -63,6 +63,7 @@ impl MyEvmConfig {
             vec![BTC_PRECOMPILE_ADDRESS],
             config.sentinel_url.clone(),
             task_executor,
+            bitcoin_client,
         )
         .map_err(|e| Box::new(e) as Box<dyn Error>)?;
 

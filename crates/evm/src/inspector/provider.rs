@@ -2,6 +2,7 @@ use std::fmt;
 
 use reth_tasks::TaskExecutor;
 
+use reth_tracing::tracing::info;
 use tonic::transport::Error as TonicError;
 
 use sova_sentinel_client::SlotLockClient;
@@ -59,7 +60,9 @@ pub trait SlotProvider {
 }
 
 pub struct StorageSlotProvider {
+    /// Url endpoint of the sentinel service
     sentinel_url: String,
+    /// reth's async task executor
     task_executor: TaskExecutor,
 }
 
@@ -87,7 +90,10 @@ impl StorageSlotProvider {
                     .map_err(|e| SlotProviderError::RpcError(e.to_string()))?
                     .into_inner();
 
+                info!("response: {:?}", response);
+
                 if response.status == 1 {
+                    // LOCKED status
                     return Ok(true);
                 }
             }

@@ -60,4 +60,8 @@ impl BitcoinClient {
     ) -> Result<Transaction, bitcoincore_rpc::Error> {
         self.client.get_raw_transaction(txid, block_hash)
     }
+
+    pub fn get_block_height(&self) -> Result<u64, bitcoincore_rpc::Error> {
+        self.client.get_block_count()
+    }
 }
