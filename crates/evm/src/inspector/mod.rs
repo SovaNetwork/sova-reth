@@ -22,7 +22,10 @@ use reth_revm::{
 };
 use reth_tracing::tracing::info;
 
-use crate::{precompiles::{BitcoinMethod, MethodError}, BitcoinClient};
+use crate::{
+    precompiles::{BitcoinMethod, MethodError},
+    BitcoinClient,
+};
 
 pub struct SovaInspector {
     /// accessed storage cache
@@ -102,10 +105,7 @@ impl SovaInspector {
     }
 
     /// Call storage slot provider to check if slots are locked
-    fn handle_lock_checks(
-        &mut self,
-        inputs: &CallInputs,
-    ) -> Option<CallOutcome> {
+    fn handle_lock_checks(&mut self, inputs: &CallInputs) -> Option<CallOutcome> {
         // Check if any of the broadcast storage slots are already in block storage
         if self
             .cache
@@ -151,11 +151,11 @@ impl SovaInspector {
             }
             Err(err) => {
                 info!("Failed to get lock status from provider: {}", err);
-                return Some(Self::create_revert_outcome(
+                Some(Self::create_revert_outcome(
                     format!("Failed to get lock status from provider: {}", err),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
-                ));
+                ))
             }
         }
     }

@@ -8,7 +8,6 @@ use tonic::transport::Error as TonicError;
 use sova_sentinel_client::SlotLockClient;
 use sova_sentinel_proto::proto::{GetSlotStatusResponse, LockSlotResponse};
 
-
 use super::storage_cache::AccessedStorage;
 
 #[derive(Debug)]
@@ -93,7 +92,8 @@ impl StorageSlotProvider {
 
                 info!("response: {:?}", response);
 
-                if response.status == 1 { // LOCKED status
+                if response.status == 1 {
+                    // LOCKED status
                     return Ok(true);
                 }
             }
