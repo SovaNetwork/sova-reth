@@ -1,8 +1,8 @@
 use std::fmt;
 
+use reth_revm::primitives::EvmState;
 use reth_tasks::TaskExecutor;
 
-use reth_tracing::tracing::info;
 use tonic::transport::Error as TonicError;
 
 use sova_sentinel_client::SlotLockClient;
@@ -15,6 +15,7 @@ pub enum SlotProviderError {
     Transport(TonicError),
     RpcError(String),
     ConnectionError(String),
+    BitcoinError(bitcoincore_rpc::Error),
 }
 
 impl fmt::Display for SlotProviderError {
@@ -23,6 +24,7 @@ impl fmt::Display for SlotProviderError {
             SlotProviderError::Transport(e) => write!(f, "Transport error: {}", e),
             SlotProviderError::RpcError(e) => write!(f, "RPC error: {}", e),
             SlotProviderError::ConnectionError(e) => write!(f, "Connection error: {}", e),
+            SlotProviderError::BitcoinError(e) => write!(f, "Bitcoin error: {}", e),
         }
     }
 }
@@ -32,6 +34,7 @@ impl std::error::Error for SlotProviderError {
         match self {
             SlotProviderError::Transport(e) => Some(e),
             SlotProviderError::RpcError(_) | SlotProviderError::ConnectionError(_) => None,
+            SlotProviderError::BitcoinError(e) => Some(e),
         }
     }
 }
@@ -48,7 +51,7 @@ pub trait SlotProvider {
         &self,
         storage: AccessedStorage,
         block: u64,
-    ) -> Result<bool, SlotProviderError>;
+    ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError>;
     /// Lock the provided accessed storage slots with the corresponding bitcoin txid and vout
     fn lock_slots(
         &self,
@@ -56,6 +59,12 @@ pub trait SlotProvider {
         block: u64,
         btc_txid: Vec<u8>,
         btc_block: u64,
+    ) -> Result<(), SlotProviderError>;
+
+    fn unlock_slot(
+        &self,
+        btc_block: u64,
+        reverts: EvmState,
     ) -> Result<(), SlotProviderError>;
 }
 
@@ -81,7 +90,8 @@ impl StorageSlotProvider {
         client: &mut SlotLockClient,
         block: u64,
         storage: AccessedStorage,
-    ) -> Result<bool, SlotProviderError> {
+    ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError> {
+        let mut responses = Vec::new();
         for (address, slots) in storage.iter() {
             for slot in slots.keys() {
                 let response: GetSlotStatusResponse = client
@@ -90,15 +100,10 @@ impl StorageSlotProvider {
                     .map_err(|e| SlotProviderError::RpcError(e.to_string()))?
                     .into_inner();
 
-                info!("response: {:?}", response);
-
-                if response.status == 1 {
-                    // LOCKED status
-                    return Ok(true);
-                }
+                responses.push(response);
             }
         }
-        Ok(false)
+        Ok(responses)
     }
 
     async fn lock_slots_inner(
@@ -110,6 +115,15 @@ impl StorageSlotProvider {
     ) -> Result<(), SlotProviderError> {
         for (address, slots) in storage.iter() {
             for (slot, slot_data) in slots {
+                println!("Revert value: {:?}, Bytes: {:?}", 
+                    slot_data.previous_value, 
+                    slot_data.previous_value.to_be_bytes_vec()
+                );
+                println!("Current value: {:?}, Bytes: {:?}", 
+                    slot_data.current_value, 
+                    slot_data.current_value.to_be_bytes_vec()
+                );
+
                 let _: LockSlotResponse = client
                     .lock_slot(
                         block,
@@ -127,6 +141,34 @@ impl StorageSlotProvider {
         }
         Ok(())
     }
+
+    async fn unlock_slots_inner(
+        client: &mut SlotLockClient,
+        block: u64,
+        revert_cache: &EvmState,
+    ) -> Result<(), SlotProviderError> {
+        // Process each account in the revert cache
+        for (address, account) in revert_cache.iter() {
+            // Only process accounts that have storage changes
+            if !account.storage.is_empty() {
+                // Convert each storage slot to bytes and unlock it
+                for (slot, _) in account.storage.iter() {
+                    let slot_bytes = slot.to_be_bytes_vec();
+                    
+                    let _ = client
+                        .unlock_slot(
+                            block,
+                            address.to_string(), 
+                            slot_bytes,
+                        )
+                        .await
+                        .map_err(|e| SlotProviderError::RpcError(e.to_string()))?
+                        .into_inner();
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SlotProvider for StorageSlotProvider {
@@ -134,7 +176,7 @@ impl SlotProvider for StorageSlotProvider {
         &self,
         storage: AccessedStorage,
         block: u64,
-    ) -> Result<bool, SlotProviderError> {
+    ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError> {
         let sentinel_url = self.sentinel_url.clone();
 
         tokio::task::block_in_place(|| {
@@ -166,6 +208,25 @@ impl SlotProvider for StorageSlotProvider {
                     .map_err(|e| SlotProviderError::ConnectionError(e.to_string()))?;
 
                 Self::lock_slots_inner(&mut client, block, storage, btc_txid, btc_block).await
+            })
+        })
+    }
+
+    fn unlock_slot(
+        &self,
+        block: u64,
+        revert_cache: EvmState,
+    ) -> Result<(), SlotProviderError> {
+        let sentinel_url = self.sentinel_url.clone();
+
+        tokio::task::block_in_place(|| {
+            let handle = self.task_executor.handle().clone();
+            handle.block_on(async {
+                let mut client = SlotLockClient::connect(sentinel_url)
+                    .await
+                    .map_err(|e| SlotProviderError::ConnectionError(e.to_string()))?;
+
+                Self::unlock_slots_inner(&mut client, block, &revert_cache).await
             })
         })
     }

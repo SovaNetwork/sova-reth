@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use alloy_primitives::{Address, StorageKey, StorageValue, U256};
+use alloy_primitives::{Address, StorageKey, StorageValue};
+
+use super::StorageChange;
 
 #[derive(Clone, Debug)]
 pub struct SlotData {
@@ -108,38 +110,29 @@ impl StorageCache {
         }
     }
 
-    /// Update data in the broadcast storage cache before opcode step
-    pub fn insert_accessed_storage_before(
-        &mut self,
-        address: Address,
-        key: StorageKey,
-        previous: StorageValue,
-    ) {
-        // Only insert if the address is not in the excluded addresses
-        if !self.excluded_addresses.contains(&address) {
-            // insert the slot data, setting the current value to zero
-            self.broadcast_accessed_storage
-                .insert(address, key, previous, U256::ZERO);
-        }
-    }
-
     /// Update data in the broadcast storage cache after opcode step
-    pub fn insert_accessed_storage_after(
+    pub fn insert_accessed_storage_step_end(
         &mut self,
         address: Address,
         key: StorageKey,
-        current: StorageValue,
+        storage_change: StorageChange,
     ) {
-        // Only insert if the address is not in the excluded addresses
         if !self.excluded_addresses.contains(&address) {
             // If we already have an entry for this address and key,
             // update its current value while preserving the previous value
             if let Some(slot_data) = self.broadcast_accessed_storage.entry(address).get_mut(&key) {
-                slot_data.current_value = current;
+                slot_data.current_value = storage_change.value;
             } else {
-                // If no entry exists, create a new one with zero as previous value
+                // Get the previous value only if the reason is not SLOAD
+                let previous_value = if storage_change.had_value.is_some() {
+                    storage_change.had_value
+                } else {
+                    None
+                };
+
+                // If we don't have an entry for this address and key, add one
                 self.broadcast_accessed_storage
-                    .insert(address, key, U256::ZERO, current);
+                    .insert(address, key, previous_value.unwrap_or_default(), storage_change.value);
             }
         }
     }

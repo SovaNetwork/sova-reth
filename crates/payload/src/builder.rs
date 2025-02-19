@@ -153,6 +153,8 @@ where
 /// Given build arguments including an Sova client, transaction pool,
 /// and configuration, this function creates a transaction payload. Returns
 /// a result indicating success with the payload or an error in case of failure.
+/// 
+/// Similar to the execution flow all payloads
 #[inline]
 pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
     evm_config: EvmConfig,
@@ -189,23 +191,8 @@ where
     } = config;
 
     debug!(target: "payload_builder", id=%attributes.id, parent_header = ?parent_header.hash(), parent_number = parent_header.number, "building new payload");
-    let mut cumulative_gas_used = 0;
-    let mut sum_blob_gas_used = 0;
     let block_gas_limit: u64 = evm_env.block_env.gas_limit.to::<u64>();
     let base_fee = evm_env.block_env.basefee.to::<u64>();
-
-    let mut executed_txs = Vec::new();
-    let mut executed_senders = Vec::new();
-
-    let mut best_txs = best_txs(BestTransactionsAttributes::new(
-        base_fee,
-        evm_env
-            .block_env
-            .get_blob_gasprice()
-            .map(|gasprice| gasprice as u64),
-    ));
-    let mut total_fees = U256::ZERO;
-
     let block_number = evm_env.block_env.number.to::<u64>();
     let beneficiary = evm_env.block_env.coinbase;
 
@@ -234,14 +221,71 @@ where
         PayloadBuilderError::Internal(err.into())
     })?;
 
+
+    // SIMULATION PHASE (apply mask to the database)
+    let revert_cache = {
+        // Get inspector in inner scope
+        let inspector_lock = evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
+        inspector.cache.clear_cache();
+
+        // Create EVM in inner scope
+        let mut evm = evm_config.evm_with_env_and_inspector(
+            &mut db,
+            evm_env.clone(), 
+            &mut *inspector,
+        );
+
+        // Get simulation transaction iterator
+        let mut best_txs_simulation = best_txs(BestTransactionsAttributes::new(
+            base_fee,
+            evm_env.block_env.get_blob_gasprice().map(|gasprice| gasprice as u64),
+        ));
+
+        // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
+        while let Some(pool_tx) = best_txs_simulation.next() {
+            let tx = pool_tx.to_consensus();
+            let tx_env = evm_config.tx_env(tx.tx(), tx.signer());
+            
+            let _ = evm.transact(tx_env).map_err(|err| {
+                PayloadBuilderError::EvmExecutionError(err)
+            })?;
+        }
+
+        drop(evm);
+
+        inspector.revert_cache.clone()
+    };
+
+    // // Commit the revert cache
+    // db.commit(revert_cache);
+    // db.merge_transitions(BundleRetention::Reverts);
+
+    // ACTUAL EXECUTION PHASE
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
-
-    // Ensure we clear inspector state at the start of payload building
-    // Initialize new storage tracking for this block
     inspector.cache.clear_cache();
 
-    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
+    // Create EVM
+    let mut evm = evm_config.evm_with_env_and_inspector(
+        &mut db,
+        evm_env.clone(),
+        &mut *inspector,
+    );
+
+    let mut cumulative_gas_used = 0;
+    let mut sum_blob_gas_used = 0;
+    let mut executed_txs = Vec::new();
+    let mut executed_senders = Vec::new();
+    let mut total_fees = U256::ZERO;
+
+    // Create another transaction iterator for actual execution
+    let mut best_txs = pool.best_transactions_with_attributes(
+        BestTransactionsAttributes::new(
+            base_fee,
+            evm_env.block_env.get_blob_gasprice().map(|gasprice| gasprice as u64),
+        )
+    );
 
     let mut receipts = Vec::new();
     while let Some(pool_tx) = best_txs.next() {
@@ -422,7 +466,8 @@ where
         .expect("Number is in range");
 
     // calculate the state root
-    let hashed_state = db.database.db.hashed_post_state(execution_outcome.state());
+    let bundle_state = db.take_bundle();
+    let hashed_state = db.database.db.hashed_post_state(&bundle_state);
     let (state_root, trie_output) = {
         db.database
             .inner()
