@@ -1,6 +1,7 @@
 use std::fmt;
 
-use reth_revm::primitives::EvmState;
+use alloy_primitives::Address;
+use reth_revm::TransitionAccount;
 use reth_tasks::TaskExecutor;
 
 use tonic::transport::Error as TonicError;
@@ -64,7 +65,7 @@ pub trait SlotProvider {
     fn unlock_slot(
         &self,
         btc_block: u64,
-        reverts: EvmState,
+        transitions: Vec<(Address, TransitionAccount)>,
     ) -> Result<(), SlotProviderError>;
 }
 
@@ -115,12 +116,14 @@ impl StorageSlotProvider {
     ) -> Result<(), SlotProviderError> {
         for (address, slots) in storage.iter() {
             for (slot, slot_data) in slots {
-                println!("Revert value: {:?}, Bytes: {:?}", 
-                    slot_data.previous_value, 
+                println!(
+                    "Revert value: {:?}, Bytes: {:?}",
+                    slot_data.previous_value,
                     slot_data.previous_value.to_be_bytes_vec()
                 );
-                println!("Current value: {:?}, Bytes: {:?}", 
-                    slot_data.current_value, 
+                println!(
+                    "Current value: {:?}, Bytes: {:?}",
+                    slot_data.current_value,
                     slot_data.current_value.to_be_bytes_vec()
                 );
 
@@ -145,22 +148,18 @@ impl StorageSlotProvider {
     async fn unlock_slots_inner(
         client: &mut SlotLockClient,
         block: u64,
-        revert_cache: &EvmState,
+        transitions: &[(Address, TransitionAccount)],
     ) -> Result<(), SlotProviderError> {
         // Process each account in the revert cache
-        for (address, account) in revert_cache.iter() {
+        for (address, transition) in transitions.iter() {
             // Only process accounts that have storage changes
-            if !account.storage.is_empty() {
+            if !transition.storage.is_empty() {
                 // Convert each storage slot to bytes and unlock it
-                for (slot, _) in account.storage.iter() {
+                for (slot, _) in transition.storage.iter() {
                     let slot_bytes = slot.to_be_bytes_vec();
-                    
+
                     let _ = client
-                        .unlock_slot(
-                            block,
-                            address.to_string(), 
-                            slot_bytes,
-                        )
+                        .unlock_slot(block, address.to_string(), slot_bytes)
                         .await
                         .map_err(|e| SlotProviderError::RpcError(e.to_string()))?
                         .into_inner();
@@ -215,7 +214,7 @@ impl SlotProvider for StorageSlotProvider {
     fn unlock_slot(
         &self,
         block: u64,
-        revert_cache: EvmState,
+        transitions: Vec<(Address, TransitionAccount)>,
     ) -> Result<(), SlotProviderError> {
         let sentinel_url = self.sentinel_url.clone();
 
@@ -226,7 +225,7 @@ impl SlotProvider for StorageSlotProvider {
                     .await
                     .map_err(|e| SlotProviderError::ConnectionError(e.to_string()))?;
 
-                Self::unlock_slots_inner(&mut client, block, &revert_cache).await
+                Self::unlock_slots_inner(&mut client, block, &transitions).await
             })
         })
     }

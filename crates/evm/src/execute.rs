@@ -1,8 +1,9 @@
-use std::{fmt::Display, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use alloy_consensus::{BlockHeader, Transaction};
 use alloy_eips::{eip6110, eip7685::Requests};
 
+use alloy_primitives::Address;
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_consensus::ConsensusError;
 use reth_ethereum_consensus::validate_block_post_execution;
@@ -20,7 +21,11 @@ use reth_node_api::BlockBody;
 use reth_primitives::{EthPrimitives, Receipt, RecoveredBlock};
 use reth_primitives_traits::transaction::signed::SignedTransaction;
 use reth_provider::ProviderError;
-use reth_revm::{db::{states::bundle_state::BundleRetention, State}, primitives::ResultAndState, Database, DatabaseCommit};
+use reth_revm::{
+    db::State,
+    primitives::{Account, ResultAndState},
+    Database, DatabaseCommit, TransitionAccount,
+};
 
 use crate::{inspector::WithInspector, MyEvmConfig};
 
@@ -91,53 +96,71 @@ where
         Ok(())
     }
 
-
     fn execute_transactions(
         &mut self,
         block: &RecoveredBlock<reth_primitives::Block>,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
-       // Prepare EVM configuration
+        // Prepare EVM configuration
         let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
 
         // SIMULATION PHASE (apply mask to the database)
-        let revert_cache = {
-            // Get inspector in inner scope
-            let inspector_lock = self.evm_config.with_inspector();
-            let mut inspector = inspector_lock.write();
-            inspector.cache.clear_cache();
+        // Get inspector in inner scope
+        let inspector_lock = self.evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
+        inspector.cache.clear_cache();
 
-            // Create EVM in inner scope
-            let mut evm = self.evm_config.evm_with_env_and_inspector(
-                &mut self.state,
-                cfg_and_block_env.clone(),
-                &mut *inspector,
-            );
+        // Create EVM in inner scope
+        let mut evm = self.evm_config.evm_with_env_and_inspector(
+            &mut self.state,
+            cfg_and_block_env.clone(),
+            &mut *inspector,
+        );
 
-            // Simulate transaction execution        
-            for (sender, transaction) in block.transactions_with_sender() {
-                let mut tx_env = self.evm_config.tx_env(transaction, *sender);
+        // Simulate transaction execution
+        for (sender, transaction) in block.transactions_with_sender() {
+            let mut tx_env = self.evm_config.tx_env(transaction, *sender);
 
-                if let Some(tx_env_overrides) = &mut self.tx_env_overrides {
-                    tx_env_overrides.apply(&mut tx_env);
-                }
-
-                let _ = evm.transact(tx_env).map_err(move |err| {
-                    let new_err = err.map_db_err(|e| e.into());
-                    BlockValidationError::EVM {
-                        hash: transaction.recalculate_hash(),
-                        error: Box::new(new_err),
-                    }
-                })?;
+            if let Some(tx_env_overrides) = &mut self.tx_env_overrides {
+                tx_env_overrides.apply(&mut tx_env);
             }
 
-            drop(evm);
+            let _ = evm.transact(tx_env).map_err(move |err| {
+                let new_err = err.map_db_err(|e| e.into());
+                BlockValidationError::EVM {
+                    hash: transaction.recalculate_hash(),
+                    error: Box::new(new_err),
+                }
+            })?;
+        }
 
-            inspector.revert_cache.clone()
-        };
+        drop(evm);
 
-        // // Commit the revert cache
-        // self.state.commit(revert_cache);
-        // self.state.merge_transitions(BundleRetention::Reverts);
+        let transitions: Vec<(Address, TransitionAccount)> = inspector.take_transitions();
+
+        for (address, transition) in &transitions {
+            for (slot, slot_data) in &transition.storage {
+                let prev_value = slot_data.previous_or_original_value;
+
+                // Load account from revm state
+                let acc = self.state.load_cache_account(*address).map_err(|e| {
+                    BlockExecutionError::Internal(InternalBlockExecutionError::msg(e))
+                })?;
+
+                // Ensure storage slot is explicitly set to previous_or_original_value
+                if let Some(a) = acc.account.as_mut() {
+                    a.storage.insert(*slot, prev_value);
+                }
+
+                // Convert back to revm format and commit it to state
+                let mut revm_acc: Account = acc.account_info().unwrap_or_default().into();
+                revm_acc.mark_touch();
+
+                self.state
+                    .commit(HashMap::from_iter([(*address, revm_acc)]));
+            }
+        }
+
+        drop(inspector);
 
         // ACTUAL EXECUTION PHASE
         let inspector_lock = self.evm_config.with_inspector();
@@ -268,7 +291,7 @@ where
         // call state hook with changes due to balance increments.
         let balance_state = balance_increment_state(&balance_increments, &mut self.state)?;
         self.system_caller.on_state(&balance_state);
-       
+
         {
             let inspector_lock = self.evm_config.with_inspector();
             let mut inspector = inspector_lock.write();

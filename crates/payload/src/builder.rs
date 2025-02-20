@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy_consensus::{Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip4844::MAX_DATA_GAS_PER_BLOCK, eip6110, eip7685::Requests, eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 
 use reth_basic_payload_builder::{
     commit_withdrawals, is_better_payload, BuildArguments, BuildOutcome, PayloadBuilder,
@@ -32,10 +32,10 @@ use reth_provider::StateProviderFactory;
 use reth_revm::{
     database::StateProviderDatabase,
     db::{states::bundle_state::BundleRetention, State},
-    primitives::{EVMError, InvalidTransaction, ResultAndState},
-    DatabaseCommit,
+    primitives::{Account, EVMError, InvalidTransaction, ResultAndState},
+    DatabaseCommit, TransitionAccount,
 };
-use reth_tracing::tracing::{debug, trace, warn};
+use reth_tracing::tracing::{debug, info, trace, warn};
 use reth_transaction_pool::{
     error::InvalidPoolTransactionError, noop::NoopTransactionPool, BestTransactions,
     BestTransactionsAttributes, PoolTransaction, TransactionPool, ValidPoolTransaction,
@@ -153,7 +153,7 @@ where
 /// Given build arguments including an Sova client, transaction pool,
 /// and configuration, this function creates a transaction payload. Returns
 /// a result indicating success with the payload or an error in case of failure.
-/// 
+///
 /// Similar to the execution flow all payloads
 #[inline]
 pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
@@ -221,45 +221,62 @@ where
         PayloadBuilderError::Internal(err.into())
     })?;
 
-
     // SIMULATION PHASE (apply mask to the database)
-    let revert_cache = {
-        // Get inspector in inner scope
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
-        inspector.cache.clear_cache();
+    // Get inspector in inner scope
+    let inspector_lock = evm_config.with_inspector();
+    let mut inspector = inspector_lock.write();
+    inspector.cache.clear_cache();
 
-        // Create EVM in inner scope
-        let mut evm = evm_config.evm_with_env_and_inspector(
-            &mut db,
-            evm_env.clone(), 
-            &mut *inspector,
-        );
+    // Create EVM in inner scope
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-        // Get simulation transaction iterator
-        let mut best_txs_simulation = best_txs(BestTransactionsAttributes::new(
-            base_fee,
-            evm_env.block_env.get_blob_gasprice().map(|gasprice| gasprice as u64),
-        ));
+    // Get simulation transaction iterator
+    let best_txs_simulation = best_txs(BestTransactionsAttributes::new(
+        base_fee,
+        evm_env
+            .block_env
+            .get_blob_gasprice()
+            .map(|gasprice| gasprice as u64),
+    ));
 
-        // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-        while let Some(pool_tx) = best_txs_simulation.next() {
-            let tx = pool_tx.to_consensus();
-            let tx_env = evm_config.tx_env(tx.tx(), tx.signer());
-            
-            let _ = evm.transact(tx_env).map_err(|err| {
-                PayloadBuilderError::EvmExecutionError(err)
-            })?;
+    // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
+    for pool_tx in best_txs_simulation {
+        let tx = pool_tx.to_consensus();
+        let tx_env = evm_config.tx_env(tx.tx(), tx.signer());
+
+        let _ = evm
+            .transact(tx_env)
+            .map_err(|_| PayloadBuilderError::EvmExecutionError);
+    }
+
+    drop(evm);
+
+    let transitions: Vec<(Address, TransitionAccount)> = inspector.take_transitions();
+    info!("Created transitions: {:?}", transitions);
+
+    for (address, transition) in &transitions {
+        for (slot, slot_data) in &transition.storage {
+            let prev_value = slot_data.previous_or_original_value;
+
+            // Load account from revm state
+            let acc = db
+                .load_cache_account(*address)
+                .expect("Account should exist");
+
+            // Ensure storage slot is explicitly set to previous_or_original_value
+            if let Some(a) = acc.account.as_mut() {
+                a.storage.insert(*slot, prev_value);
+            }
+
+            // Convert back to revm format and commit it to state
+            let mut revm_acc: Account = acc.account_info().unwrap_or_default().into();
+            revm_acc.mark_touch();
+
+            db.commit(HashMap::from_iter([(*address, revm_acc)]));
         }
+    }
 
-        drop(evm);
-
-        inspector.revert_cache.clone()
-    };
-
-    // // Commit the revert cache
-    // db.commit(revert_cache);
-    // db.merge_transitions(BundleRetention::Reverts);
+    drop(inspector);
 
     // ACTUAL EXECUTION PHASE
     let inspector_lock = evm_config.with_inspector();
@@ -267,11 +284,7 @@ where
     inspector.cache.clear_cache();
 
     // Create EVM
-    let mut evm = evm_config.evm_with_env_and_inspector(
-        &mut db,
-        evm_env.clone(),
-        &mut *inspector,
-    );
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
     let mut cumulative_gas_used = 0;
     let mut sum_blob_gas_used = 0;
@@ -280,12 +293,13 @@ where
     let mut total_fees = U256::ZERO;
 
     // Create another transaction iterator for actual execution
-    let mut best_txs = pool.best_transactions_with_attributes(
-        BestTransactionsAttributes::new(
-            base_fee,
-            evm_env.block_env.get_blob_gasprice().map(|gasprice| gasprice as u64),
-        )
-    );
+    let mut best_txs = pool.best_transactions_with_attributes(BestTransactionsAttributes::new(
+        base_fee,
+        evm_env
+            .block_env
+            .get_blob_gasprice()
+            .map(|gasprice| gasprice as u64),
+    ));
 
     let mut receipts = Vec::new();
     while let Some(pool_tx) = best_txs.next() {
@@ -466,8 +480,7 @@ where
         .expect("Number is in range");
 
     // calculate the state root
-    let bundle_state = db.take_bundle();
-    let hashed_state = db.database.db.hashed_post_state(&bundle_state);
+    let hashed_state = db.database.db.hashed_post_state(execution_outcome.state());
     let (state_root, trie_output) = {
         db.database
             .inner()

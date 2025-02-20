@@ -15,11 +15,11 @@ use parking_lot::RwLock;
 use alloy_primitives::{Address, Bytes, U256};
 
 use reth_revm::{
+    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues},
     interpreter::{
-        opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult
+        opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    primitives::{Account, AccountStatus, EvmState, EvmStorageSlot},
-    Database, EvmContext, Inspector, JournalEntry,
+    Database, EvmContext, Inspector, JournalEntry, TransitionAccount,
 };
 use reth_tracing::tracing::info;
 
@@ -46,8 +46,8 @@ pub struct SovaInspector {
     pub storage_slot_provider: Arc<StorageSlotProvider>,
     /// btc client
     btc_client: Arc<BitcoinClient>,
-    /// revert cache
-    pub revert_cache: EvmState,
+    /// transition state for sentinel reverts
+    pub transition_state: Vec<(Address, TransitionAccount)>,
 }
 
 impl SovaInspector {
@@ -65,7 +65,7 @@ impl SovaInspector {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
             storage_slot_provider,
             btc_client,
-            revert_cache: EvmState::default(),
+            transition_state: Vec::new(),
         })
     }
 
@@ -90,33 +90,40 @@ impl SovaInspector {
         }
     }
 
-    fn add_to_revert_cache(
-        &mut self,
-        address: Address,
-        key: U256,
-        current_value: U256,
-        revert_value: U256
-    ) {
-        // Get or create account in revert cache
-        let account = self.revert_cache
-            .entry(address)
-            .or_insert_with(|| {
-                let mut account = Account::default();
-                // Set as Created since we know we'll modify it
-                account.status = AccountStatus::Created;
-                account
-            });
-
-        // Create storage slot marking the change
-        account.storage.insert(
-            key,
-            EvmStorageSlot::new_changed(current_value, revert_value)
-        );
+    pub fn take_transitions(&mut self) -> Vec<(Address, TransitionAccount)> {
+        std::mem::take(&mut self.transition_state)
     }
+
+    // fn add_to_revert_cache(
+    //     &mut self,
+    //     address: Address,
+    //     key: U256,
+    //     current_value: U256,
+    //     revert_value: U256
+    // ) {
+    //     // Get or create account in revert cache
+    //     let account = self.revert_cache
+    //         .entry(address)
+    //         .or_insert_with(|| {
+    //             let mut account = Account::default();
+    //             // Mark as Created to avoid db fetches
+    //             account.status = AccountStatus::Created;
+    //             // Mark as Touched to ensure it gets saved
+    //             account.mark_touch();
+    //             account
+    //         });
+
+    //     // Create storage slot marking the change
+    //     account.storage.insert(
+    //         key,
+    //         EvmStorageSlot::new_changed(current_value, revert_value)
+    //     );
+    // }
 
     fn handle_revert_status(&mut self, response: GetSlotStatusResponse) {
         // Parse contract address
-        let address = Address::from_str(&response.contract_address).expect("Invalid contract address from sentinel");
+        let address = Address::from_str(&response.contract_address)
+            .expect("Invalid contract address from sentinel");
 
         info!("response: {:?}", response);
 
@@ -135,8 +142,27 @@ impl SovaInspector {
         revert_bytes[32 - response.revert_value.len()..].copy_from_slice(&response.revert_value);
         let revert_value = U256::from_be_bytes(revert_bytes);
 
-        // Add to revert cache
-        self.add_to_revert_cache(address, key, current_value, revert_value);
+        info!(
+            "Creating transition for address {:?}: current_value={:?}, revert_value={:?}",
+            address, current_value, revert_value
+        );
+
+        // Create storage with both current and previous values
+        let mut storage = StorageWithOriginalValues::default();
+        let storage_slot = StorageSlot::new_changed(revert_value, current_value);
+        storage.insert(key, storage_slot);
+
+        let transition: TransitionAccount = TransitionAccount {
+            info: None,
+            status: AccountStatus::Changed,
+            previous_info: None,
+            previous_status: AccountStatus::Loaded,
+            storage,
+            storage_was_destroyed: false,
+        };
+
+        // Add to transition state
+        self.transition_state.push((address, transition));
     }
 
     /// Pre broadcast precompile call
@@ -183,7 +209,7 @@ impl SovaInspector {
                         info!("Unknown returned from sentinel");
                     }
                     // LOCKED
-                    if response.status ==  1 {
+                    if response.status == 1 {
                         info!("Storage slot is already locked");
                         return Some(Self::create_revert_outcome(
                             "Storage slot is already locked".to_string(),
@@ -247,11 +273,7 @@ impl SovaInspector {
     }
 
     /// Lock all accessed storage slots at end of block
-    pub fn update_sentinel_locks(
-        &mut self,
-        block_number: u64,
-    ) -> Result<(), SlotProviderError> {
-
+    pub fn update_sentinel_locks(&mut self, block_number: u64) -> Result<(), SlotProviderError> {
         // get current btc block height
         // TODO: optimize btc block height handling/storage/reference
         let current_btc_block_height = match self.btc_client.get_block_height() {
@@ -263,11 +285,9 @@ impl SovaInspector {
         };
 
         // Handle unlocking of reverted slots
-        if !self.revert_cache.is_empty() {
-            self.storage_slot_provider.unlock_slot(
-                current_btc_block_height,
-                self.revert_cache.clone(),
-            )?;
+        if !self.transition_state.is_empty() {
+            self.storage_slot_provider
+                .unlock_slot(current_btc_block_height, self.transition_state.clone())?;
         }
 
         // For each broadcast transaction
@@ -288,7 +308,7 @@ impl SovaInspector {
         // Clear the cache for next block
         self.cache.clear_cache();
         // Clear the revert cache
-        self.revert_cache = EvmState::default();
+        self.transition_state.clear();
 
         Ok(())
     }
@@ -355,28 +375,35 @@ impl<DB> Inspector<DB> for SovaInspector
 where
     DB: reth_revm::Database,
 {
-    fn step(&mut self, _interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
-        return;
-    }
-
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         // Only process SSTORE operations
         if interp.current_opcode() != opcode::SSTORE {
             return;
         }
-        
+
         info!("----- storage change hook  -----");
 
-        let entries = context.journaled_state.journal.last().expect("journal exists");
+        let entries = context
+            .journaled_state
+            .journal
+            .last()
+            .expect("journal exists");
 
         // Process all StorageChanged entries in this batch
         // TODO: for the uBTC depsoit function why is this only triggered once when the balance slot and total supply slots are changed
         for entry in entries.iter() {
-            if let JournalEntry::StorageChanged { address, key, had_value } = entry {
+            if let JournalEntry::StorageChanged {
+                address,
+                key,
+                had_value,
+            } = entry
+            {
                 let value = context.journaled_state.state[address].storage[key].present_value();
-                info!("Found storage change: key: {}, old_value: {}, new_value: {}, address: {}", 
-                    key, had_value, value, address);
-                
+                info!(
+                    "Found storage change: key: {}, old_value: {}, new_value: {}, address: {}",
+                    key, had_value, value, address
+                );
+
                 // Create StorageChange record
                 let storage_change = StorageChange {
                     key: *key,
@@ -385,7 +412,11 @@ where
                 };
 
                 // Cache the storage access
-                self.cache.insert_accessed_storage_step_end(*address, key.clone().into(), storage_change);
+                self.cache.insert_accessed_storage_step_end(
+                    *address,
+                    (*key).into(),
+                    storage_change,
+                );
             }
         }
     }

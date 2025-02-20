@@ -131,8 +131,12 @@ impl StorageCache {
                 };
 
                 // If we don't have an entry for this address and key, add one
-                self.broadcast_accessed_storage
-                    .insert(address, key, previous_value.unwrap_or_default(), storage_change.value);
+                self.broadcast_accessed_storage.insert(
+                    address,
+                    key,
+                    previous_value.unwrap_or_default(),
+                    storage_change.value,
+                );
             }
         }
     }
