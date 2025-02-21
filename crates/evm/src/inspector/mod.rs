@@ -94,32 +94,6 @@ impl SovaInspector {
         std::mem::take(&mut self.transition_state)
     }
 
-    // fn add_to_revert_cache(
-    //     &mut self,
-    //     address: Address,
-    //     key: U256,
-    //     current_value: U256,
-    //     revert_value: U256
-    // ) {
-    //     // Get or create account in revert cache
-    //     let account = self.revert_cache
-    //         .entry(address)
-    //         .or_insert_with(|| {
-    //             let mut account = Account::default();
-    //             // Mark as Created to avoid db fetches
-    //             account.status = AccountStatus::Created;
-    //             // Mark as Touched to ensure it gets saved
-    //             account.mark_touch();
-    //             account
-    //         });
-
-    //     // Create storage slot marking the change
-    //     account.storage.insert(
-    //         key,
-    //         EvmStorageSlot::new_changed(current_value, revert_value)
-    //     );
-    // }
-
     fn handle_revert_status(&mut self, response: GetSlotStatusResponse) {
         // Parse contract address
         let address = Address::from_str(&response.contract_address)
@@ -211,6 +185,9 @@ impl SovaInspector {
                     // LOCKED
                     if response.status == 1 {
                         info!("Storage slot is already locked");
+                        // Clear transition state
+                        self.transition_state.clear();
+
                         return Some(Self::create_revert_outcome(
                             "Storage slot is already locked".to_string(),
                             inputs.gas_limit,
@@ -320,7 +297,7 @@ impl SovaInspector {
     /// Only one btc broadcast tx call is allowed per tx.
     fn call_inner(
         &mut self,
-        _context: &mut EvmContext<impl Database>,
+        context: &mut EvmContext<impl Database>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         if inputs.target_address != self.cache.bitcoin_precompile_address {
@@ -331,6 +308,34 @@ impl SovaInspector {
         match Self::get_btc_precompile_method(&inputs.input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 info!("-> Broadcast call hook");
+
+                // Process sstrore journal entries before checking locks
+                for journal_entries in context.journaled_state.journal.iter() {
+                    for entry in journal_entries.iter() {
+                        if let JournalEntry::StorageChanged { address, key, had_value } = entry {
+                            let value = context.journaled_state.state[address]
+                                .storage[key].present_value();
+                            info!(
+                                "Found storage change: key: {}, old_value: {}, new_value: {}, address: {}",
+                                key, had_value, value, address
+                            );
+
+                            let storage_change = StorageChange {
+                                key: *key,
+                                value,
+                                had_value: Some(*had_value),
+                            };
+
+                            self.cache.insert_accessed_storage_step_end(
+                                *address,
+                                (*key).into(),
+                                storage_change,
+                            );
+                        }
+                    }
+                }
+
+                // always check locks prior to broadcast any btc tx
                 self.handle_lock_checks(inputs)
             }
             Ok(_) => None, // Other methods we don't care about

@@ -18,7 +18,7 @@ use reth_revm::primitives::{
     Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
 };
 
-use bitcoin::{consensus::encode::deserialize, hashes::sha256d::Hash, Network, OutPoint, TxOut};
+use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut};
 
 #[derive(Deserialize)]
 struct BroadcastResponse {
@@ -178,18 +178,15 @@ impl BitcoinRpcPrecompile {
             })?;
 
         if broadcast_response.status != "success" {
-            info!(broadcast_response.error);
+            info!("Broadcast btc tx precompile error: {:?}", broadcast_response.error);
             return Err(PrecompileErrors::Error(PrecompileError::Other(
                 broadcast_response
                     .error
                     .unwrap_or_else(|| "Broadcast service error".into()),
             )));
         } else {
-            let mut txid_array = [0u8; 32];
-            txid_array.copy_from_slice(&broadcast_response.txid.clone().unwrap());
-            let hash = Hash::from_bytes_ref(&txid_array);
-            let txid = bitcoin::Txid::from_raw_hash(*hash);
-            info!("Broadcast bitcoin txid: {:?}", txid.to_raw_hash());
+            let txid_str = hex::encode(&broadcast_response.txid.clone().unwrap());
+            info!("Broadcast bitcoin txid: {}", txid_str);
         }
 
         // Encode the response: txid (32 bytes) followed by current block height (8 bytes)
