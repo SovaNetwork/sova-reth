@@ -221,17 +221,19 @@ where
         PayloadBuilderError::Internal(err.into())
     })?;
 
-    // SIMULATION PHASE (apply mask to the database)
-    // Get inspector in inner scope
+    // SIMULATION PHASE
+    info!("SIMULATION PHASE");
+
+    // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
     inspector.cache.clear_cache();
 
-    // Create EVM in inner scope
+    // Create EVM
     let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
     // Get simulation transaction iterator
-    let best_txs_simulation = best_txs(BestTransactionsAttributes::new(
+    let mut best_txs_simulation = best_txs(BestTransactionsAttributes::new(
         base_fee,
         evm_env
             .block_env
@@ -240,45 +242,80 @@ where
     ));
 
     // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-    for pool_tx in best_txs_simulation {
+    while let Some(pool_tx) = best_txs_simulation.next() {
         let tx = pool_tx.to_consensus();
         let tx_env = evm_config.tx_env(tx.tx(), tx.signer());
 
-        let _ = evm
-            .transact(tx_env)
-            .map_err(|_| PayloadBuilderError::EvmExecutionError);
+        match evm.transact(tx_env) {
+            Ok(res) => res,
+            Err(err) => {
+                match err {
+                    EVMError::Transaction(err) => {
+                        if matches!(err, InvalidTransaction::NonceTooLow { .. }) {
+                            // if the nonce is too low, we can skip this transaction
+                            trace!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
+                        } else {
+                            // if the transaction is invalid, we can skip it and all of its
+                            // descendants
+                            trace!(target: "payload_builder", %err, ?tx, "skipping invalid transaction and its descendants");
+                            best_txs_simulation.mark_invalid(
+                                &pool_tx,
+                                InvalidPoolTransactionError::Consensus(
+                                    InvalidTransactionError::TxTypeNotSupported,
+                                ),
+                            );
+                        }
+
+                        continue;
+                    }
+                    err => {
+                        // this is an error that we should treat as fatal for this attempt
+                        return Err(PayloadBuilderError::EvmExecutionError(err));
+                    }
+                }
+            }
+        };
     }
 
     drop(evm);
 
-    let transitions: Vec<(Address, TransitionAccount)> = inspector.take_transitions();
-    info!("Created transitions: {:?}", transitions);
+    let revert_cache: Vec<(Address, TransitionAccount)> = inspector.take_slot_revert_cache();
 
-    for (address, transition) in &transitions {
+    // apply mask to the database
+    for (address, transition) in &revert_cache {
         for (slot, slot_data) in &transition.storage {
             let prev_value = slot_data.previous_or_original_value;
 
-            // Load account from revm state
-            let acc = db
-                .load_cache_account(*address)
-                .expect("Account should exist");
+            // Load account from state
+            let acc = db.load_cache_account(*address).map_err(|err| {
+                warn!(target: "payload_builder",
+                    parent_hash=%parent_header.hash(),
+                    %err,
+                    "failed to load account for payload"
+                );
+                PayloadBuilderError::Internal(err.into())
+            })?;
 
             // Ensure storage slot is explicitly set to previous_or_original_value
             if let Some(a) = acc.account.as_mut() {
                 a.storage.insert(*slot, prev_value);
             }
 
-            // Convert back to revm format and commit it to state
+            // Convert to revm account
             let mut revm_acc: Account = acc.account_info().unwrap_or_default().into();
             revm_acc.mark_touch();
 
+            // commit to state
             db.commit(HashMap::from_iter([(*address, revm_acc)]));
         }
     }
 
     drop(inspector);
 
-    // ACTUAL EXECUTION PHASE
+    // EXECUTION PHASE
+    info!("EXECUTION PHASE");
+
+    // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
     inspector.cache.clear_cache();

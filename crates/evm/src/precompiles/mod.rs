@@ -178,14 +178,17 @@ impl BitcoinRpcPrecompile {
             })?;
 
         if broadcast_response.status != "success" {
-            info!("Broadcast btc tx precompile error: {:?}", broadcast_response.error);
+            info!(
+                "Broadcast btc tx precompile error: {:?}",
+                broadcast_response.error
+            );
             return Err(PrecompileErrors::Error(PrecompileError::Other(
                 broadcast_response
                     .error
                     .unwrap_or_else(|| "Broadcast service error".into()),
             )));
         } else {
-            let txid_str = hex::encode(&broadcast_response.txid.clone().unwrap());
+            let txid_str = hex::encode(broadcast_response.txid.clone().unwrap());
             info!("Broadcast bitcoin txid: {}", txid_str);
         }
 

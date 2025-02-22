@@ -26,6 +26,7 @@ use reth_revm::{
     primitives::{Account, ResultAndState},
     Database, DatabaseCommit, TransitionAccount,
 };
+use reth_tracing::tracing::info;
 
 use crate::{inspector::WithInspector, MyEvmConfig};
 
@@ -103,7 +104,9 @@ where
         // Prepare EVM configuration
         let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
 
-        // SIMULATION PHASE (apply mask to the database)
+        // SIMULATION PHASE
+        info!("SIMULATION PHASE");
+
         // Get inspector in inner scope
         let inspector_lock = self.evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
@@ -135,26 +138,29 @@ where
 
         drop(evm);
 
-        let transitions: Vec<(Address, TransitionAccount)> = inspector.take_transitions();
+        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.take_slot_revert_cache();
 
-        for (address, transition) in &transitions {
+        // apply mask to the database
+        for (address, transition) in &revert_cache {
             for (slot, slot_data) in &transition.storage {
                 let prev_value = slot_data.previous_or_original_value;
 
-                // Load account from revm state
-                let acc = self.state.load_cache_account(*address).map_err(|e| {
-                    BlockExecutionError::Internal(InternalBlockExecutionError::msg(e))
-                })?;
+                // Load account from state
+                let acc = self
+                    .state
+                    .load_cache_account(*address)
+                    .map_err(|e| BlockExecutionError::Internal(InternalBlockExecutionError::msg(e)))?;
 
                 // Ensure storage slot is explicitly set to previous_or_original_value
                 if let Some(a) = acc.account.as_mut() {
                     a.storage.insert(*slot, prev_value);
                 }
 
-                // Convert back to revm format and commit it to state
+                // Convert to revm account and commit it to state
                 let mut revm_acc: Account = acc.account_info().unwrap_or_default().into();
                 revm_acc.mark_touch();
 
+                // commit to state
                 self.state
                     .commit(HashMap::from_iter([(*address, revm_acc)]));
             }
@@ -162,7 +168,10 @@ where
 
         drop(inspector);
 
-        // ACTUAL EXECUTION PHASE
+        // EXECUTION PHASE
+        info!("EXECUTION PHASE");
+
+        // Get inspector
         let inspector_lock = self.evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
         inspector.cache.clear_cache();
@@ -297,7 +306,7 @@ where
             let mut inspector = inspector_lock.write();
 
             // handle unlocking of reverted slot cache via slot lock provider
-            // and locking of storage slots for any broadcasts in this block
+            // and locking of storage slots for any btc broadcasts in this block
             inspector
                 .update_sentinel_locks(block.number())
                 .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;

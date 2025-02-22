@@ -6,7 +6,7 @@ mod precompiles;
 use constants::BTC_PRECOMPILE_ADDRESS;
 pub use execute::MyExecutionStrategyFactory;
 use inspector::SovaInspector;
-pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, WithInspector};
+pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 pub use precompiles::BitcoinClient;
 use precompiles::BitcoinRpcPrecompile;
 
