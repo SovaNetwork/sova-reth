@@ -139,7 +139,7 @@ echo "Mining confirmation blocks for second deposit..."
 satoshi-suite mine-blocks --wallet-name "$WALLET_2" --blocks 7
 
 # Get current Bitcoin block height
-BLOCK_HEIGHT=$(satoshi-suite get-block-height | grep "Current block height:" | cut -d' ' -f8)
+BTC_BLOCK_HEIGHT=$(satoshi-suite get-block-height | grep "Current block height:" | cut -d' ' -f8)
 
 # set withdrawal amount to 10.00 BTC
 WITHDRAWAL_AMOUNT=$(btc_to_sats 10.00)
@@ -148,11 +148,11 @@ echo "Waiting for UTXO indexer to catch up..."
 while true; do
     RESPONSE=$(curl -s "http://localhost:5557/latest-block")
     LATEST_BLOCK=$(echo $RESPONSE | jq -r '.latest_block')
-    echo "Current BTC block height: $BLOCK_HEIGHT"
+    echo "Current BTC block height: $BTC_BLOCK_HEIGHT"
     echo "Latest indexed block: $LATEST_BLOCK"
     
-    if [ "$LATEST_BLOCK" -ge "$BLOCK_HEIGHT" ]; then
-        UTXOS=$(curl -s "http://localhost:5557/spendable-utxos/block/$BLOCK_HEIGHT/address/$UBTC_BITCOIN_RECEIVE_ADDRESS")
+    if [ "$LATEST_BLOCK" -ge "$BTC_BLOCK_HEIGHT" ]; then
+        UTXOS=$(curl -s "http://localhost:5557/spendable-utxos/block/$BTC_BLOCK_HEIGHT/address/$UBTC_BITCOIN_RECEIVE_ADDRESS")
         
         # Check if we got an error response
         if ! echo "$UTXOS" | jq -e '.error' > /dev/null; then
@@ -169,32 +169,31 @@ while true; do
     sleep 2
 done
 
-# echo "Initiating withdrawal..."
-# sleep 5
+echo "Initiating withdrawal..."
 
-# # Generate new Bitcoin address for withdrawal
-# NEW_ADDRESS=$(satoshi-suite get-new-address --wallet-name "$WALLET_1" | grep "New address:" | cut -d' ' -f3)
+# Generate new Bitcoin address for withdrawal
+NEW_ADDRESS=$(satoshi-suite get-new-address --wallet-name "$WALLET_1" | grep "New address:" | cut -d' ' -f7)
 
-# cast send \
-#     --rpc-url "$ETH_RPC_URL" \
-#     --private-key "$ETH_PRIVATE_KEY" \
-#     --gas-limit 300000 \
-#     --chain-id "$CHAIN_ID" \
-#     "$CONTRACT_ADDRESS" \
-#     "withdraw(uint64,uint32,string)" \
-#     "$WITHDRAWAL_AMOUNT" \
-#     "120" \
-#     "$NEW_ADDRESS"
+cast send \
+    --rpc-url "$ETH_RPC_URL" \
+    --private-key "$ETH_PRIVATE_KEY" \
+    --gas-limit 300000 \
+    --chain-id "$CHAIN_ID" \
+    "$CONTRACT_ADDRESS" \
+    "withdraw(uint64,uint32,string)" \
+    "$WITHDRAWAL_AMOUNT" \
+    "$BTC_BLOCK_HEIGHT" \
+    "$NEW_ADDRESS"
 
-# echo "Checking contract state..."
-#     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-#         "balanceOf(address)" \
-#         "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+echo "Checking contract state..."
+    BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+        "balanceOf(address)" \
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 
-#     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-#         "totalSupply()")
+    TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+        "totalSupply()")
 
-#     echo "Balance: $BALANCE"
-#     echo "Total Supply: $TOTAL_SUPPLY"
+    echo "Balance: $BALANCE"
+    echo "Total Supply: $TOTAL_SUPPLY"
 
 echo "Done!"

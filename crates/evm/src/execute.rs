@@ -111,6 +111,7 @@ where
         let inspector_lock = self.evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
         inspector.cache.clear_cache();
+        inspector.slot_revert_cache.clear();
 
         // Create EVM in inner scope
         let mut evm = self.evm_config.evm_with_env_and_inspector(
@@ -138,7 +139,7 @@ where
 
         drop(evm);
 
-        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.take_slot_revert_cache();
+        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
 
         // apply mask to the database
         for (address, transition) in &revert_cache {
@@ -175,6 +176,7 @@ where
         let inspector_lock = self.evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
         inspector.cache.clear_cache();
+        inspector.slot_revert_cache.clear();
 
         // Create EVM
         let mut evm = self.evm_config.evm_with_env_and_inspector(

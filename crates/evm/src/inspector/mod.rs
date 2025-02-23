@@ -43,7 +43,7 @@ pub struct SovaInspector {
     /// btc client
     btc_client: Arc<BitcoinClient>,
     /// transition state for sentinel reverts
-    slot_revert_cache: Vec<(Address, TransitionAccount)>,
+    pub slot_revert_cache: Vec<(Address, TransitionAccount)>,
 }
 
 impl SovaInspector {
@@ -63,10 +63,6 @@ impl SovaInspector {
             btc_client,
             slot_revert_cache: Vec::new(),
         })
-    }
-
-    pub fn take_slot_revert_cache(&mut self) -> Vec<(Address, TransitionAccount)> {
-        std::mem::take(&mut self.slot_revert_cache)
     }
 
     /// Unlock all revereted storage slots and lock all accessed storage slots atend of execution
