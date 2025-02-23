@@ -117,7 +117,10 @@ impl StorageSlotProvider {
     ) -> Result<(), SlotProviderError> {
         for (address, slots) in storage.iter() {
             for (slot, slot_data) in slots {
-                info!("Locking slot in sentinel: {} {} {:?}", address, slot, slot_data);
+                info!(
+                    "Locking slot in sentinel: {} {} {:?}",
+                    address, slot, slot_data
+                );
 
                 let _: LockSlotResponse = client
                     .lock_slot(

@@ -15,7 +15,9 @@ use parking_lot::RwLock;
 use alloy_primitives::{Address, Bytes, U256};
 
 use reth_revm::{
-    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues}, interpreter::{CallInputs, CallOutcome, Gas, InstructionResult, InterpreterResult}, Database, EvmContext, Inspector, JournalEntry, TransitionAccount
+    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues},
+    interpreter::{CallInputs, CallOutcome, Gas, InstructionResult, InterpreterResult},
+    Database, EvmContext, Inspector, JournalEntry, TransitionAccount,
 };
 use reth_tracing::tracing::info;
 
@@ -66,7 +68,10 @@ impl SovaInspector {
     }
 
     /// Unlock all revereted storage slots and lock all accessed storage slots atend of execution
-    pub fn update_sentinel_locks(&mut self, sova_block_number: u64) -> Result<(), SlotProviderError> {
+    pub fn update_sentinel_locks(
+        &mut self,
+        sova_block_number: u64,
+    ) -> Result<(), SlotProviderError> {
         // get current btc block height
         // TODO: optimize btc block height handling/storage/reference
         let current_btc_block_height = match self.btc_client.get_block_height() {
@@ -106,7 +111,7 @@ impl SovaInspector {
 
         Ok(())
     }
-    
+
     /// Parse the Bitcoin method from input data
     fn get_btc_precompile_method(input: &Bytes) -> Result<BitcoinMethod, MethodError> {
         BitcoinMethod::try_from(input)
@@ -270,7 +275,7 @@ impl SovaInspector {
             }
         }
     }
-    
+
     // Parse revert info from the sentinel and update the revert cache
     fn handle_revert_status(&mut self, response: GetSlotStatusResponse) {
         // Parse contract address
@@ -314,7 +319,7 @@ impl SovaInspector {
         // Add to transition state
         self.slot_revert_cache.push((address, transition));
     }
-    
+
     /// Triggered at the end of any execution step that is a
     /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
     /// This inspector hook is primarily used for locking accessed

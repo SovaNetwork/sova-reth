@@ -147,10 +147,9 @@ where
                 let prev_value = slot_data.previous_or_original_value;
 
                 // Load account from state
-                let acc = self
-                    .state
-                    .load_cache_account(*address)
-                    .map_err(|e| BlockExecutionError::Internal(InternalBlockExecutionError::msg(e)))?;
+                let acc = self.state.load_cache_account(*address).map_err(|e| {
+                    BlockExecutionError::Internal(InternalBlockExecutionError::msg(e))
+                })?;
 
                 // Ensure storage slot is explicitly set to previous_or_original_value
                 if let Some(a) = acc.account.as_mut() {
