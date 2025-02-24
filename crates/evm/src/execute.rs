@@ -26,7 +26,6 @@ use reth_revm::{
     primitives::{Account, ResultAndState},
     Database, DatabaseCommit, TransitionAccount,
 };
-use reth_tracing::tracing::info;
 
 use crate::{inspector::WithInspector, MyEvmConfig};
 
@@ -104,14 +103,11 @@ where
         // Prepare EVM configuration
         let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
 
-        // SIMULATION PHASE
-        info!("SIMULATION PHASE");
+        // *** SIMULATION PHASE ***
 
         // Get inspector in inner scope
         let inspector_lock = self.evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
-        inspector.cache.clear_cache();
-        inspector.slot_revert_cache.clear();
 
         // Create EVM in inner scope
         let mut evm = self.evm_config.evm_with_env_and_inspector(
@@ -168,14 +164,11 @@ where
 
         drop(inspector);
 
-        // EXECUTION PHASE
-        info!("EXECUTION PHASE");
+        // *** EXECUTION PHASE ***
 
         // Get inspector
         let inspector_lock = self.evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
-        inspector.cache.clear_cache();
-        inspector.slot_revert_cache.clear();
 
         // Create EVM
         let mut evm = self.evm_config.evm_with_env_and_inspector(

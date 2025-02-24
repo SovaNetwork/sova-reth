@@ -9,9 +9,9 @@
 #
 # It:
 # 1. Creates two Bitcoin transactions spending the same UTXO:
-#    - First with 0.001 BTC fee (used for Ethereum deposit)
+#    - First with 0.001 BTC fee
 #    - Second with 0.01 BTC fee (broadcasted to Bitcoin network)
-# 2. Submits the first transaction to Ethereum contract for deposit
+# 2. Submits the first transaction to uBTC contract for deposit
 # 3. Broadcasts the second transaction to Bitcoin network in same bitcoin block
 # 4. Mines confirmation blocks to ensure the double spend Bitcoin transaction is confirmed
 # 5. Check the balanceOf user and total supply slots in the sova uBTC smart contract
@@ -53,7 +53,7 @@ satoshi-suite mine-blocks --wallet-name "$WALLET_1" --blocks 1
 satoshi-suite mine-blocks --wallet-name "$WALLET_2" --blocks 100
 
 echo "Creating Bitcoin transactions..."
-# First transaction with 0.001 fee (this is the one we'll use for Ethereum)
+# First transaction with 0.001 fee
 TX1_OUTPUT=$(satoshi-suite sign-tx --wallet-name "$WALLET_1" --recipient "$UBTC_BITCOIN_RECEIVE_ADDRESS" --amount 49.999 --fee-amount 0.001)
 TX1_HEX=$(get_tx_hex "$TX1_OUTPUT")
 

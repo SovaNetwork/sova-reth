@@ -4,7 +4,6 @@ use alloy_primitives::Address;
 use reth_revm::TransitionAccount;
 use reth_tasks::TaskExecutor;
 
-use reth_tracing::tracing::info;
 use tonic::transport::Error as TonicError;
 
 use sova_sentinel_client::SlotLockClient;
@@ -117,11 +116,6 @@ impl StorageSlotProvider {
     ) -> Result<(), SlotProviderError> {
         for (address, slots) in storage.iter() {
             for (slot, slot_data) in slots {
-                info!(
-                    "Locking slot in sentinel: {} {} {:?}",
-                    address, slot, slot_data
-                );
-
                 let _: LockSlotResponse = client
                     .lock_slot(
                         block,
@@ -151,8 +145,6 @@ impl StorageSlotProvider {
             if !transition.storage.is_empty() {
                 // Convert each storage slot to bytes and unlock it
                 for (slot, _) in transition.storage.iter() {
-                    info!("Unlocking slot in sentinel: {} {}", address, slot);
-
                     let slot_bytes = slot.to_be_bytes_vec();
 
                     let _ = client

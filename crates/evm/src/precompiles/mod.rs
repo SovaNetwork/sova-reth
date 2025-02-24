@@ -3,7 +3,7 @@ mod btc_client;
 mod precompile_utils;
 
 pub use precompile_utils::{BitcoinMethod, MethodError};
-use reth_tracing::tracing::info;
+use reth_tracing::tracing::{info, warn};
 
 use std::sync::Arc;
 
@@ -170,7 +170,7 @@ impl BitcoinRpcPrecompile {
                 Some(&broadcast_request),
             )
             .map_err(|e| {
-                info!("HTTP request to broadcast service failed: {}", e);
+                warn!("WARNING: HTTP request to broadcast service failed: {}", e);
                 PrecompileErrors::Error(PrecompileError::Other(format!(
                     "HTTP request to broadcast service failed: {}",
                     e
@@ -178,8 +178,8 @@ impl BitcoinRpcPrecompile {
             })?;
 
         if broadcast_response.status != "success" {
-            info!(
-                "Broadcast btc tx precompile error: {:?}",
+            warn!(
+                "WARNING: Broadcast btc tx precompile error: {:?}",
                 broadcast_response.error
             );
             return Err(PrecompileErrors::Error(PrecompileError::Other(
@@ -197,7 +197,7 @@ impl BitcoinRpcPrecompile {
 
         // Get txid bytes directly from the response
         let txid_bytes = broadcast_response.txid.ok_or_else(|| {
-            info!("No txid in broadcast response");
+            warn!("No txid in broadcast response");
             PrecompileErrors::Error(PrecompileError::Other(
                 "No txid in broadcast response".into(),
             ))

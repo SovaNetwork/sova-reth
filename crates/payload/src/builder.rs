@@ -35,7 +35,7 @@ use reth_revm::{
     primitives::{Account, EVMError, InvalidTransaction, ResultAndState},
     DatabaseCommit, TransitionAccount,
 };
-use reth_tracing::tracing::{debug, info, trace, warn};
+use reth_tracing::tracing::{debug, trace, warn};
 use reth_transaction_pool::{
     error::InvalidPoolTransactionError, noop::NoopTransactionPool, BestTransactions,
     BestTransactionsAttributes, PoolTransaction, TransactionPool, ValidPoolTransaction,
@@ -221,14 +221,11 @@ where
         PayloadBuilderError::Internal(err.into())
     })?;
 
-    // SIMULATION PHASE
-    info!("SIMULATION PHASE");
+    // *** SIMULATION PHASE ***
 
     // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
-    inspector.cache.clear_cache();
-    inspector.slot_revert_cache.clear();
 
     // Create EVM
     let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
@@ -313,14 +310,11 @@ where
 
     drop(inspector);
 
-    // EXECUTION PHASE
-    info!("EXECUTION PHASE");
+    // *** EXECUTION PHASE ***
 
     // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
-    inspector.cache.clear_cache();
-    inspector.slot_revert_cache.clear();
 
     // Create EVM
     let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);

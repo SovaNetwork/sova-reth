@@ -89,8 +89,6 @@ pub struct StorageCache {
     excluded_addresses: HashSet<Address>,
     /// local cache of storage slot data for a tx since the last broadcast
     pub broadcast_accessed_storage: AccessedStorage,
-    /// local cache of storage slot data for a block
-    pub block_accessed_storage: AccessedStorage,
     /// all lock data to be sent to locking service
     /// consists of the broadcast result and the accessed storage
     pub lock_data: HashMap<BroadcastResult, AccessedStorage>,
@@ -105,7 +103,6 @@ impl StorageCache {
             bitcoin_precompile_address,
             excluded_addresses: excluded_addresses.into_iter().collect(),
             broadcast_accessed_storage: AccessedStorage::new(),
-            block_accessed_storage: AccessedStorage::new(),
             lock_data: HashMap::new(),
         }
     }
@@ -143,10 +140,6 @@ impl StorageCache {
 
     /// Commit the current broadcast storage to the block storage and lock data
     pub fn commit_broadcast(&mut self, broadcast_result: BroadcastResult) {
-        // Add broadcast storage to block storage
-        self.block_accessed_storage
-            .merge(&self.broadcast_accessed_storage);
-
         // Add to lock data
         if broadcast_result.txid.is_some() && broadcast_result.block.is_some() {
             self.lock_data
@@ -154,13 +147,13 @@ impl StorageCache {
         }
 
         // Clear broadcast storage for next transaction
+        // or if there is a second broadcast precompile call in this tx.
         self.broadcast_accessed_storage.0.clear();
     }
 
     /// Clear all storage data for a new block
     pub fn clear_cache(&mut self) {
         self.broadcast_accessed_storage.0.clear();
-        self.block_accessed_storage.0.clear();
         self.lock_data.clear();
     }
 }
