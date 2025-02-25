@@ -23,10 +23,7 @@ use reth_revm::{
 };
 use reth_tracing::tracing::{debug, warn};
 
-use crate::{
-    precompiles::{BitcoinMethod, MethodError},
-    BitcoinClient,
-};
+use crate::{precompiles::BitcoinMethod, BitcoinClient};
 
 /// Represents a storage change recorded during SSTORE operations
 #[derive(Debug, Clone)]
@@ -42,14 +39,14 @@ pub struct StorageChange {
 pub struct SovaInspector {
     /// accessed storage cache
     pub cache: StorageCache,
-    /// client for calling external storage service
+    /// client for calling lock storage service
     pub storage_slot_provider: Arc<StorageSlotProvider>,
     /// btc client
     btc_client: Arc<BitcoinClient>,
-    /// transition state for sentinel reverts
+    /// transition state for applying slot reverts
     pub slot_revert_cache: Vec<(Address, TransitionAccount)>,
     /// Journal checkpoint for the current transaction
-    pub checkpoint: Option<JournalCheckpoint>,
+    checkpoint: Option<JournalCheckpoint>,
 }
 
 impl SovaInspector {
@@ -117,9 +114,36 @@ impl SovaInspector {
         Ok(())
     }
 
-    /// Parse the Bitcoin method from input data
-    fn get_btc_precompile_method(input: &Bytes) -> Result<BitcoinMethod, MethodError> {
-        BitcoinMethod::try_from(input)
+    /// Process storage changes from journal entries and update accessed storage cache
+    fn process_storage_journal_entries(&mut self, context: &EvmContext<impl Database>) {
+        // Clear the broadcast accessed storage before processing
+        self.cache.broadcast_accessed_storage.0.clear();
+
+        // Iterate through journal entries
+        for journal_entries in context.journaled_state.journal.iter() {
+            for entry in journal_entries.iter() {
+                if let JournalEntry::StorageChanged {
+                    address,
+                    key,
+                    had_value,
+                } = entry
+                {
+                    let value = context.journaled_state.state[address].storage[key].present_value();
+
+                    let storage_change = StorageChange {
+                        key: *key,
+                        value,
+                        had_value: Some(*had_value),
+                    };
+
+                    self.cache.insert_accessed_storage_step_end(
+                        *address,
+                        (*key).into(),
+                        storage_change,
+                    );
+                }
+            }
+        }
     }
 
     /// Create a revert outcome with an error message
@@ -148,45 +172,20 @@ impl SovaInspector {
         context: &mut EvmContext<impl Database>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        // CHECK LOCKS FOR ANY BTC BROACAST PRECOMPILE CALL
+        // intercept all BTC broadcast precompile calls and check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             return None;
         }
         debug!("----- precompile call hook -----");
 
-        match Self::get_btc_precompile_method(&inputs.input) {
+        match BitcoinMethod::try_from(&inputs.input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call hook");
 
-                // Process sstrore journal entries before checking locks
-                self.cache.broadcast_accessed_storage.0.clear();
-                for journal_entries in context.journaled_state.journal.iter() {
-                    for entry in journal_entries.iter() {
-                        if let JournalEntry::StorageChanged {
-                            address,
-                            key,
-                            had_value,
-                        } = entry
-                        {
-                            let value =
-                                context.journaled_state.state[address].storage[key].present_value();
+                // Process storage journal entries to find sstores before checking locks
+                self.process_storage_journal_entries(context);
 
-                            let storage_change = StorageChange {
-                                key: *key,
-                                value,
-                                had_value: Some(*had_value),
-                            };
-
-                            self.cache.insert_accessed_storage_step_end(
-                                *address,
-                                (*key).into(),
-                                storage_change,
-                            );
-                        }
-                    }
-                }
-
-                // always check locks prior to broadcast any btc tx
+                // always check locks
                 self.handle_lock_checks(context, inputs)
             }
             Ok(_) => None, // Other methods we don't care about
@@ -220,9 +219,9 @@ impl SovaInspector {
             }
         };
 
-        // check if any of the storage slots in broadcast_accessed_storage are locked in the sentinel
+        // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.get_locked_status(
-            self.cache.broadcast_accessed_storage.clone(),
+            &self.cache.broadcast_accessed_storage,
             current_btc_block_height,
         ) {
             Ok(responses) => {
@@ -334,33 +333,8 @@ impl SovaInspector {
         // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             // CHECK LOCKS FOR ANY SSTORE IN ANY TX
-            // Process sstore journal entries before checking locks
-            self.cache.broadcast_accessed_storage.0.clear();
-            for journal_entries in context.journaled_state.journal.iter() {
-                for entry in journal_entries.iter() {
-                    if let JournalEntry::StorageChanged {
-                        address,
-                        key,
-                        had_value,
-                    } = entry
-                    {
-                        let value =
-                            context.journaled_state.state[address].storage[key].present_value();
-
-                        let storage_change = StorageChange {
-                            key: *key,
-                            value,
-                            had_value: Some(*had_value),
-                        };
-
-                        self.cache.insert_accessed_storage_step_end(
-                            *address,
-                            (*key).into(),
-                            storage_change,
-                        );
-                    }
-                }
-            }
+            // Process storage journal entries before checking locks
+            self.process_storage_journal_entries(context);
 
             match self.handle_lock_checks(context, inputs) {
                 Some(revert_outcome) => {
@@ -375,7 +349,7 @@ impl SovaInspector {
         debug!("----- precompile call end hook -----");
 
         // Update the btc tx data cache
-        match Self::get_btc_precompile_method(&inputs.input) {
+        match BitcoinMethod::try_from(&inputs.input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call end hook");
                 self.handle_cache_btc_data(inputs, &outcome)

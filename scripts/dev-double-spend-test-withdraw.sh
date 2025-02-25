@@ -101,10 +101,9 @@ satoshi-suite mine-blocks --wallet-name "$WALLET_2" --blocks 100
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()")
+        "totalSupply()" | cast to-dec)
 
     echo "Balance: $BALANCE"
     echo "Total Supply: $TOTAL_SUPPLY"
@@ -127,10 +126,9 @@ cast send \
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()")
+        "totalSupply()" | cast to-dec)
 
     echo "Balance: $BALANCE"
     echo "Total Supply: $TOTAL_SUPPLY"
@@ -188,10 +186,9 @@ cast send \
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()")
+        "totalSupply()" | cast to-dec)
 
     echo "Balance: $BALANCE"
     echo "Total Supply: $TOTAL_SUPPLY"

@@ -2,7 +2,7 @@ mod abi;
 mod btc_client;
 mod precompile_utils;
 
-pub use precompile_utils::{BitcoinMethod, MethodError};
+pub use precompile_utils::BitcoinMethod;
 use reth_tracing::tracing::{info, warn};
 
 use std::sync::Arc;

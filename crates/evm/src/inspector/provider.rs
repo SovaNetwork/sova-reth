@@ -50,7 +50,7 @@ pub trait SlotProvider {
     /// Provided accessed storage slots, return boolean indicating if all slots are unlocked or not
     fn get_locked_status(
         &self,
-        storage: AccessedStorage,
+        storage: &AccessedStorage,
         block: u64,
     ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError>;
     /// Lock the provided accessed storage slots with the corresponding bitcoin txid and vout
@@ -90,7 +90,7 @@ impl StorageSlotProvider {
     async fn get_locked_status_inner(
         client: &mut SlotLockClient,
         block: u64,
-        storage: AccessedStorage,
+        storage: &AccessedStorage,
     ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError> {
         let mut responses = Vec::new();
         for (address, slots) in storage.iter() {
@@ -162,7 +162,7 @@ impl StorageSlotProvider {
 impl SlotProvider for StorageSlotProvider {
     fn get_locked_status(
         &self,
-        storage: AccessedStorage,
+        storage: &AccessedStorage,
         block: u64,
     ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError> {
         let sentinel_url = self.sentinel_url.clone();

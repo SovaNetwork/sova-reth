@@ -80,10 +80,9 @@ cast send \
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()")
+        "totalSupply()" | cast to-dec)
 
     echo "Balance: $BALANCE"
     echo "Total Supply: $TOTAL_SUPPLY"
@@ -104,10 +103,9 @@ cast send \
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()")
+        "totalSupply()" | cast to-dec)
 
     echo "Balance: $BALANCE"
     echo "Total Supply: $TOTAL_SUPPLY"
@@ -126,5 +124,15 @@ cast send \
     "transfer(address,uint256)" \
     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" \
     "100"
+
+echo "Checking contract state..."
+    BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+        "balanceOf(address)" \
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
+    TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+        "totalSupply()" | cast to-dec)
+
+    echo "Balance: $BALANCE"
+    echo "Total Supply: $TOTAL_SUPPLY"
 
 echo "Done!"
