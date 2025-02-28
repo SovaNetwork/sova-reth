@@ -74,27 +74,7 @@ impl SovaInspector {
         &mut self,
         sova_block_number: u64,
     ) -> Result<(), SlotProviderError> {
-        // get current btc block height
-        // TODO: optimize btc block height handling/storage/reference
-        let current_btc_block_height = match self.btc_client.get_block_height() {
-            Ok(height) => height,
-            Err(err) => {
-                warn!("ERROR: Failed to get current btc block height: {}", err);
-                return Err(SlotProviderError::BitcoinError(err));
-            }
-        };
-
-        // Handle unlocking of reverted slots
-        if !self.slot_revert_cache.is_empty() {
-            self.storage_slot_provider.batch_unlock_slot(
-                sova_block_number,
-                current_btc_block_height,
-                self.slot_revert_cache.clone(),
-            )?;
-        }
-
         // Handle locking of storage slots for each btc broadcast transaction
-        // TODO: different source of block height being used in the lock_slots flow here
         for (broadcast_result, accessed_storage) in self.cache.lock_data.iter() {
             if let (Some(btc_txid), Some(btc_block)) =
                 (broadcast_result.txid.as_ref(), broadcast_result.block)
