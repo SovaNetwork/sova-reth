@@ -86,8 +86,11 @@ impl SovaInspector {
 
         // Handle unlocking of reverted slots
         if !self.slot_revert_cache.is_empty() {
-            self.storage_slot_provider
-                .unlock_slot(current_btc_block_height, self.slot_revert_cache.clone())?;
+            self.storage_slot_provider.batch_unlock_slot(
+                sova_block_number,
+                current_btc_block_height,
+                self.slot_revert_cache.clone(),
+            )?;
         }
 
         // Handle locking of storage slots for each btc broadcast transaction
@@ -222,6 +225,7 @@ impl SovaInspector {
         // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.get_locked_status(
             &self.cache.broadcast_accessed_storage,
+            context.env.block.number.saturating_to(),
             current_btc_block_height,
         ) {
             Ok(responses) => {

@@ -52,8 +52,9 @@ pub trait SlotProvider {
         &self,
         storage: &AccessedStorage,
         block: u64,
+        btc_block: u64,
     ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError>;
-    /// Lock the provided accessed storage slots with the corresponding bitcoin txid and vout
+    /// Lock the provided accessed storage slots with the corresponding bitcoin txid
     fn lock_slots(
         &self,
         storage: AccessedStorage,
@@ -62,8 +63,9 @@ pub trait SlotProvider {
         btc_block: u64,
     ) -> Result<(), SlotProviderError>;
 
-    fn unlock_slot(
+    fn batch_unlock_slot(
         &self,
+        block: u64,
         btc_block: u64,
         transitions: Vec<(Address, TransitionAccount)>,
     ) -> Result<(), SlotProviderError>;
@@ -89,14 +91,15 @@ impl StorageSlotProvider {
 
     async fn get_locked_status_inner(
         client: &mut SlotLockClient,
-        block: u64,
         storage: &AccessedStorage,
+        block: u64,
+        btc_block: u64,
     ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError> {
         let mut responses = Vec::new();
         for (address, slots) in storage.iter() {
             for slot in slots.keys() {
                 let response: GetSlotStatusResponse = client
-                    .get_slot_status(block, address.to_string(), slot.to_vec())
+                    .get_slot_status(block, btc_block, address.to_string(), slot.to_vec())
                     .await
                     .map_err(|e| SlotProviderError::RpcError(e.to_string()))?
                     .into_inner();
@@ -134,11 +137,14 @@ impl StorageSlotProvider {
         Ok(())
     }
 
-    async fn unlock_slots_inner(
+    async fn batch_unlock_slots_inner(
         client: &mut SlotLockClient,
         block: u64,
+        btc_block: u64,
         transitions: &[(Address, TransitionAccount)],
     ) -> Result<(), SlotProviderError> {
+        let mut unlocked_slots: Vec<(String, Vec<u8>)> = Vec::new();
+
         // Process each account in the revert cache
         for (address, transition) in transitions.iter() {
             // Only process accounts that have storage changes
@@ -147,14 +153,15 @@ impl StorageSlotProvider {
                 for (slot, _) in transition.storage.iter() {
                     let slot_bytes = slot.to_be_bytes_vec();
 
-                    let _ = client
-                        .unlock_slot(block, address.to_string(), slot_bytes)
-                        .await
-                        .map_err(|e| SlotProviderError::RpcError(e.to_string()))?
-                        .into_inner();
+                    unlocked_slots.push((address.to_string(), slot_bytes));
                 }
             }
         }
+
+        let _ = client
+            .batch_unlock_slot(block, btc_block, unlocked_slots)
+            .await
+            .map_err(|e| SlotProviderError::RpcError(e.to_string()))?;
         Ok(())
     }
 }
@@ -164,6 +171,7 @@ impl SlotProvider for StorageSlotProvider {
         &self,
         storage: &AccessedStorage,
         block: u64,
+        btc_block: u64,
     ) -> Result<Vec<GetSlotStatusResponse>, SlotProviderError> {
         let sentinel_url = self.sentinel_url.clone();
 
@@ -174,7 +182,7 @@ impl SlotProvider for StorageSlotProvider {
                     .await
                     .map_err(|e| SlotProviderError::ConnectionError(e.to_string()))?;
 
-                Self::get_locked_status_inner(&mut client, block, storage).await
+                Self::get_locked_status_inner(&mut client, storage, block, btc_block).await
             })
         })
     }
@@ -200,9 +208,10 @@ impl SlotProvider for StorageSlotProvider {
         })
     }
 
-    fn unlock_slot(
+    fn batch_unlock_slot(
         &self,
         block: u64,
+        btc_block: u64,
         transitions: Vec<(Address, TransitionAccount)>,
     ) -> Result<(), SlotProviderError> {
         let sentinel_url = self.sentinel_url.clone();
@@ -214,7 +223,7 @@ impl SlotProvider for StorageSlotProvider {
                     .await
                     .map_err(|e| SlotProviderError::ConnectionError(e.to_string()))?;
 
-                Self::unlock_slots_inner(&mut client, block, &transitions).await
+                Self::batch_unlock_slots_inner(&mut client, block, btc_block, &transitions).await
             })
         })
     }
