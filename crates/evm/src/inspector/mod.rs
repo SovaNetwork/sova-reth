@@ -100,11 +100,11 @@ impl SovaInspector {
                 (broadcast_result.txid.as_ref(), broadcast_result.block)
             {
                 // Lock the storage with this transaction's details
-                self.storage_slot_provider.lock_slots(
+                self.storage_slot_provider.batch_lock_slots(
                     accessed_storage.clone(),
                     sova_block_number,
-                    btc_txid.clone(),
                     btc_block,
+                    btc_txid.clone(),
                 )?;
             }
         }
@@ -223,13 +223,13 @@ impl SovaInspector {
         };
 
         // check if any of the storage slots in broadcast_accessed_storage are locked
-        match self.storage_slot_provider.get_locked_status(
+        match self.storage_slot_provider.batch_get_locked_status(
             &self.cache.broadcast_accessed_storage,
             context.env.block.number.saturating_to(),
             current_btc_block_height,
         ) {
-            Ok(responses) => {
-                for response in responses {
+            Ok(batch_response) => {
+                for response in batch_response.slots {
                     debug!("GetSlotStatusResponse: {:?}", response);
 
                     let status = match Status::try_from(response.status) {
