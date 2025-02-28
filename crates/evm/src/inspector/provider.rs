@@ -63,7 +63,7 @@ impl StorageSlotProvider {
         {
             Ok(res) => Ok(res),
             // TODO: is the this best error handling?
-            Err(e) => return Err(SlotProviderError::RpcError(e.to_string())),
+            Err(e) => Err(SlotProviderError::RpcError(e.to_string()))
         }
     }
 
@@ -79,14 +79,12 @@ impl StorageSlotProvider {
         // Process each account in the accessed cache
         for (address, slots) in storage.iter() {
             for (slot, slot_data) in slots {
-                slots_to_lock.push(
-                    SlotData {
-                        contract_address: address.to_string(),
-                        slot_index: slot.to_vec(),
-                        revert_value: slot_data.previous_value.to_be_bytes_vec(),
-                        current_value: slot_data.current_value.to_be_bytes_vec(),
-                    }
-                );
+                slots_to_lock.push(SlotData {
+                    contract_address: address.to_string(),
+                    slot_index: slot.to_vec(),
+                    revert_value: slot_data.previous_value.to_be_bytes_vec(),
+                    current_value: slot_data.current_value.to_be_bytes_vec(),
+                });
             }
         }
 
@@ -97,7 +95,7 @@ impl StorageSlotProvider {
         {
             Ok(_) => Ok(()),
             // TODO: is the this best error handling?
-            Err(e) => return Err(SlotProviderError::RpcError(e.to_string())),
+            Err(e) => Err(SlotProviderError::RpcError(e.to_string()))
         }
     }
 }

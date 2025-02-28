@@ -3,7 +3,10 @@ use std::{fmt::Display, sync::Arc};
 use alloy_consensus::{BlockHeader, Transaction};
 use alloy_eips::{eip6110, eip7685::Requests};
 
-use alloy_primitives::{map::foldhash::{HashMap, HashMapExt}, Address};
+use alloy_primitives::{
+    map::foldhash::{HashMap, HashMapExt},
+    Address,
+};
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_consensus::ConsensusError;
 use reth_ethereum_consensus::validate_block_post_execution;
@@ -153,7 +156,8 @@ where
                 }
 
                 // Convert to revm account, mark as modified and commit it to state
-                let mut revm_acc: Account = acc.account_info()
+                let mut revm_acc: Account = acc
+                    .account_info()
                     .ok_or(BlockExecutionError::Internal(
                         InternalBlockExecutionError::msg("failed to get account info"),
                     ))?

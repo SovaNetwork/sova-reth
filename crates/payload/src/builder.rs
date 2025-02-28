@@ -5,7 +5,10 @@ use alloy_eips::{
     eip4844::MAX_DATA_GAS_PER_BLOCK, eip6110, eip7685::Requests, eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
-use alloy_primitives::{map::foldhash::{HashMap, HashMapExt}, Address, U256};
+use alloy_primitives::{
+    map::foldhash::{HashMap, HashMapExt},
+    Address, U256,
+};
 
 use reth_basic_payload_builder::{
     commit_withdrawals, is_better_payload, BuildArguments, BuildOutcome, PayloadBuilder,
@@ -300,18 +303,17 @@ where
             }
 
             // Convert to revm account, mark as modified and commit it to state
-            let mut revm_acc: Account = acc.account_info()
-                .ok_or(
-                    PayloadBuilderError::Internal(
-                        RethError::msg("failed to convert account to revm account")
-                    )
-                )?
+            let mut revm_acc: Account = acc
+                .account_info()
+                .ok_or(PayloadBuilderError::Internal(RethError::msg(
+                    "failed to convert account to revm account",
+                )))?
                 .into();
 
             revm_acc.mark_touch();
 
             let mut changes: HashMap<Address, Account> = HashMap::new();
-                changes.insert(*address, revm_acc);
+            changes.insert(*address, revm_acc);
 
             // commit to account slot changes to state
             db.commit(changes);
