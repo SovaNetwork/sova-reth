@@ -1,9 +1,9 @@
-use std::{collections::HashMap, fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 use alloy_consensus::{BlockHeader, Transaction};
 use alloy_eips::{eip6110, eip7685::Requests};
 
-use alloy_primitives::Address;
+use alloy_primitives::{map::foldhash::{HashMap, HashMapExt}, Address};
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_consensus::ConsensusError;
 use reth_ethereum_consensus::validate_block_post_execution;
@@ -147,18 +147,25 @@ where
                     BlockExecutionError::Internal(InternalBlockExecutionError::msg(e))
                 })?;
 
-                // Ensure storage slot is explicitly set to previous_or_original_value
+                // Set slot in account to previous value
                 if let Some(a) = acc.account.as_mut() {
                     a.storage.insert(*slot, prev_value);
                 }
 
-                // Convert to revm account and commit it to state
-                let mut revm_acc: Account = acc.account_info().unwrap_or_default().into();
+                // Convert to revm account, mark as modified and commit it to state
+                let mut revm_acc: Account = acc.account_info()
+                    .ok_or(BlockExecutionError::Internal(
+                        InternalBlockExecutionError::msg("failed to get account info"),
+                    ))?
+                    .into();
+
                 revm_acc.mark_touch();
 
-                // commit to state
-                self.state
-                    .commit(HashMap::from_iter([(*address, revm_acc)]));
+                let mut changes: HashMap<Address, Account> = HashMap::new();
+                changes.insert(*address, revm_acc);
+
+                // commit to account slot changes to state
+                self.state.commit(changes);
             }
         }
 

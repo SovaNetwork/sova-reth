@@ -1,10 +1,13 @@
+mod error;
 mod provider;
 mod storage_cache;
 
-pub use provider::SlotProvider;
-use provider::{SlotProviderError, StorageSlotProvider};
+use error::SlotProviderError;
+use provider::StorageSlotProvider;
 use reth_tasks::TaskExecutor;
 use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
+
+pub use provider::SlotProvider;
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;

@@ -5,14 +5,14 @@ use alloy_primitives::{Address, StorageKey, StorageValue};
 use super::StorageChange;
 
 #[derive(Clone, Debug)]
-pub struct SlotData {
+pub struct SlotHistory {
     pub previous_value: StorageValue,
     pub current_value: StorageValue,
 }
 
 #[derive(Clone, Debug, Default)]
-/// Accessed storage cache: address -> storage slot -> slot data
-pub struct AccessedStorage(pub HashMap<Address, HashMap<StorageKey, SlotData>>);
+/// Accessed storage cache: address -> storage slot -> current and previous slot value
+pub struct AccessedStorage(pub HashMap<Address, HashMap<StorageKey, SlotHistory>>);
 
 impl AccessedStorage {
     pub fn new() -> Self {
@@ -20,7 +20,7 @@ impl AccessedStorage {
     }
 
     /// Get the entry for a given address
-    fn entry(&mut self, address: Address) -> &mut HashMap<StorageKey, SlotData> {
+    fn entry(&mut self, address: Address) -> &mut HashMap<StorageKey, SlotHistory> {
         self.0.entry(address).or_default()
     }
 
@@ -34,7 +34,7 @@ impl AccessedStorage {
     ) {
         self.entry(address).insert(
             key,
-            SlotData {
+            SlotHistory {
                 previous_value,
                 current_value,
             },
@@ -42,7 +42,7 @@ impl AccessedStorage {
     }
 
     /// Iterate over the storage
-    pub fn iter(&self) -> impl Iterator<Item = (&Address, &HashMap<StorageKey, SlotData>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Address, &HashMap<StorageKey, SlotHistory>)> {
         self.0.iter()
     }
 
@@ -87,10 +87,9 @@ pub struct StorageCache {
     pub bitcoin_precompile_address: Address,
     /// Excluded addresses from the inspector
     excluded_addresses: HashSet<Address>,
-    /// local cache of storage slot data for a tx since the last broadcast
+    /// Local cache of storage slot data for a tx since the last broadcast precompile call
     pub broadcast_accessed_storage: AccessedStorage,
-    /// all lock data to be sent to locking service
-    /// consists of the broadcast result and the accessed storage
+    /// All slots to be locked for the next block
     pub lock_data: HashMap<BroadcastResult, AccessedStorage>,
 }
 

@@ -1,11 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use alloy_consensus::{Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip4844::MAX_DATA_GAS_PER_BLOCK, eip6110, eip7685::Requests, eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{map::foldhash::{HashMap, HashMapExt}, Address, U256};
 
 use reth_basic_payload_builder::{
     commit_withdrawals, is_better_payload, BuildArguments, BuildOutcome, PayloadBuilder,
@@ -294,17 +294,27 @@ where
                 PayloadBuilderError::Internal(err.into())
             })?;
 
-            // Ensure storage slot is explicitly set to previous_or_original_value
+            // Set slot in account to previous value
             if let Some(a) = acc.account.as_mut() {
                 a.storage.insert(*slot, prev_value);
             }
 
-            // Convert to revm account
-            let mut revm_acc: Account = acc.account_info().unwrap_or_default().into();
+            // Convert to revm account, mark as modified and commit it to state
+            let mut revm_acc: Account = acc.account_info()
+                .ok_or(
+                    PayloadBuilderError::Internal(
+                        RethError::msg("failed to convert account to revm account")
+                    )
+                )?
+                .into();
+
             revm_acc.mark_touch();
 
-            // commit to state
-            db.commit(HashMap::from_iter([(*address, revm_acc)]));
+            let mut changes: HashMap<Address, Account> = HashMap::new();
+                changes.insert(*address, revm_acc);
+
+            // commit to account slot changes to state
+            db.commit(changes);
         }
     }
 
