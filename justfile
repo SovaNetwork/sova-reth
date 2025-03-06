@@ -27,7 +27,6 @@ run-sova-regtest clean="false":
     --btc-rpc-password "password" \
     --network-signing-url "http://127.0.0.1:5555" \
     --network-utxo-url "http://127.0.0.1:5557" \
-    --btc-tx-queue-url "http://127.0.0.1:5558" \
     --sentinel-url "http://[::1]:50051" \
     --http \
     --http.addr "127.0.0.1" \
@@ -53,7 +52,6 @@ run-sova-mainnet-regtest clean="false":
     --btc-rpc-password "password" \
     --network-signing-url "http://127.0.0.1:5555" \
     --network-utxo-url "http://127.0.0.1:5557" \
-    --btc-tx-queue-url "http://127.0.0.1:5558" \
     --sentinel-url "http://[::1]:50051" \
     --addr "0.0.0.0" \
     --port 30303 \

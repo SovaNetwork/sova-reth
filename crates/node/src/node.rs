@@ -54,7 +54,6 @@ impl SovaNode {
             btc_config,
             &args.network_signing_url,
             &args.network_utxo_url,
-            &args.btc_tx_queue_url,
             &args.sentinel_url,
         );
 

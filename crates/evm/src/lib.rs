@@ -55,7 +55,6 @@ impl MyEvmConfig {
             config.bitcoin_config.network,
             config.network_signing_url.clone(),
             config.network_utxo_url.clone(),
-            config.btc_tx_queue_url.clone(),
         )?;
 
         let inspector = SovaInspector::new(

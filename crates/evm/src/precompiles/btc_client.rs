@@ -1,7 +1,7 @@
 use std::fmt;
 
-use bitcoin::{BlockHash, Transaction, Txid};
-use bitcoincore_rpc::{json::DecodeRawTransactionResult, Auth, Client, RpcApi};
+use bitcoin::{BlockHash, Transaction};
+use bitcoincore_rpc::{bitcoin::Txid, json::DecodeRawTransactionResult, Auth, Client, RpcApi};
 
 use sova_cli::BitcoinConfig;
 
@@ -63,5 +63,9 @@ impl BitcoinClient {
 
     pub fn get_block_height(&self) -> Result<u64, bitcoincore_rpc::Error> {
         self.client.get_block_count()
+    }
+
+    pub fn send_raw_transaction(&self, tx: &Transaction) -> Result<Txid, bitcoincore_rpc::Error> {
+        self.client.send_raw_transaction(tx)
     }
 }
