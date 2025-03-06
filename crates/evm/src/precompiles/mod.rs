@@ -2,8 +2,8 @@ mod abi;
 mod btc_client;
 mod precompile_utils;
 
-pub use precompile_utils::{BitcoinMethod, MethodError};
-use reth_tracing::tracing::info;
+pub use precompile_utils::BitcoinMethod;
+use reth_tracing::tracing::{info, warn};
 
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use reth_revm::primitives::{
     Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
 };
 
-use bitcoin::{consensus::encode::deserialize, hashes::sha256d::Hash, Network, OutPoint, TxOut};
+use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut};
 
 #[derive(Deserialize)]
 struct BroadcastResponse {
@@ -170,7 +170,7 @@ impl BitcoinRpcPrecompile {
                 Some(&broadcast_request),
             )
             .map_err(|e| {
-                info!("HTTP request to broadcast service failed: {}", e);
+                warn!("WARNING: HTTP request to broadcast service failed: {}", e);
                 PrecompileErrors::Error(PrecompileError::Other(format!(
                     "HTTP request to broadcast service failed: {}",
                     e
@@ -178,18 +178,18 @@ impl BitcoinRpcPrecompile {
             })?;
 
         if broadcast_response.status != "success" {
-            info!(broadcast_response.error);
+            warn!(
+                "WARNING: Broadcast btc tx precompile error: {:?}",
+                broadcast_response.error
+            );
             return Err(PrecompileErrors::Error(PrecompileError::Other(
                 broadcast_response
                     .error
                     .unwrap_or_else(|| "Broadcast service error".into()),
             )));
         } else {
-            let mut txid_array = [0u8; 32];
-            txid_array.copy_from_slice(&broadcast_response.txid.clone().unwrap());
-            let hash = Hash::from_bytes_ref(&txid_array);
-            let txid = bitcoin::Txid::from_raw_hash(*hash);
-            info!("Broadcast bitcoin txid: {:?}", txid.to_raw_hash());
+            let txid_str = hex::encode(broadcast_response.txid.clone().unwrap());
+            info!("Broadcast bitcoin txid: {}", txid_str);
         }
 
         // Encode the response: txid (32 bytes) followed by current block height (8 bytes)
@@ -197,7 +197,7 @@ impl BitcoinRpcPrecompile {
 
         // Get txid bytes directly from the response
         let txid_bytes = broadcast_response.txid.ok_or_else(|| {
-            info!("No txid in broadcast response");
+            warn!("No txid in broadcast response");
             PrecompileErrors::Error(PrecompileError::Other(
                 "No txid in broadcast response".into(),
             ))

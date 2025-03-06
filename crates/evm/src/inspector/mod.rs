@@ -1,39 +1,55 @@
+mod error;
 mod provider;
 mod storage_cache;
 
-pub use provider::SlotProvider;
-use provider::{SlotProviderError, StorageSlotProvider};
+use error::SlotProviderError;
+use provider::StorageSlotProvider;
 use reth_tasks::TaskExecutor;
+use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
+
+pub use provider::SlotProvider;
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use parking_lot::RwLock;
 
-use alloy_primitives::{Address, Bytes, StorageKey, U256};
+use alloy_primitives::{Address, Bytes, U256};
 
 use reth_revm::{
+    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues},
     interpreter::{
-        opcode, CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
+        CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    primitives::EVMError,
-    Database, EvmContext, Inspector,
+    Database, EvmContext, Inspector, JournalCheckpoint, JournalEntry, TransitionAccount,
 };
-use reth_tracing::tracing::info;
+use reth_tracing::tracing::{debug, warn};
 
-use crate::{
-    precompiles::{BitcoinMethod, MethodError},
-    BitcoinClient,
-};
+use crate::{precompiles::BitcoinMethod, BitcoinClient};
+
+/// Represents a storage change recorded during SSTORE operations
+#[derive(Debug, Clone)]
+pub struct StorageChange {
+    /// The storage slot key
+    pub key: U256,
+    /// The new value stored
+    pub value: U256,
+    /// The previous value if it existed
+    pub had_value: Option<U256>,
+}
 
 pub struct SovaInspector {
     /// accessed storage cache
     pub cache: StorageCache,
-    /// client for calling external storage service
+    /// client for calling lock storage service
     pub storage_slot_provider: Arc<StorageSlotProvider>,
     /// btc client
     btc_client: Arc<BitcoinClient>,
+    /// transition state for applying slot reverts
+    pub slot_revert_cache: Vec<(Address, TransitionAccount)>,
+    /// Journal checkpoint for the current transaction
+    checkpoint: Option<JournalCheckpoint>,
 }
 
 impl SovaInspector {
@@ -51,12 +67,69 @@ impl SovaInspector {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
             storage_slot_provider,
             btc_client,
+            slot_revert_cache: Vec::new(),
+            checkpoint: None,
         })
     }
 
-    /// Parse the Bitcoin method from input data
-    fn get_btc_precompile_method(input: &Bytes) -> Result<BitcoinMethod, MethodError> {
-        BitcoinMethod::try_from(input)
+    /// Unlock all revereted storage slots and lock all accessed storage slots atend of execution
+    pub fn update_sentinel_locks(
+        &mut self,
+        sova_block_number: u64,
+    ) -> Result<(), SlotProviderError> {
+        // Handle locking of storage slots for each btc broadcast transaction
+        for (broadcast_result, accessed_storage) in self.cache.lock_data.iter() {
+            if let (Some(btc_txid), Some(btc_block)) =
+                (broadcast_result.txid.as_ref(), broadcast_result.block)
+            {
+                // Lock the storage with this transaction's details
+                self.storage_slot_provider.batch_lock_slots(
+                    accessed_storage.clone(),
+                    sova_block_number,
+                    btc_block,
+                    btc_txid.clone(),
+                )?;
+            }
+        }
+
+        // Clear the cache for next block
+        self.cache.clear_cache();
+        // Clear the revert cache
+        self.slot_revert_cache.clear();
+
+        Ok(())
+    }
+
+    /// Process storage changes from journal entries and update accessed storage cache
+    fn process_storage_journal_entries(&mut self, context: &EvmContext<impl Database>) {
+        // Clear the broadcast accessed storage before processing
+        self.cache.broadcast_accessed_storage.0.clear();
+
+        // Iterate through journal entries
+        for journal_entries in context.journaled_state.journal.iter() {
+            for entry in journal_entries.iter() {
+                if let JournalEntry::StorageChanged {
+                    address,
+                    key,
+                    had_value,
+                } = entry
+                {
+                    let value = context.journaled_state.state[address].storage[key].present_value();
+
+                    let storage_change = StorageChange {
+                        key: *key,
+                        value,
+                        had_value: Some(*had_value),
+                    };
+
+                    self.cache.insert_accessed_storage_step_end(
+                        *address,
+                        (*key).into(),
+                        storage_change,
+                    );
+                }
+            }
+        }
     }
 
     /// Create a revert outcome with an error message
@@ -75,56 +148,55 @@ impl SovaInspector {
         }
     }
 
-    /// Get the value of a storage slot using journaled state sload
-    fn get_slot_value<DB: Database>(
-        &self,
-        context: &mut EvmContext<DB>,
-        address: Address,
-        key: U256,
-    ) -> Result<U256, EVMError<DB::Error>> {
-        match context
-            .inner
-            .journaled_state
-            .sload(address, key, &mut context.inner.db)
-        {
-            Ok(value) => Ok(value.data),
-            Err(err) => Err(err),
-        }
-    }
-
-    /// Call storage slot provider to lock slots
-    pub fn lock_accessed_storage_for_btc_tx(
+    /// Triggered at the beginning of any execution step that is a
+    /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode.
+    /// This inspector hook is primarily used for storage slot lock enforcement.
+    /// Any cached storage access prior to a broadcast btc tx CALL will be checked for a lock.
+    /// Only one btc broadcast tx call is allowed per tx.
+    fn call_inner(
         &mut self,
-        block_number: u64,
-        accessed_storage: AccessedStorage,
-        btc_txid: Vec<u8>,
-        btc_block: u64,
-    ) -> Result<(), SlotProviderError> {
-        self.storage_slot_provider
-            .lock_slots(accessed_storage, block_number, btc_txid, btc_block)
+        context: &mut EvmContext<impl Database>,
+        inputs: &mut CallInputs,
+    ) -> Option<CallOutcome> {
+        // intercept all BTC broadcast precompile calls and check locks
+        if inputs.target_address != self.cache.bitcoin_precompile_address {
+            return None;
+        }
+        debug!("----- precompile call hook -----");
+
+        match BitcoinMethod::try_from(&inputs.input) {
+            Ok(BitcoinMethod::BroadcastTransaction) => {
+                debug!("-> Broadcast call hook");
+
+                // Process storage journal entries to find sstores before checking locks
+                self.process_storage_journal_entries(context);
+
+                // always check locks
+                self.handle_lock_checks(context, inputs)
+            }
+            Ok(_) => None, // Other methods we don't care about
+            Err(err) => {
+                // Return an error if we couldn't parse the method
+                Some(Self::create_revert_outcome(
+                    format!("Invalid Bitcoin method: {}", err),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ))
+            }
+        }
     }
 
-    /// Call storage slot provider to check if slots are locked
-    fn handle_lock_checks(&mut self, inputs: &CallInputs) -> Option<CallOutcome> {
-        // Check if any of the broadcast storage slots are already in block storage
-        if self
-            .cache
-            .block_accessed_storage
-            .contains_any(&self.cache.broadcast_accessed_storage)
-        {
-            info!("Storage slots already accessed in this block");
-            return Some(Self::create_revert_outcome(
-                "Storage slots already accessed in this block".to_string(),
-                inputs.gas_limit,
-                inputs.return_memory_offset.clone(),
-            ));
-        }
-
+    /// Check to see if any of the broadcast storage slots are locked
+    fn handle_lock_checks(
+        &mut self,
+        context: &mut EvmContext<impl Database>,
+        inputs: &CallInputs,
+    ) -> Option<CallOutcome> {
         // get current btc block height
         let current_btc_block_height = match self.btc_client.get_block_height() {
             Ok(height) => height,
             Err(err) => {
-                info!("Failed to get current btc block height: {}", err);
+                warn!("ERROR: Failed to get current btc block height: {}", err);
                 return Some(Self::create_revert_outcome(
                     format!("Failed to get current btc block height: {}", err),
                     inputs.gas_limit,
@@ -133,24 +205,60 @@ impl SovaInspector {
             }
         };
 
-        // check if the new storage slots in broadcast_accessed_storage are already locked
-        match self.storage_slot_provider.get_locked_status(
-            self.cache.broadcast_accessed_storage.clone(),
+        // check if any of the storage slots in broadcast_accessed_storage are locked
+        match self.storage_slot_provider.batch_get_locked_status(
+            &self.cache.broadcast_accessed_storage,
+            context.env.block.number.saturating_to(),
             current_btc_block_height,
         ) {
-            Ok(locked) => {
-                info!("Lock status from provider: {:?}", locked);
-                if locked {
-                    return Some(Self::create_revert_outcome(
-                        "Storage slots are locked".to_string(),
-                        inputs.gas_limit,
-                        inputs.return_memory_offset.clone(),
-                    ));
+            Ok(batch_response) => {
+                for response in batch_response.slots {
+                    debug!("GetSlotStatusResponse: {:?}", response);
+
+                    let status = match Status::try_from(response.status) {
+                        Ok(status) => status,
+                        Err(_) => {
+                            warn!("Unknown status value: {}", response.status);
+                            continue;
+                        }
+                    };
+
+                    match status {
+                        Status::Unknown => {
+                            warn!("WARNING: Status::Unknown returned from sentinel");
+                        }
+                        Status::Locked => {
+                            debug!("Storage slot is locked");
+                            // Clear revert cache on locked status
+                            self.slot_revert_cache.clear();
+
+                            // CRITICAL: Always revert state changes in journal when a lock is detected
+                            if let Some(checkpoint) = self.checkpoint {
+                                context.journaled_state.checkpoint_revert(checkpoint);
+                            } else {
+                                // No checkpoint available, this is usually not good and a potential edge case
+                                warn!("WARNING: No checkpoint available for reversion");
+                            }
+
+                            return Some(Self::create_revert_outcome(
+                                "Storage slot is locked".to_string(),
+                                inputs.gas_limit,
+                                inputs.return_memory_offset.clone(),
+                            ));
+                        }
+                        Status::Unlocked => {
+                            debug!("Storage slot is unlocked");
+                        }
+                        Status::Reverted => {
+                            debug!("Storage slot to be reverted");
+                            self.handle_revert_status(response);
+                        }
+                    }
                 }
                 None
             }
             Err(err) => {
-                info!("Failed to get lock status from provider: {}", err);
+                warn!("WARNING: Failed to get lock status from provider: {}", err);
                 Some(Self::create_revert_outcome(
                     format!("Failed to get lock status from provider: {}", err),
                     inputs.gas_limit,
@@ -160,15 +268,98 @@ impl SovaInspector {
         }
     }
 
-    /// Cache the broadcast btc precompile result for future use by ExecutionStrategy
+    // Parse revert info from the sentinel and update the revert cache
+    fn handle_revert_status(&mut self, response: GetSlotStatusResponse) {
+        // Parse contract address
+        let address = Address::from_str(&response.contract_address)
+            .expect("Invalid contract address from sentinel");
+
+        // Convert slot index bytes to U256 key
+        let mut key_bytes = [0u8; 32];
+        key_bytes[32 - response.slot_index.len()..].copy_from_slice(&response.slot_index);
+        let key = U256::from_be_bytes(key_bytes);
+
+        // Convert current value bytes to U256
+        let mut current_bytes = [0u8; 32];
+        current_bytes[32 - response.current_value.len()..].copy_from_slice(&response.current_value);
+        let current_value = U256::from_be_bytes(current_bytes);
+
+        // Convert revert value bytes to U256
+        let mut revert_bytes = [0u8; 32];
+        revert_bytes[32 - response.revert_value.len()..].copy_from_slice(&response.revert_value);
+        let revert_value = U256::from_be_bytes(revert_bytes);
+
+        // Create storage with both current and previous values
+        let mut storage = StorageWithOriginalValues::default();
+        let storage_slot = StorageSlot::new_changed(revert_value, current_value);
+        storage.insert(key, storage_slot);
+
+        let transition: TransitionAccount = TransitionAccount {
+            info: None,
+            status: AccountStatus::Changed,
+            previous_info: None,
+            previous_status: AccountStatus::Loaded,
+            storage,
+            storage_was_destroyed: false,
+        };
+
+        // Add to transition state
+        self.slot_revert_cache.push((address, transition));
+    }
+
+    /// Triggered at the end of any execution step that is a
+    /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
+    /// This inspector hook is primarily used for locking accessed
+    /// storage slots if a bitcoin broadcast tx precompile executed successfully.
+    fn call_end_inner(
+        &mut self,
+        context: &mut EvmContext<impl Database>,
+        inputs: &CallInputs,
+        outcome: CallOutcome,
+    ) -> CallOutcome {
+        // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
+        if inputs.target_address != self.cache.bitcoin_precompile_address {
+            // CHECK LOCKS FOR ANY SSTORE IN ANY TX
+            // Process storage journal entries before checking locks
+            self.process_storage_journal_entries(context);
+
+            match self.handle_lock_checks(context, inputs) {
+                Some(revert_outcome) => {
+                    // clear checkpoint after reverting
+                    self.checkpoint = None;
+
+                    return revert_outcome;
+                }
+                None => return outcome,
+            }
+        }
+        debug!("----- precompile call end hook -----");
+
+        // Update the btc tx data cache
+        match BitcoinMethod::try_from(&inputs.input) {
+            Ok(BitcoinMethod::BroadcastTransaction) => {
+                debug!("-> Broadcast call end hook");
+                self.handle_cache_btc_data(inputs, &outcome)
+                    .unwrap_or(outcome)
+            }
+            Ok(_) => outcome, // Other methods we don't care about
+            Err(err) => Self::create_revert_outcome(
+                format!("Invalid Bitcoin method: {}", err),
+                inputs.gas_limit,
+                outcome.memory_offset,
+            ),
+        }
+    }
+
+    /// Cache the broadcast btc precompile result for future use in lock storage enforcement
     fn handle_cache_btc_data(
         &mut self,
         inputs: &CallInputs,
         outcome: &CallOutcome,
     ) -> Option<CallOutcome> {
-        // check if call was successful
+        // only update if call was successful
         if outcome.result.result != InstructionResult::Return {
-            info!("Broadcast btc precompile execution failed");
+            debug!("Broadcast btc precompile execution failed");
             return Some(Self::create_revert_outcome(
                 "Broadcast btc precompile execution failed".to_string(),
                 inputs.gas_limit,
@@ -190,169 +381,23 @@ impl SovaInspector {
 
         None
     }
-
-    /// Lock all accessed storage slots at end of block
-    pub fn lock_accessed_storage_for_block(
-        &mut self,
-        block_number: u64,
-    ) -> Result<(), SlotProviderError> {
-        // For each broadcast transaction
-        for (broadcast_result, accessed_storage) in self.cache.lock_data.iter() {
-            if let (Some(btc_txid), Some(btc_block)) =
-                (broadcast_result.txid.as_ref(), broadcast_result.block)
-            {
-                // Lock the storage with this transaction's details
-                self.storage_slot_provider.lock_slots(
-                    accessed_storage.clone(),
-                    block_number,
-                    btc_txid.clone(),
-                    btc_block,
-                )?;
-            }
-        }
-
-        // Clear the cache for next block
-        self.cache.clear_cache();
-
-        Ok(())
-    }
-
-    /// Called at beginning of each step of the interpreter
-    /// Cache storage access if there is a btc tx broadcast in this tx
-    fn step_inner(&mut self, interp: &mut Interpreter, context: &mut EvmContext<impl Database>) {
-        if interp.current_opcode() != opcode::SSTORE {
-            return;
-        }
-
-        let Ok(slot) = interp.stack().peek(0) else {
-            return;
-        };
-
-        let address = interp.contract.target_address;
-        let key = StorageKey::from(slot);
-
-        // get the previous value and cache it
-        match self.get_slot_value(context, address, slot) {
-            Ok(previous_value) => {
-                self.cache
-                    .insert_accessed_storage_before(address, key, previous_value);
-            }
-            Err(_) => {
-                info!("SovaInspector::step_inner(): Failed to get previous storage value. Address: {:?}, Slot: {:?}", address, slot);
-
-                // Set the interpreter result to Revert
-                // This is important as storage errors could result in inaccurate sentinel data
-                interp.instruction_result = InstructionResult::Revert;
-            }
-        }
-    }
-
-    /// Called at end of each step of the interpreter.
-    /// Cache storage access if there is a btc tx broadcast in this tx
-    fn step_end_inner(
-        &mut self,
-        interp: &mut Interpreter,
-        context: &mut EvmContext<impl Database>,
-    ) {
-        if interp.current_opcode() != opcode::SSTORE {
-            return;
-        }
-
-        let Ok(slot) = interp.stack().peek(0) else {
-            return;
-        };
-
-        let address = interp.contract.target_address;
-        let key = StorageKey::from(slot);
-
-        // get the new value after opcode execution and cache it
-        match self.get_slot_value(context, address, slot) {
-            Ok(current_value) => {
-                self.cache
-                    .insert_accessed_storage_after(address, key, current_value);
-            }
-            Err(_) => {
-                info!("SovaInspector::step_end_inner(): Failed to get current storage value. Address: {:?}, Slot: {:?}", address, slot);
-
-                // Set the interpreter result to Revert
-                // This is important as storage errors could result in inaccurate sentinel data
-                interp.instruction_result = InstructionResult::Revert;
-            }
-        }
-    }
-
-    /// Triggered at the beginning of any execution step that is a
-    /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode.
-    /// This inspector hook is primarily used for storage slot lock enforcement.
-    /// Any cached storage access prior to a broadcast btc tx CALL will be checked for a lock.
-    /// Only one btc broadcast tx call is allowed per tx.
-    fn call_inner(
-        &mut self,
-        _context: &mut EvmContext<impl Database>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
-        if inputs.target_address != self.cache.bitcoin_precompile_address {
-            return None;
-        }
-
-        info!("----- call hook -----");
-        info!("Bitcoin precompile called");
-
-        match Self::get_btc_precompile_method(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
-                info!("-> Broadcast call hook");
-                self.handle_lock_checks(inputs)
-            }
-            Ok(_) => None, // Other methods we don't care about
-            Err(err) => {
-                // Return an error if we couldn't parse the method
-                Some(Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
-                    inputs.gas_limit,
-                    inputs.return_memory_offset.clone(),
-                ))
-            }
-        }
-    }
-
-    /// Triggered at the end of any execution step that is a
-    /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
-    /// This inspector hook is primarily used for locking accessed
-    /// storage slots if a bitcoin broadcast tx precompile executed successfully.
-    fn call_end_inner(&mut self, inputs: &CallInputs, outcome: CallOutcome) -> CallOutcome {
-        if inputs.target_address != self.cache.bitcoin_precompile_address {
-            return outcome;
-        }
-
-        info!("----- call end hook -----");
-        info!("Bitcoin precompile called");
-
-        match Self::get_btc_precompile_method(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
-                info!("-> Broadcast call end hook");
-                self.handle_cache_btc_data(inputs, &outcome)
-                    .unwrap_or(outcome)
-            }
-            Ok(_) => outcome, // Other methods we don't care about
-            Err(err) => Self::create_revert_outcome(
-                format!("Invalid Bitcoin method: {}", err),
-                inputs.gas_limit,
-                outcome.memory_offset,
-            ),
-        }
-    }
 }
 
 impl<DB> Inspector<DB> for SovaInspector
 where
     DB: reth_revm::Database,
 {
-    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.step_inner(interp, context);
-    }
+    fn initialize_interp(&mut self, _interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        // Reset accessed storage tracking at the start of interpretation
+        self.cache.clear_cache();
 
-    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.step_end_inner(interp, context);
+        // Reset slot revert cache
+        self.slot_revert_cache.clear();
+
+        // Create a checkpoint if one doesn't exist yet
+        if self.checkpoint.is_none() {
+            self.checkpoint = Some(context.journaled_state.checkpoint());
+        }
     }
 
     fn call(
@@ -360,16 +405,21 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
+        // Create a checkpoint if there isnt one already
+        if self.checkpoint.is_none() {
+            self.checkpoint = Some(context.journaled_state.checkpoint());
+        }
+
         self.call_inner(context, inputs)
     }
 
     fn call_end(
         &mut self,
-        _context: &mut EvmContext<DB>,
+        context: &mut EvmContext<DB>,
         inputs: &CallInputs,
         outcome: CallOutcome,
     ) -> CallOutcome {
-        self.call_end_inner(inputs, outcome)
+        self.call_end_inner(context, inputs, outcome)
     }
 }
 

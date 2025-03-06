@@ -1,16 +1,18 @@
 use std::collections::{HashMap, HashSet};
 
-use alloy_primitives::{Address, StorageKey, StorageValue, U256};
+use alloy_primitives::{Address, StorageKey, StorageValue};
+
+use super::StorageChange;
 
 #[derive(Clone, Debug)]
-pub struct SlotData {
+pub struct SlotHistory {
     pub previous_value: StorageValue,
     pub current_value: StorageValue,
 }
 
 #[derive(Clone, Debug, Default)]
-/// Accessed storage cache: address -> storage slot -> slot data
-pub struct AccessedStorage(pub HashMap<Address, HashMap<StorageKey, SlotData>>);
+/// Accessed storage cache: address -> storage slot -> current and previous slot value
+pub struct AccessedStorage(pub HashMap<Address, HashMap<StorageKey, SlotHistory>>);
 
 impl AccessedStorage {
     pub fn new() -> Self {
@@ -18,7 +20,7 @@ impl AccessedStorage {
     }
 
     /// Get the entry for a given address
-    fn entry(&mut self, address: Address) -> &mut HashMap<StorageKey, SlotData> {
+    fn entry(&mut self, address: Address) -> &mut HashMap<StorageKey, SlotHistory> {
         self.0.entry(address).or_default()
     }
 
@@ -32,7 +34,7 @@ impl AccessedStorage {
     ) {
         self.entry(address).insert(
             key,
-            SlotData {
+            SlotHistory {
                 previous_value,
                 current_value,
             },
@@ -40,7 +42,7 @@ impl AccessedStorage {
     }
 
     /// Iterate over the storage
-    pub fn iter(&self) -> impl Iterator<Item = (&Address, &HashMap<StorageKey, SlotData>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Address, &HashMap<StorageKey, SlotHistory>)> {
         self.0.iter()
     }
 
@@ -85,12 +87,9 @@ pub struct StorageCache {
     pub bitcoin_precompile_address: Address,
     /// Excluded addresses from the inspector
     excluded_addresses: HashSet<Address>,
-    /// local cache of storage slot data for a tx since the last broadcast
+    /// Local cache of storage slot data for a tx since the last broadcast precompile call
     pub broadcast_accessed_storage: AccessedStorage,
-    /// local cache of storage slot data for a block
-    pub block_accessed_storage: AccessedStorage,
-    /// all lock data to be sent to locking service
-    /// consists of the broadcast result and the accessed storage
+    /// All slots to be locked for the next block
     pub lock_data: HashMap<BroadcastResult, AccessedStorage>,
 }
 
@@ -103,53 +102,43 @@ impl StorageCache {
             bitcoin_precompile_address,
             excluded_addresses: excluded_addresses.into_iter().collect(),
             broadcast_accessed_storage: AccessedStorage::new(),
-            block_accessed_storage: AccessedStorage::new(),
             lock_data: HashMap::new(),
         }
     }
 
-    /// Update data in the broadcast storage cache before opcode step
-    pub fn insert_accessed_storage_before(
-        &mut self,
-        address: Address,
-        key: StorageKey,
-        previous: StorageValue,
-    ) {
-        // Only insert if the address is not in the excluded addresses
-        if !self.excluded_addresses.contains(&address) {
-            // insert the slot data, setting the current value to zero
-            self.broadcast_accessed_storage
-                .insert(address, key, previous, U256::ZERO);
-        }
-    }
-
     /// Update data in the broadcast storage cache after opcode step
-    pub fn insert_accessed_storage_after(
+    pub fn insert_accessed_storage_step_end(
         &mut self,
         address: Address,
         key: StorageKey,
-        current: StorageValue,
+        storage_change: StorageChange,
     ) {
-        // Only insert if the address is not in the excluded addresses
         if !self.excluded_addresses.contains(&address) {
             // If we already have an entry for this address and key,
             // update its current value while preserving the previous value
             if let Some(slot_data) = self.broadcast_accessed_storage.entry(address).get_mut(&key) {
-                slot_data.current_value = current;
+                slot_data.current_value = storage_change.value;
             } else {
-                // If no entry exists, create a new one with zero as previous value
-                self.broadcast_accessed_storage
-                    .insert(address, key, U256::ZERO, current);
+                // Get the previous value only if the reason is not SLOAD
+                let previous_value = if storage_change.had_value.is_some() {
+                    storage_change.had_value
+                } else {
+                    None
+                };
+
+                // If we don't have an entry for this address and key, add one
+                self.broadcast_accessed_storage.insert(
+                    address,
+                    key,
+                    previous_value.unwrap_or_default(),
+                    storage_change.value,
+                );
             }
         }
     }
 
     /// Commit the current broadcast storage to the block storage and lock data
     pub fn commit_broadcast(&mut self, broadcast_result: BroadcastResult) {
-        // Add broadcast storage to block storage
-        self.block_accessed_storage
-            .merge(&self.broadcast_accessed_storage);
-
         // Add to lock data
         if broadcast_result.txid.is_some() && broadcast_result.block.is_some() {
             self.lock_data
@@ -157,13 +146,13 @@ impl StorageCache {
         }
 
         // Clear broadcast storage for next transaction
+        // or if there is a second broadcast precompile call in this tx.
         self.broadcast_accessed_storage.0.clear();
     }
 
     /// Clear all storage data for a new block
     pub fn clear_cache(&mut self) {
         self.broadcast_accessed_storage.0.clear();
-        self.block_accessed_storage.0.clear();
         self.lock_data.clear();
     }
 }

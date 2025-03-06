@@ -5,7 +5,10 @@ use alloy_eips::{
     eip4844::MAX_DATA_GAS_PER_BLOCK, eip6110, eip7685::Requests, eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
-use alloy_primitives::U256;
+use alloy_primitives::{
+    map::foldhash::{HashMap, HashMapExt},
+    Address, U256,
+};
 
 use reth_basic_payload_builder::{
     commit_withdrawals, is_better_payload, BuildArguments, BuildOutcome, PayloadBuilder,
@@ -32,8 +35,8 @@ use reth_provider::StateProviderFactory;
 use reth_revm::{
     database::StateProviderDatabase,
     db::{states::bundle_state::BundleRetention, State},
-    primitives::{EVMError, InvalidTransaction, ResultAndState},
-    DatabaseCommit,
+    primitives::{Account, EVMError, InvalidTransaction, ResultAndState},
+    DatabaseCommit, TransitionAccount,
 };
 use reth_tracing::tracing::{debug, trace, warn};
 use reth_transaction_pool::{
@@ -153,6 +156,8 @@ where
 /// Given build arguments including an Sova client, transaction pool,
 /// and configuration, this function creates a transaction payload. Returns
 /// a result indicating success with the payload or an error in case of failure.
+///
+/// Similar to the execution flow all payloads
 #[inline]
 pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
     evm_config: EvmConfig,
@@ -189,23 +194,8 @@ where
     } = config;
 
     debug!(target: "payload_builder", id=%attributes.id, parent_header = ?parent_header.hash(), parent_number = parent_header.number, "building new payload");
-    let mut cumulative_gas_used = 0;
-    let mut sum_blob_gas_used = 0;
     let block_gas_limit: u64 = evm_env.block_env.gas_limit.to::<u64>();
     let base_fee = evm_env.block_env.basefee.to::<u64>();
-
-    let mut executed_txs = Vec::new();
-    let mut executed_senders = Vec::new();
-
-    let mut best_txs = best_txs(BestTransactionsAttributes::new(
-        base_fee,
-        evm_env
-            .block_env
-            .get_blob_gasprice()
-            .map(|gasprice| gasprice as u64),
-    ));
-    let mut total_fees = U256::ZERO;
-
     let block_number = evm_env.block_env.number.to::<u64>();
     let beneficiary = evm_env.block_env.coinbase;
 
@@ -234,14 +224,127 @@ where
         PayloadBuilderError::Internal(err.into())
     })?;
 
+    // *** SIMULATION PHASE ***
+
+    // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
 
-    // Ensure we clear inspector state at the start of payload building
-    // Initialize new storage tracking for this block
-    inspector.cache.clear_cache();
+    // Create EVM
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
+    // Get simulation transaction iterator
+    let mut best_txs_simulation = best_txs(BestTransactionsAttributes::new(
+        base_fee,
+        evm_env
+            .block_env
+            .get_blob_gasprice()
+            .map(|gasprice| gasprice as u64),
+    ));
+
+    // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
+    while let Some(pool_tx) = best_txs_simulation.next() {
+        let tx = pool_tx.to_consensus();
+        let tx_env = evm_config.tx_env(tx.tx(), tx.signer());
+
+        match evm.transact(tx_env) {
+            Ok(res) => res,
+            Err(err) => {
+                match err {
+                    EVMError::Transaction(err) => {
+                        if matches!(err, InvalidTransaction::NonceTooLow { .. }) {
+                            // if the nonce is too low, we can skip this transaction
+                            trace!(target: "payload_builder", %err, ?tx, "skipping nonce too low transaction");
+                        } else {
+                            // if the transaction is invalid, we can skip it and all of its
+                            // descendants
+                            trace!(target: "payload_builder", %err, ?tx, "skipping invalid transaction and its descendants");
+                            best_txs_simulation.mark_invalid(
+                                &pool_tx,
+                                InvalidPoolTransactionError::Consensus(
+                                    InvalidTransactionError::TxTypeNotSupported,
+                                ),
+                            );
+                        }
+
+                        continue;
+                    }
+                    err => {
+                        // this is an error that we should treat as fatal for this attempt
+                        return Err(PayloadBuilderError::EvmExecutionError(err));
+                    }
+                }
+            }
+        };
+    }
+
+    drop(evm);
+
+    let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
+
+    // apply mask to the database
+    for (address, transition) in &revert_cache {
+        for (slot, slot_data) in &transition.storage {
+            let prev_value = slot_data.previous_or_original_value;
+
+            // Load account from state
+            let acc = db.load_cache_account(*address).map_err(|err| {
+                warn!(target: "payload_builder",
+                    parent_hash=%parent_header.hash(),
+                    %err,
+                    "failed to load account for payload"
+                );
+                PayloadBuilderError::Internal(err.into())
+            })?;
+
+            // Set slot in account to previous value
+            if let Some(a) = acc.account.as_mut() {
+                a.storage.insert(*slot, prev_value);
+            }
+
+            // Convert to revm account, mark as modified and commit it to state
+            let mut revm_acc: Account = acc
+                .account_info()
+                .ok_or(PayloadBuilderError::Internal(RethError::msg(
+                    "failed to convert account to revm account",
+                )))?
+                .into();
+
+            revm_acc.mark_touch();
+
+            let mut changes: HashMap<Address, Account> = HashMap::new();
+            changes.insert(*address, revm_acc);
+
+            // commit to account slot changes to state
+            db.commit(changes);
+        }
+    }
+
+    drop(inspector);
+
+    // *** EXECUTION PHASE ***
+
+    // Get inspector
+    let inspector_lock = evm_config.with_inspector();
+    let mut inspector = inspector_lock.write();
+
+    // Create EVM
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+
+    let mut cumulative_gas_used = 0;
+    let mut sum_blob_gas_used = 0;
+    let mut executed_txs = Vec::new();
+    let mut executed_senders = Vec::new();
+    let mut total_fees = U256::ZERO;
+
+    // Create another transaction iterator for actual execution
+    let mut best_txs = pool.best_transactions_with_attributes(BestTransactionsAttributes::new(
+        base_fee,
+        evm_env
+            .block_env
+            .get_blob_gasprice()
+            .map(|gasprice| gasprice as u64),
+    ));
 
     let mut receipts = Vec::new();
     while let Some(pool_tx) = best_txs.next() {
