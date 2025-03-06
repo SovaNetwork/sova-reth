@@ -29,10 +29,6 @@ pub struct SovaArgs {
     #[arg(long, default_value = "http://127.0.0.1:5557")]
     pub network_utxo_url: String,
 
-    /// CLI flag to indicate the bitcoin transaction queue url
-    #[arg(long, default_value = "http://127.0.0.1:5558")]
-    pub btc_tx_queue_url: String,
-
     /// CLI flag to indicate the storage slot provider url
     #[arg(long, default_value = "http://[::1]:50051")]
     pub sentinel_url: String,

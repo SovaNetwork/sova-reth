@@ -54,7 +54,6 @@ CMD ["sova-reth node \
     --btc-rpc-password $BTC_RPC_PASSWORD \
     --network-signing-url $NETWORK_SIGNING_URL \
     --network-utxo-url $NETWORK_UTXO_URL \
-    --btc-tx-queue-url $BTC_TX_QUEUE_URL \
     --sentinel-url $SENTINEL_URL \
     --chain $CHAIN \
     --datadir /var/lib/sova \
