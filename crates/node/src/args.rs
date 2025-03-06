@@ -34,7 +34,7 @@ pub struct SovaArgs {
     pub btc_tx_queue_url: String,
 
     /// CLI flag to indicate the storage slot provider url
-    #[arg(long, default_value = "http://127.0.0.1.50051")]
+    #[arg(long, default_value = "http://[::1]:50051")]
     pub sentinel_url: String,
 }
 
