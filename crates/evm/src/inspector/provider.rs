@@ -63,7 +63,7 @@ impl StorageSlotProvider {
         {
             Ok(res) => Ok(res),
             // TODO: is the this best error handling?
-            Err(e) => Err(SlotProviderError::RpcError(e.to_string()))
+            Err(e) => Err(SlotProviderError::RpcError(e.to_string())),
         }
     }
 
@@ -95,7 +95,7 @@ impl StorageSlotProvider {
         {
             Ok(_) => Ok(()),
             // TODO: is the this best error handling?
-            Err(e) => Err(SlotProviderError::RpcError(e.to_string()))
+            Err(e) => Err(SlotProviderError::RpcError(e.to_string())),
         }
     }
 }
