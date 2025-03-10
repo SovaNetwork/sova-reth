@@ -33,7 +33,7 @@ The new precompile is found at address 0x999 and accepts a bytes payload of data
 
 | Precompile Name | Address | Method Identifier (bytes) | Gas Cost | Gas Limit | Description |
 |-----------------|-----|---------------------------|----------|-----------|-------------|
-| sendrawtransaction | 0x999 | 0x00000001 | 6,000 + 3 * input.len() | 450,000 | Broadcast a raw Bitcoin transaction. |
+| sendrawtransaction | 0x999 | 0x00000001 | 21,000 | 450,000 | Broadcast a raw Bitcoin transaction. |
 | decoderawtransaction | 0x999 | 0x00000002 | 2,000 + 3 * input.len() | 150,000 | Decode a raw Bitcoin transaction. |
 | verifysignature | 0x999 | 0x00000003 | 4,000 + 3 * input.len() | 300,000 | Verifies the unlocking scripts in a signed transaction are able to spend the specified inputs. |
 | convertaddress | 0x999 |  0x00000004 | 3,000 | N/A | Converts a Sova address to the corresponding BTC address using the network master key. |

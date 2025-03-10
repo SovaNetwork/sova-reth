@@ -3,7 +3,7 @@ mod btc_client;
 mod precompile_utils;
 
 pub use precompile_utils::BitcoinMethod;
-use reth_tracing::tracing::{info, warn};
+use reth_tracing::tracing::{debug, info, warn};
 
 use std::sync::Arc;
 
@@ -18,15 +18,7 @@ use reth_revm::primitives::{
     Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
 };
 
-use bitcoin::{consensus::encode::deserialize, Network, OutPoint, TxOut};
-
-#[derive(Deserialize)]
-struct BroadcastResponse {
-    status: String,
-    txid: Option<Vec<u8>>,
-    current_block: u64,
-    error: Option<String>,
-}
+use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut};
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -70,7 +62,6 @@ pub struct BitcoinRpcPrecompile {
     http_client: Arc<ReqwestClient>,
     network_signing_url: String,
     network_utxo_url: String,
-    btc_tx_queue_url: String,
 }
 
 impl BitcoinRpcPrecompile {
@@ -79,7 +70,6 @@ impl BitcoinRpcPrecompile {
         network: Network,
         network_signing_url: String,
         network_utxo_url: String,
-        btc_tx_queue_url: String,
     ) -> Result<Self, bitcoincore_rpc::Error> {
         Ok(Self {
             bitcoin_client,
@@ -87,7 +77,6 @@ impl BitcoinRpcPrecompile {
             http_client: Arc::new(ReqwestClient::new()),
             network_signing_url,
             network_utxo_url,
-            btc_tx_queue_url,
         })
     }
 
@@ -151,60 +140,150 @@ impl BitcoinRpcPrecompile {
         )
     }
 
-    fn call_btc_tx_queue(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
-        let gas_used: u64 = (10_000 + input.len() * 3) as u64;
+    fn send_btc_tx(&self, input: &[u8]) -> PrecompileResult {
+        let gas_used: u64 = 21_000_u64;
 
-        if gas_used > gas_limit {
-            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
-        }
+        // Deserialize the Bitcoin transaction
+        let tx: bitcoin::Transaction = match deserialize(input) {
+            Ok(tx) => tx,
+            Err(e) => {
+                debug!("Failed to deserialize Bitcoin transaction: {}", e);
+                return Err(PrecompileErrors::Error(PrecompileError::Other(
+                    "Failed to deserialize Bitcoin transaction".into(),
+                )));
+            }
+        };
 
-        let broadcast_request = serde_json::json!({
-            "raw_tx": hex::encode(input)
-        });
+        // Get current block height for inclusion in the response
+        let current_block = match self.bitcoin_client.get_block_height() {
+            Ok(height) => height,
+            Err(e) => {
+                warn!("WARNING: Failed to get block height: {}", e);
+                0 // Default to 0 if we can't get the height
+            }
+        };
 
-        let broadcast_response: BroadcastResponse = self
-            .make_http_request(
-                &self.btc_tx_queue_url,
-                "broadcast",
-                reqwest::Method::POST,
-                Some(&broadcast_request),
-            )
-            .map_err(|e| {
-                warn!("WARNING: HTTP request to broadcast service failed: {}", e);
-                PrecompileErrors::Error(PrecompileError::Other(format!(
-                    "HTTP request to broadcast service failed: {}",
-                    e
-                )))
-            })?;
+        // Attempt to broadcast the transaction
+        let txid: bitcoincore_rpc::bitcoin::Txid =
+            match self.bitcoin_client.send_raw_transaction(&tx) {
+                Ok(txid) => {
+                    // Successfully broadcast
+                    info!("Broadcast bitcoin txid: {}", txid);
+                    txid
+                }
+                Err(e) => {
+                    // Filter error codes from the node and return. The filter make transaction broadcasting idempotent.
+                    // Meaning braodcasting a tx multiple times has the same effect as performing it once. In the context of
+                    // block building this means when nodes are syncing and verifying transactions, they will get the same
+                    // result as the entity that broadcast the tx.
+                    //
+                    // Filters include:
+                    // - RPC_VERIFY_ALREADY_IN_CHAIN or RPC_TRANSACTION_ALREADY_IN_CHAIN (-27)
+                    // - RPC_VERIFY_REJECTED or RPC_TRANSACTION_REJECTED (-26)
+                    debug!("Failed to broadcast transaction: {}", e);
+                    match &e {
+                        // Handle JsonRpc errors
+                        bitcoincore_rpc::Error::JsonRpc(jsonrpc_err) => {
+                            match jsonrpc_err {
+                                bitcoincore_rpc::jsonrpc::error::Error::Rpc(rpc_error) => {
+                                    match rpc_error.code {
+                                        // RPC_VERIFY_ALREADY_IN_CHAIN or RPC_TRANSACTION_ALREADY_IN_CHAIN (-27)
+                                        -27 => {
+                                            debug!(
+                                                "Json rpc error -27. Txid: {} msg: {}",
+                                                tx.txid(),
+                                                rpc_error.message
+                                            );
+                                            tx.txid()
+                                        }
+                                        // RPC_VERIFY_REJECTED or RPC_TRANSACTION_REJECTED (-26)
+                                        // TODO: Verify that all of these actually needed in a multi-node environment
+                                        -26 => {
+                                            let err_msg = &rpc_error.message;
+                                            if err_msg.contains("already in mempool")
+                                                || err_msg.contains("already known")
+                                                || err_msg.contains("duplicate transaction")
+                                            {
+                                                debug!(
+                                                    "Json rpc error -26. Txid: {} msg: {}",
+                                                    tx.txid(),
+                                                    rpc_error.message
+                                                );
+                                                tx.txid()
+                                            } else {
+                                                // Other type of rejection
+                                                warn!(
+                                                    "WARNING: Transaction rejected: {} (code: {})",
+                                                    rpc_error.message, rpc_error.code
+                                                );
+                                                return Err(PrecompileErrors::Error(
+                                                    PrecompileError::Other(format!(
+                                                        "Transaction rejected: {}",
+                                                        rpc_error.message
+                                                    )),
+                                                ));
+                                            }
+                                        }
+                                        // Other RPC error
+                                        _ => {
+                                            warn!(
+                                                "WARNING: Bitcoin RPC error: {} (code: {})",
+                                                rpc_error.message, rpc_error.code
+                                            );
+                                            return Err(PrecompileErrors::Error(
+                                                PrecompileError::Other(format!(
+                                                    "Bitcoin RPC error: {} (code: {})",
+                                                    rpc_error.message, rpc_error.code
+                                                )),
+                                            ));
+                                        }
+                                    }
+                                }
+                                // Other JSON-RPC errors
+                                _ => {
+                                    warn!("WARNING: JSON-RPC error: {:?}", jsonrpc_err);
+                                    return Err(PrecompileErrors::Error(PrecompileError::Other(
+                                        format!("JSON-RPC error: {:?}", jsonrpc_err),
+                                    )));
+                                }
+                            }
+                        }
+                        // Handle ReturnedError
+                        bitcoincore_rpc::Error::ReturnedError(err_msg) => {
+                            if err_msg.contains("already in block chain")
+                                || err_msg.contains("already in the mempool")
+                                || err_msg.contains("already known")
+                                || err_msg.contains("duplicate transaction")
+                            {
+                                info!("Transaction already known: {} ({})", tx.txid(), err_msg);
+                                tx.txid()
+                            } else {
+                                warn!("WARNING: Bitcoin returned error: {}", err_msg);
+                                return Err(PrecompileErrors::Error(PrecompileError::Other(
+                                    format!("Bitcoin returned error: {}", err_msg),
+                                )));
+                            }
+                        }
+                        // All other error types
+                        _ => {
+                            warn!("WARNING: Bitcoin client error: {:?}", e);
+                            return Err(PrecompileErrors::Error(PrecompileError::Other(format!(
+                                "Bitcoin client error: {:?}",
+                                e
+                            ))));
+                        }
+                    }
+                }
+            };
 
-        if broadcast_response.status != "success" {
-            warn!(
-                "WARNING: Broadcast btc tx precompile error: {:?}",
-                broadcast_response.error
-            );
-            return Err(PrecompileErrors::Error(PrecompileError::Other(
-                broadcast_response
-                    .error
-                    .unwrap_or_else(|| "Broadcast service error".into()),
-            )));
-        } else {
-            let txid_str = hex::encode(broadcast_response.txid.clone().unwrap());
-            info!("Broadcast bitcoin txid: {}", txid_str);
-        }
+        // format to match slot locking service
+        let mut bytes = txid.to_raw_hash().to_byte_array().to_vec();
+        bytes.reverse();
 
         // Encode the response: txid (32 bytes) followed by current block height (8 bytes)
         let mut response = Vec::with_capacity(40);
-
-        // Get txid bytes directly from the response
-        let txid_bytes = broadcast_response.txid.ok_or_else(|| {
-            warn!("No txid in broadcast response");
-            PrecompileErrors::Error(PrecompileError::Other(
-                "No txid in broadcast response".into(),
-            ))
-        })?;
-
-        response.extend_from_slice(&txid_bytes);
-        response.extend_from_slice(&broadcast_response.current_block.to_be_bytes());
+        response.extend_from_slice(&bytes);
+        response.extend_from_slice(&current_block.to_be_bytes());
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
@@ -395,9 +474,7 @@ impl StatefulPrecompile for BitcoinRpcPrecompile {
         let input_data = &input[4..];
 
         match method {
-            BitcoinMethod::BroadcastTransaction => {
-                self.call_btc_tx_queue(input_data, method.gas_limit())
-            }
+            BitcoinMethod::BroadcastTransaction => self.send_btc_tx(input_data),
             BitcoinMethod::DecodeTransaction => {
                 self.decode_raw_transaction(input_data, method.gas_limit())
             }
