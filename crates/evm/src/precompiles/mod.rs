@@ -140,12 +140,8 @@ impl BitcoinRpcPrecompile {
         )
     }
 
-    fn send_btc_tx(&self, input: &[u8], gas_limit: u64) -> PrecompileResult {
+    fn send_btc_tx(&self, input: &[u8]) -> PrecompileResult {
         let gas_used: u64 = 21_000_u64;
-
-        if gas_used > gas_limit {
-            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
-        }
 
         // Deserialize the Bitcoin transaction
         let tx: bitcoin::Transaction = match deserialize(input) {
@@ -478,7 +474,7 @@ impl StatefulPrecompile for BitcoinRpcPrecompile {
         let input_data = &input[4..];
 
         match method {
-            BitcoinMethod::BroadcastTransaction => self.send_btc_tx(input_data, method.gas_limit()),
+            BitcoinMethod::BroadcastTransaction => self.send_btc_tx(input_data),
             BitcoinMethod::DecodeTransaction => {
                 self.decode_raw_transaction(input_data, method.gas_limit())
             }
