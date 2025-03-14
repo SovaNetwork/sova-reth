@@ -75,22 +75,31 @@ run-sova-mainnet-regtest clean="false":
     --datadir ./data \
     --log.stdout.filter info
 
+# Ensure the binary directory exists
+ensure-bin-dir:
+    mkdir -p dist/bin/amd64 dist/bin/arm64
+
+# Build for x86_64 with protobuf
+build-x86_64:
+    sudo apt-get update && sudo apt-get install -y protobuf-compiler
+    cargo build --release --target x86_64-unknown-linux-gnu
+    cp target/x86_64-unknown-linux-gnu/release/sova-reth dist/bin/amd64/
+
+# Build for aarch64 with protobuf
+build-aarch64:
+    sudo apt-get update && sudo apt-get install -y protobuf-compiler
+    cross build --release --target aarch64-unknown-linux-gnu
+    cp target/aarch64-unknown-linux-gnu/release/sova-reth dist/bin/arm64/
+
 # Docker cross-platform build and push
 docker-build-push VERSION="latest":
-    # Ensure bin directory exists
-    mkdir -p {{BIN_DIR}}/amd64 {{BIN_DIR}}/arm64
-    
-    # Build for x86_64
-    cargo build --release --target x86_64-unknown-linux-gnu
-    cp {{CARGO_TARGET_DIR}}/x86_64-unknown-linux-gnu/release/sova-reth {{BIN_DIR}}/amd64/
-    
-    # Build for aarch64 (using cross for Linux ARM builds)
-    cross build --release --target aarch64-unknown-linux-gnu
-    cp {{CARGO_TARGET_DIR}}/aarch64-unknown-linux-gnu/release/sova-reth {{BIN_DIR}}/arm64/
+    just ensure-bin-dir
+    just build-x86_64
+    just build-aarch64
     
     # Build and push Docker image
     docker buildx build --file ./Dockerfile.cross . \
         --platform linux/amd64,linux/arm64 \
-        --tag {{DOCKER_IMAGE_NAME}}:{{VERSION}} \
+        --tag ghcr.io/sovaNetwork/sova-reth:{{VERSION}} \
         --provenance=false \
         --push

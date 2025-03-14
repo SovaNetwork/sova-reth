@@ -44,6 +44,10 @@ jobs:
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
       - uses: taiki-e/install-action@cross
       - uses: extractions/setup-just@v1
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
