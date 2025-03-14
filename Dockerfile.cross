@@ -8,6 +8,13 @@ FROM --platform=$TARGETPLATFORM ubuntu:22.04
 LABEL org.opencontainers.image.source=https://github.com/paradigmxyz/reth
 LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 
+# Install required runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Filled by docker buildx
 ARG TARGETARCH
 
