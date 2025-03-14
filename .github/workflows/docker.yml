@@ -29,45 +29,34 @@ jobs:
       VERSION: ${{ env.VERSION }}
       VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
 
-  build-docker:
+  docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: [extract-version]
     permissions:
-      contents: read
       packages: write
-    
+      contents: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@v2
+      - uses: actions/checkout@v4
+      - uses: rui314/setup-mold@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v4
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+      - uses: taiki-e/install-action@cross
+      - uses: extractions/setup-just@v1
+      - uses: Swatinem/rust-cache@v2
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ needs.extract-version.outputs.VERSION }}${{ needs.extract-version.outputs.VERSION_SUFFIX }}
-            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=sha,format=short
-
+          cache-on-failure: true
+      
+      - name: Log in to Docker
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username ${{ github.actor }} --password-stdin
+      
+      - name: Set up Docker builder
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64,amd64
+          docker buildx create --use --name cross-builder
+      
       - name: Build and push Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          just docker-build-push ${{ needs.extract-version.outputs.VERSION }}

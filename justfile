@@ -1,3 +1,9 @@
+# Global variables
+BIN_DIR := "dist/bin"
+CARGO_TARGET_DIR := "target"
+DOCKER_IMAGE_NAME := "ghcr.io/sovaNetwork/sova-reth"
+PROFILE := "release"
+
 # build rust binary
 alias b := build
 
@@ -68,3 +74,23 @@ run-sova-mainnet-regtest clean="false":
     --authrpc.port 8551 \
     --datadir ./data \
     --log.stdout.filter info
+
+# Docker cross-platform build and push
+docker-build-push VERSION="latest":
+    # Ensure bin directory exists
+    mkdir -p {{BIN_DIR}}/amd64 {{BIN_DIR}}/arm64
+    
+    # Build for x86_64
+    cargo build --release --target x86_64-unknown-linux-gnu
+    cp {{CARGO_TARGET_DIR}}/x86_64-unknown-linux-gnu/release/sova-reth {{BIN_DIR}}/amd64/
+    
+    # Build for aarch64 (using cross for Linux ARM builds)
+    cross build --release --target aarch64-unknown-linux-gnu
+    cp {{CARGO_TARGET_DIR}}/aarch64-unknown-linux-gnu/release/sova-reth {{BIN_DIR}}/arm64/
+    
+    # Build and push Docker image
+    docker buildx build --file ./Dockerfile.cross . \
+        --platform linux/amd64,linux/arm64 \
+        --tag {{DOCKER_IMAGE_NAME}}:{{VERSION}} \
+        --provenance=false \
+        --push
