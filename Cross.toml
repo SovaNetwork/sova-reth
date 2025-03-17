@@ -1,7 +1,13 @@
 [build]
 pre-build = [
-    # rust-bindgen dependencies: llvm-dev libclang-dev (>= 5.0) clang (>= 5.0)
-    "apt-get update && apt-get install --assume-yes --no-install-recommends llvm-dev libclang-6.0-dev clang-6.0 protobuf-compiler"
+    # rust-bindgen dependencies and other tools
+    "apt-get update && apt-get install --assume-yes --no-install-recommends llvm-dev libclang-6.0-dev clang-6.0 curl unzip",
+    
+    # Install proto3 directly from GitHub
+    "curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v24.3/protoc-24.3-linux-x86_64.zip",
+    "unzip protoc-24.3-linux-x86_64.zip -d /usr/local",
+    "chmod 755 /usr/local/bin/protoc",
+    "chmod -R 755 /usr/local/include/google"
 ]
 
 [build.env]
