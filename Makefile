@@ -5,11 +5,11 @@
 .DEFAULT_GOAL := help
 
 GIT_SHA ?= $(shell git rev-parse HEAD)
-GIT_TAG ?= $(shell git describe --tags --abbrev=0)
+GIT_TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "latest")
 BIN_DIR = "dist/bin"
 
 CARGO_TARGET_DIR ?= target
-DOCKER_IMAGE_NAME ?= ghcr.io/sovanetwork/sova-reth
+DOCKER_IMAGE_NAME ?= ghcr.io/SovaNetwork/sova-reth
 PROFILE ?= release
 
 # Extra flags for Cargo
