@@ -9,7 +9,7 @@ GIT_TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "latest")
 BIN_DIR = "dist/bin"
 
 CARGO_TARGET_DIR ?= target
-DOCKER_IMAGE_NAME ?= ghcr.io/SovaNetwork/sova-reth
+DOCKER_IMAGE_NAME ?= ghcr.io/sovanetwork/sova-reth
 PROFILE ?= release
 
 # Extra flags for Cargo
