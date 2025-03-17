@@ -13,7 +13,7 @@ env:
   REPO_NAME: ${{ github.repository_owner }}/sova-reth
   IMAGE_NAME: ${{ github.repository_owner }}/sova-reth
   CARGO_TERM_COLOR: always
-  DOCKER_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/sova-reth
+  DOCKER_IMAGE_NAME: ghcr.io/sovanetwork/sova-reth # repository name must be lowercase
   DOCKER_USERNAME: ${{ github.actor }}
 
 jobs:
