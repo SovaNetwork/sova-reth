@@ -51,5 +51,5 @@ COPY --from=builder /app/sova-reth /usr/local/bin
 # Copy licenses
 COPY LICENSE-* ./
 
-EXPOSE 30303 30303/udp 9001 8545 8546
+EXPOSE 30303 30303/udp 9001 8545 8546 18443 5555 5557 50051
 ENTRYPOINT ["/usr/local/bin/sova-reth"]
