@@ -52,12 +52,10 @@ impl StorageSlotProvider {
         // Process each account in the accessed cache
         for (address, slots) in storage.iter() {
             for slot in slots.keys() {
-                slots_to_check.push(
-                    SlotIdentifier {
-                        contract_address: address.to_string(),
-                        slot_index: slot.to_vec()
-                    }
-                );
+                slots_to_check.push(SlotIdentifier {
+                    contract_address: address.to_string(),
+                    slot_index: slot.to_vec(),
+                });
             }
         }
 
