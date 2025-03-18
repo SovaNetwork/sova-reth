@@ -11,17 +11,7 @@ LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 # Filled by docker buildx
 ARG TARGETARCH
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    netcat \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY ./dist/bin/$TARGETARCH/sova-reth /usr/local/bin/sova-reth
 
 EXPOSE 30303 30303/udp 9001 8545 8546
-
-# Use shell entrypoint to allow for environment variable expansion
-ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["exec /usr/local/bin/sova-reth $0 $@"]
+ENTRYPOINT ["/usr/local/bin/sova-reth"]

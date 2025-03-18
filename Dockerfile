@@ -41,19 +41,9 @@ RUN cargo build --profile $BUILD_PROFILE --features "$FEATURES" --locked --bin s
 # binary to a temporary location
 RUN cp /app/target/$BUILD_PROFILE/sova-reth /app/sova-reth
 
-# Use debian:bullseye-slim as the runtime image (like the original)
-FROM debian:bullseye-slim
+# Use Ubuntu as the release image
+FROM ubuntu AS runtime
 WORKDIR /app
-
-# Install runtime dependencies and debugging tools (matching the original)
-RUN apt-get update && apt-get install -y \
-    libssl-dev \
-    ca-certificates \
-    curl \
-    netcat \
-    net-tools \
-    iputils-ping \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy sova-reth over from the build stage
 COPY --from=builder /app/sova-reth /usr/local/bin
@@ -61,31 +51,5 @@ COPY --from=builder /app/sova-reth /usr/local/bin
 # Copy licenses
 COPY LICENSE-* ./
 
-# Expose ports
 EXPOSE 30303 30303/udp 9001 8545 8546
-
-# Set the entrypoint to use shell (key change)
-ENTRYPOINT ["/bin/sh", "-c"]
-
-# Set the default command with environment variables
-CMD ["sova-reth node \
-    --btc-network $BTC_NETWORK \
-    --network-url $BTC_RPC_URL \
-    --btc-rpc-username $BTC_RPC_USER \
-    --btc-rpc-password $BTC_RPC_PASSWORD \
-    --network-signing-url $NETWORK_SIGNING_URL \
-    --network-utxo-url $NETWORK_UTXO_URL \
-    --sentinel-url $SENTINEL_URL \
-    --chain $CHAIN \
-    --datadir /var/lib/sova \
-    --http \
-    --http.addr 0.0.0.0 \
-    --http.port 8545 \
-    --ws \
-    --ws.addr 0.0.0.0 \
-    --ws.port 8546 \
-    --http.api all \
-    --authrpc.addr 0.0.0.0 \
-    --authrpc.port 8551 \
-    --log.stdout.filter $TRACE_LEVEL \
-    --dev"]
+ENTRYPOINT ["/usr/local/bin/sova-reth"]
