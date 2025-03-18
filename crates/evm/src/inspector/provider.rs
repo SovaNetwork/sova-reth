@@ -1,7 +1,7 @@
 use reth_tasks::TaskExecutor;
 
 use sova_sentinel_client::SlotLockClient;
-use sova_sentinel_proto::proto::{BatchGetSlotStatusResponse, SlotData};
+use sova_sentinel_proto::proto::{BatchGetSlotStatusResponse, SlotData, SlotIdentifier};
 
 use super::{error::SlotProviderError, storage_cache::AccessedStorage};
 
@@ -47,12 +47,17 @@ impl StorageSlotProvider {
         block: u64,
         btc_block: u64,
     ) -> Result<BatchGetSlotStatusResponse, SlotProviderError> {
-        let mut slots_to_check: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut slots_to_check: Vec<SlotIdentifier> = Vec::new();
 
         // Process each account in the accessed cache
         for (address, slots) in storage.iter() {
             for slot in slots.keys() {
-                slots_to_check.push((address.to_string(), slot.to_vec()));
+                slots_to_check.push(
+                    SlotIdentifier {
+                        contract_address: address.to_string(),
+                        slot_index: slot.to_vec()
+                    }
+                );
             }
         }
 
@@ -72,15 +77,17 @@ impl StorageSlotProvider {
         storage: AccessedStorage,
         block: u64,
         btc_block: u64,
-        btc_txid: Vec<u8>,
+        btc_txid_bytes: Vec<u8>,
     ) -> Result<(), SlotProviderError> {
-        let mut slots_to_lock: Vec<sova_sentinel_proto::proto::SlotData> = Vec::new();
+        let mut slots_to_lock: Vec<SlotData> = Vec::new();
+        let btc_txid = &hex::encode(&btc_txid_bytes);
 
         // Process each account in the accessed cache
         for (address, slots) in storage.iter() {
             for (slot, slot_data) in slots {
                 slots_to_lock.push(SlotData {
                     contract_address: address.to_string(),
+                    btc_txid: btc_txid.clone(),
                     slot_index: slot.to_vec(),
                     revert_value: slot_data.previous_value.to_be_bytes_vec(),
                     current_value: slot_data.current_value.to_be_bytes_vec(),
@@ -89,7 +96,7 @@ impl StorageSlotProvider {
         }
 
         match client
-            .batch_lock_slot(block, btc_block, &hex::encode(&btc_txid), slots_to_lock)
+            .batch_lock_slot(block, btc_block, slots_to_lock)
             .await
             .map_err(|e| SlotProviderError::RpcError(e.to_string()))
         {
