@@ -67,8 +67,8 @@ echo "TX2 Hex: $TX2_HEX"
 
 echo "Deploying uBTC contract..."
 cd ~/contracts
-DEPLOY_OUTPUT=$(forge create --rpc-url http://localhost:8545 --broadcast \
-    --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+DEPLOY_OUTPUT=$(forge create --rpc-url "$ETH_RPC_URL" --broadcast \
+    --private-key "$ETH_PRIVATE_KEY" \
     src/uBTC.sol:uBTC)
 CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep "Deployed to:" | cut -d' ' -f3)
 echo "Contract deployed to: $CONTRACT_ADDRESS"

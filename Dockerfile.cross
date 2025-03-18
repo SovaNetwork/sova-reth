@@ -13,5 +13,5 @@ ARG TARGETARCH
 
 COPY ./dist/bin/$TARGETARCH/sova-reth /usr/local/bin/sova-reth
 
-EXPOSE 30303 30303/udp 9001 8545 8546 18443 5555 5557 50051
+EXPOSE 30303 30303/udp 9001 8545 8546
 ENTRYPOINT ["/usr/local/bin/sova-reth"]
