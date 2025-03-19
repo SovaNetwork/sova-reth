@@ -310,11 +310,15 @@ where
             let inspector_lock = self.evm_config.with_inspector();
             let mut inspector = inspector_lock.write();
 
-            // handle unlocking of reverted slot cache via slot lock provider
-            // and locking of storage slots for any btc broadcasts in this block
+            // handle locking of storage slots for any btc broadcasts in this block
             inspector
                 .update_sentinel_locks(block.number())
-                .map_err(|err| InternalBlockExecutionError::Other(Box::new(err)))?;
+                .map_err(|err| {
+                    InternalBlockExecutionError::msg(format!(
+                        "Failed to update sentinel locks: {}",
+                        err
+                    ))
+                })?;
         }
 
         Ok(requests)

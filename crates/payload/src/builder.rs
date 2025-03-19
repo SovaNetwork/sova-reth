@@ -499,6 +499,21 @@ where
     // Release db
     drop(evm);
 
+    {
+        let inspector_lock = evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
+
+        // handle locking of storage slots for any btc broadcasts in this block
+        inspector
+            .update_sentinel_locks(block_number)
+            .map_err(|err| {
+                PayloadBuilderError::Internal(RethError::msg(format!(
+                    "WARNING: Payload building error: Failed to update sentinel locks: {}",
+                    err
+                )))
+            })?;
+    }
+
     let withdrawals_root = commit_withdrawals(
         &mut db,
         &chain_spec,
