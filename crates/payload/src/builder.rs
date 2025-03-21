@@ -514,7 +514,7 @@ where
             .update_sentinel_locks(locked_block_num)
             .map_err(|err| {
                 PayloadBuilderError::Internal(RethError::msg(format!(
-                    "WARNING: Payload building error: Failed to update sentinel locks: {}",
+                    "Payload building error: Failed to update sentinel locks: {}",
                     err
                 )))
             })?;

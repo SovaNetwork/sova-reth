@@ -318,7 +318,7 @@ where
                 .update_sentinel_locks(locked_block_num)
                 .map_err(|err| {
                     InternalBlockExecutionError::msg(format!(
-                        "Failed to update sentinel locks: {}",
+                        "Execution error: Failed to update sentinel locks: {}",
                         err
                     ))
                 })?;
