@@ -72,10 +72,16 @@ impl SovaInspector {
         })
     }
 
+    /// Clear all storage data for a new block
+    fn clear_cache(&mut self) {
+        self.cache.clear_cache();
+        self.slot_revert_cache.clear();
+    }
+
     /// Unlock all revereted storage slots and lock all accessed storage slots atend of execution
     pub fn update_sentinel_locks(
         &mut self,
-        sova_block_number: u64,
+        locked_block_number: u64,
     ) -> Result<(), SlotProviderError> {
         // Handle locking of storage slots for each btc broadcast transaction
         for (broadcast_result, accessed_storage) in self.cache.lock_data.iter() {
@@ -85,17 +91,14 @@ impl SovaInspector {
                 // Lock the storage with this transaction's details
                 self.storage_slot_provider.batch_lock_slots(
                     accessed_storage.clone(),
-                    sova_block_number,
+                    locked_block_number,
                     btc_block,
                     btc_txid.clone(),
                 )?;
             }
         }
 
-        // Clear the cache for next block
-        self.cache.clear_cache();
-        // Clear the revert cache
-        self.slot_revert_cache.clear();
+        self.clear_cache();
 
         Ok(())
     }
@@ -388,11 +391,8 @@ where
     DB: reth_revm::Database,
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        // Reset accessed storage tracking at the start of interpretation
-        self.cache.clear_cache();
-
-        // Reset slot revert cache
-        self.slot_revert_cache.clear();
+        // Ensure clean cache
+        self.clear_cache();
 
         // Create a checkpoint if one doesn't exist yet
         if self.checkpoint.is_none() {

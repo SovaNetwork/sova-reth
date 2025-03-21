@@ -499,13 +499,19 @@ where
     // Release db
     drop(evm);
 
+    // Release inspector
+    drop(inspector);
+
     {
         let inspector_lock = evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
 
+        // locks are to be applied to the next block
+        let locked_block_num: u64 = block_number + 1;
+
         // handle locking of storage slots for any btc broadcasts in this block
         inspector
-            .update_sentinel_locks(block_number)
+            .update_sentinel_locks(locked_block_num)
             .map_err(|err| {
                 PayloadBuilderError::Internal(RethError::msg(format!(
                     "WARNING: Payload building error: Failed to update sentinel locks: {}",

@@ -310,9 +310,12 @@ where
             let inspector_lock = self.evm_config.with_inspector();
             let mut inspector = inspector_lock.write();
 
+            // locks are to be applied to the next block
+            let locked_block_num: u64 = block.number() + 1;
+
             // handle locking of storage slots for any btc broadcasts in this block
             inspector
-                .update_sentinel_locks(block.number())
+                .update_sentinel_locks(locked_block_num)
                 .map_err(|err| {
                     InternalBlockExecutionError::msg(format!(
                         "Failed to update sentinel locks: {}",
