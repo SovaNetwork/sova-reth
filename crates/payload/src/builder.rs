@@ -462,17 +462,17 @@ where
         executed_txs.push(tx.into_tx());
     }
 
-    // check if we have a better block
-    if !is_better_payload(best_payload.as_ref(), total_fees) {
-        // Release db
-        drop(evm);
+    // // check if we have a better block
+    // if !is_better_payload(best_payload.as_ref(), total_fees) {
+    //     // Release db
+    //     drop(evm);
 
-        // can skip building the block
-        return Ok(BuildOutcome::Aborted {
-            fees: total_fees,
-            cached_reads,
-        });
-    }
+    //     // can skip building the block
+    //     return Ok(BuildOutcome::Aborted {
+    //         fees: total_fees,
+    //         cached_reads,
+    //     });
+    // }
 
     // calculate the requests and the requests root
     let requests = if chain_spec.is_prague_active_at_timestamp(attributes.timestamp) {
@@ -661,8 +661,5 @@ where
     // extend the payload with the blob sidecars from the executed txs
     payload.extend_sidecars(blob_sidecars.into_iter().map(Arc::unwrap_or_clone));
 
-    Ok(BuildOutcome::Better {
-        payload,
-        cached_reads,
-    })
+    Ok(BuildOutcome::Freeze(payload))
 }
