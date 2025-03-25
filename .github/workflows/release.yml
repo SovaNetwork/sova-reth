@@ -200,7 +200,7 @@ jobs:
           )
           assets=()
           for asset in ./sova-reth-*.tar.gz*; do
-              assets+=("-a" "$asset")
+              assets+=("$asset")
           done
           tag_name="${{ env.VERSION }}"
           echo "$body" | gh release create --draft -t "SOVA-RETH $tag_name" -F "-" "$tag_name" "${assets[@]}"
