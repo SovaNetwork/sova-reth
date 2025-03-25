@@ -203,4 +203,4 @@ jobs:
               assets+=("-a" "$asset")
           done
           tag_name="${{ env.VERSION }}"
-          echo "$body" | gh release create --draft -t "SOVA-RETH $tag_name" -F "-" "$tag_name" "${assets[@]}
+          echo "$body" | gh release create --draft -t "SOVA-RETH $tag_name" -F "-" "$tag_name" "${assets[@]}"
