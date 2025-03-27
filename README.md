@@ -14,7 +14,8 @@
 <p align="left">
   <a href="#overview">Overview</a> •
   <a href="./docs/README.md">Documentation</a> •
-  <a href="https://github.com/SovaNetwork/running-sova">Run Dev Node</a>
+  <a href="https://github.com/SovaNetwork/running-sova">Run Dev Node</a> •
+  <a href="https://docs.sova.io/documentation/network-info#sova-testnet">Use on Testnet</a>
 </p>
 
 <h1 align="center">
@@ -23,9 +24,26 @@
 
 ## Overview
 
-A Sova node is a modified Reth node. Reth is an EVM based execution client. The primary modification Sova provides are new precompiles which allow developers to interact with a Bitcoin node.
+A Sova node is an extension of the EVM execution client [Reth](https://github.com/paradigmxyz/reth). This extension of reth enables a new subset of Bitcoin precompiles. The precompiles are used to directly interface with a Bitcoin node during EVM transaction execution.
 
-[Reth Github](https://github.com/paradigmxyz/reth)
+## Building and Running
+
+A Makefile is used as a command runner to execute run and build commands.
+
+```bash
+# view all make commands
+make help
+
+# build the sova-reth binary
+make build
+
+# run in devnet mode using Bitcoin regtest
+make run-sova-regtest
+```
+
+## Testing
+
+For testing sova-reth in a devnet environment, it is recommended to use [running-sova](https://github.com/SovaNetwork/running-sova). This will orchestrate the deployment of all the auxiliary services need for local develeopment.
 
 ## Precompiles
 
@@ -33,21 +51,13 @@ The new precompile is found at address 0x999 and accepts a bytes payload of data
 
 | Precompile Name | Address | Method Identifier (bytes) | Gas Cost | Gas Limit | Description |
 |-----------------|-----|---------------------------|----------|-----------|-------------|
-| sendrawtransaction | 0x999 | 0x00000001 | 21,000 | 450,000 | Broadcast a raw Bitcoin transaction. |
-| decoderawtransaction | 0x999 | 0x00000002 | 2,000 + 3 * input.len() | 150,000 | Decode a raw Bitcoin transaction. |
-| verifysignature | 0x999 | 0x00000003 | 4,000 + 3 * input.len() | 300,000 | Verifies the unlocking scripts in a signed transaction are able to spend the specified inputs. |
+| sendrawtransaction | 0x999 | 0x00000001 | 21,000 | N/A | Broadcast a raw Bitcoin transaction. |
+| decoderawtransaction | 0x999 | 0x00000002 | 4,000 + 3 * input.len() | 150,000 | Decode a raw Bitcoin transaction. |
+| verifysignature | 0x999 | 0x00000003 | 6,000 + 3 * input.len() | 100,000 | Verifies the unlocking scripts in a signed transaction are able to spend the specified inputs. |
 | convertaddress | 0x999 |  0x00000004 | 3,000 | N/A | Converts a Sova address to the corresponding BTC address using the network master key. |
 | createandsignrawtransaction | 0x999 |  0x00000005 | 25,000 | N/A | Using the Sova network keys, create and sign a BTC transaction for a specific amount. The caller of this precompile specifies the recipient BTC address and amount to send in sats. |
 
-## Testing
-
-For testing a sova-reth node, it is recommended to run the service along side the [running-sova](https://github.com/SovaNetwork/running-sova). That way you have all the auxilerary services running in docker and you can restart the node in this repo as needed without having to restart or run all the other network components separately. The sova-reth service exposes port :8545 for making rpc calls to the node.
-
-Sova-reth provides a `just` command runner to easily start the node using `just run-chain`. To view the possible flags that can be passed with this command use `just -l` and `just help` to view all commands and flags.
-
-One way to interact with the precompile is to use [cast](https://book.getfoundry.sh/reference/cast/transaction-commands).
-
-Examples for the specific bitcoin rpc call. Each example shows which data prefix to use to each specific bitcoin rpc call.
+The next section provides examples for interacting with each precompile and the data that needs to be provided.
 
 ### sendrawtransaction
 > Note: `--data` is prefixed with 0x00000001. After the prefix is the raw signed btc transaction.
