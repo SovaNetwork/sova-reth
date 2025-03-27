@@ -33,6 +33,19 @@ ETH_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 ETH_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 CHAIN_ID="120893"
 
+# Bitcoin RPC Configuration - using the working parameters
+# Port automatically assigned by satoshi-suite
+BTC_RPC_URL="http:localhost"
+BTC_RPC_USER="user"
+BTC_RPC_PASS="password"
+BTC_NETWORK="regtest"
+
+# UTXO Indexer Configuration
+# Default values if not provided in environment
+INDEXER_HOST="localhost"
+INDEXER_PORT="5557"
+INDEXER_URL="http://${INDEXER_HOST}:${INDEXER_PORT}"
+
 # Function to convert BTC to smallest unit (satoshis)
 btc_to_sats() {
     echo "$1 * 100000000" | bc | cut -d'.' -f1
@@ -46,20 +59,20 @@ get_tx_hex() {
 }
 
 echo "Creating Bitcoin wallets..."
-satoshi-suite new-wallet --wallet-name "$WALLET_1"
-satoshi-suite new-wallet --wallet-name "$WALLET_2"
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" new-wallet --wallet-name "$WALLET_1"
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" new-wallet --wallet-name "$WALLET_2"
 
 echo "Mining initial blocks..."
-satoshi-suite mine-blocks --wallet-name "$WALLET_1" --blocks 1
-satoshi-suite mine-blocks --wallet-name "$WALLET_2" --blocks 100
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" mine-blocks --wallet-name "$WALLET_1" --blocks 1
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" mine-blocks --wallet-name "$WALLET_2" --blocks 100
 
 echo "Creating Bitcoin transactions..."
 # First transaction with 0.001 fee
-TX1_OUTPUT=$(satoshi-suite sign-tx --wallet-name "$WALLET_1" --recipient "$UBTC_BITCOIN_RECEIVE_ADDRESS" --amount 49.999 --fee-amount 0.001)
+TX1_OUTPUT=$(satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" sign-tx --wallet-name "$WALLET_1" --recipient "$UBTC_BITCOIN_RECEIVE_ADDRESS" --amount 49.999 --fee-amount 0.001)
 TX1_HEX=$(get_tx_hex "$TX1_OUTPUT")
 
 # Second transaction with 0.01 fee
-TX2_OUTPUT=$(satoshi-suite sign-tx --wallet-name "$WALLET_1" --recipient "$DOUBLE_SPEND_RECEIVE_ADDRESS" --amount 49.99 --fee-amount 0.01)
+TX2_OUTPUT=$(satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" sign-tx --wallet-name "$WALLET_1" --recipient "$DOUBLE_SPEND_RECEIVE_ADDRESS" --amount 49.99 --fee-amount 0.01)
 TX2_HEX=$(get_tx_hex "$TX2_OUTPUT")
 
 # For debugging
@@ -91,26 +104,26 @@ cast send \
     "0x$TX1_HEX"
 
 echo "Broadcasting competing Bitcoin transaction (0.01 fee)..."
-TX_BROADCAST_OUTPUT=$(satoshi-suite broadcast-tx --tx-hex "$TX2_HEX")
+TX_BROADCAST_OUTPUT=$(satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" broadcast-tx --tx-hex "$TX2_HEX")
 TX_ID=$(echo "$TX_BROADCAST_OUTPUT" | grep "Broadcasted transaction:" | cut -d' ' -f3)
 
 echo "Mining confirmation blocks for double-spend transaction..."
-satoshi-suite mine-blocks --wallet-name "$WALLET_2" --blocks 19
-satoshi-suite mine-blocks --wallet-name "$WALLET_1" --blocks 1
-satoshi-suite mine-blocks --wallet-name "$WALLET_2" --blocks 100
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" mine-blocks --wallet-name "$WALLET_2" --blocks 19
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" mine-blocks --wallet-name "$WALLET_1" --blocks 1
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" mine-blocks --wallet-name "$WALLET_2" --blocks 100
 
 echo "Checking contract state..."
-    BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "balanceOf(address)" \
-        "$ETH_ADDRESS" | cast to-dec)
-    TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()" | cast to-dec)
+BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+    "balanceOf(address)" \
+    "$ETH_ADDRESS" | cast to-dec)
+TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+    "totalSupply()" | cast to-dec)
 
-    echo "Balance: $BALANCE"
-    echo "Total Supply: $TOTAL_SUPPLY"
+echo "Balance: $BALANCE"
+echo "Total Supply: $TOTAL_SUPPLY"
 
 echo "Creating new Bitcoin transaction for second VALID deposit..."
-TX3_OUTPUT=$(satoshi-suite sign-tx --wallet-name "$WALLET_1" --recipient "$UBTC_BITCOIN_RECEIVE_ADDRESS" --amount 49.999 --fee-amount 0.001)
+TX3_OUTPUT=$(satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" sign-tx --wallet-name "$WALLET_1" --recipient "$UBTC_BITCOIN_RECEIVE_ADDRESS" --amount 49.999 --fee-amount 0.001)
 TX3_HEX=$(get_tx_hex "$TX3_OUTPUT")
 
 echo "Submitting second deposit to Ethereum contract..."
@@ -125,33 +138,33 @@ cast send \
     "0x$TX3_HEX"
 
 echo "Checking contract state..."
-    BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "balanceOf(address)" \
-        "$ETH_ADDRESS" | cast to-dec)
-    TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()" | cast to-dec)
+BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+    "balanceOf(address)" \
+    "$ETH_ADDRESS" | cast to-dec)
+TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+    "totalSupply()" | cast to-dec)
 
-    echo "Balance: $BALANCE"
-    echo "Total Supply: $TOTAL_SUPPLY"
+echo "Balance: $BALANCE"
+echo "Total Supply: $TOTAL_SUPPLY"
 
 echo "Mining confirmation blocks for second deposit..."
-satoshi-suite mine-blocks --wallet-name "$WALLET_2" --blocks 7
+satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" mine-blocks --wallet-name "$WALLET_2" --blocks 7
 
 # Get current Bitcoin block height
-BTC_BLOCK_HEIGHT=$(satoshi-suite get-block-height | grep "Current block height:" | cut -d' ' -f8)
+BTC_BLOCK_HEIGHT=$(satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" get-block-height | grep "Current block height:" | cut -d' ' -f8)
 
 # set withdrawal amount to 10.00 BTC
 WITHDRAWAL_AMOUNT=$(btc_to_sats 10.00)
 
 echo "Waiting for UTXO indexer to catch up..."
 while true; do
-    RESPONSE=$(curl -s "http://localhost:5557/latest-block")
+    RESPONSE=$(curl -s "${INDEXER_URL}/latest-block")
     LATEST_BLOCK=$(echo $RESPONSE | jq -r '.latest_block')
     echo "Current BTC block height: $BTC_BLOCK_HEIGHT"
     echo "Latest indexed block: $LATEST_BLOCK"
     
     if [ "$LATEST_BLOCK" -ge "$BTC_BLOCK_HEIGHT" ]; then
-        UTXOS=$(curl -s "http://localhost:5557/spendable-utxos/block/$BTC_BLOCK_HEIGHT/address/$UBTC_BITCOIN_RECEIVE_ADDRESS")
+        UTXOS=$(curl -s "${INDEXER_URL}/spendable-utxos/block/$BTC_BLOCK_HEIGHT/address/$UBTC_BITCOIN_RECEIVE_ADDRESS")
         
         # Check if we got an error response
         if ! echo "$UTXOS" | jq -e '.error' > /dev/null; then
@@ -171,7 +184,7 @@ done
 echo "Initiating withdrawal..."
 
 # Generate new Bitcoin address for withdrawal
-NEW_ADDRESS=$(satoshi-suite get-new-address --wallet-name "$WALLET_1" | grep "New address:" | cut -d' ' -f7)
+NEW_ADDRESS=$(satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" get-new-address --wallet-name "$WALLET_1" | grep "New address:" | cut -d' ' -f7)
 
 cast send \
     --rpc-url "$ETH_RPC_URL" \
@@ -185,13 +198,13 @@ cast send \
     "$NEW_ADDRESS"
 
 echo "Checking contract state..."
-    BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "balanceOf(address)" \
-        "$ETH_ADDRESS" | cast to-dec)
-    TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
-        "totalSupply()" | cast to-dec)
+BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+    "balanceOf(address)" \
+    "$ETH_ADDRESS" | cast to-dec)
+TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+    "totalSupply()" | cast to-dec)
 
-    echo "Balance: $BALANCE"
-    echo "Total Supply: $TOTAL_SUPPLY"
+echo "Balance: $BALANCE"
+echo "Total Supply: $TOTAL_SUPPLY"
 
 echo "Done!"
