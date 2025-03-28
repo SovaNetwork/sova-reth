@@ -15,19 +15,15 @@ use std::{convert::Infallible, error::Error, sync::Arc};
 use parking_lot::RwLock;
 
 use alloy_consensus::Header;
-use alloy_primitives::Address;
+use alloy_primitives::{Address, Bytes};
 
 use reth_chainspec::ChainSpec;
 use reth_evm::{env::EvmEnv, ConfigureEvm};
 use reth_node_api::{ConfigureEvmEnv, NextBlockEnvAttributes};
-use reth_node_ethereum::{evm::EthEvm, EthEvmConfig};
+use reth_node_ethereum::EthEvmConfig;
 use reth_primitives::TransactionSigned;
 use reth_revm::{
-    handler::register::EvmHandler,
-    inspector_handle_register,
-    precompile::PrecompileSpecId,
-    primitives::{CfgEnvWithHandlerCfg, Precompile, TxEnv},
-    ContextPrecompile, ContextPrecompiles, Database, EvmBuilder, GetInspector,
+    handler::register::EvmHandler, inspector_handle_register, precompile::PrecompileSpecId, primitives::{CfgEnvWithHandlerCfg, Env, Precompile, TxEnv}, ContextPrecompile, ContextPrecompiles, Database, Evm, EvmBuilder, GetInspector
 };
 use reth_tasks::TaskExecutor;
 
@@ -104,6 +100,16 @@ impl ConfigureEvmEnv for MyEvmConfig {
         self.inner.fill_tx_env(tx_env, transaction, sender);
     }
 
+    fn fill_tx_env_system_contract_call(
+        &self,
+        env: &mut Env,
+        caller: Address,
+        contract: Address,
+        data: Bytes,
+    ) {
+        self.inner.fill_tx_env_system_contract_call(env, caller, contract, data);
+    }
+
     fn fill_cfg_env(&self, cfg_env: &mut CfgEnvWithHandlerCfg, header: &Self::Header) {
         self.inner.fill_cfg_env(cfg_env, header);
     }
@@ -118,27 +124,19 @@ impl ConfigureEvmEnv for MyEvmConfig {
 }
 
 impl ConfigureEvm for MyEvmConfig {
-    type Evm<'a, DB: Database + 'a, I: 'a> = EthEvm<'a, I, DB>;
+    type DefaultExternalContext<'a> = ();
 
-    fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv) -> Self::Evm<'_, DB, ()> {
+    fn evm<DB: Database>(&self, db: DB) -> Evm<'_, Self::DefaultExternalContext<'_>, DB> {
         EvmBuilder::default()
             .with_db(db)
-            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
-            .with_block_env(evm_env.block_env)
             // add BTC precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
             .build()
-            .into()
     }
 
-    fn evm_with_env_and_inspector<DB, I>(
-        &self,
-        db: DB,
-        evm_env: EvmEnv,
-        inspector: I,
-    ) -> Self::Evm<'_, DB, I>
+    fn evm_with_inspector<DB, I>(&self, db: DB, inspector: I) -> Evm<'_, I, DB>
     where
         DB: Database,
         I: GetInspector<DB>,
@@ -146,16 +144,15 @@ impl ConfigureEvm for MyEvmConfig {
         EvmBuilder::default()
             .with_db(db)
             .with_external_context(inspector)
-            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
-            .with_block_env(evm_env.block_env)
             // add additional precompiles
             .append_handler_register_box(Box::new(move |handler| {
                 MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
             }))
             .append_handler_register(inspector_handle_register)
             .build()
-            .into()
     }
+
+    fn default_external_context<'a>(&self) -> Self::DefaultExternalContext<'a> {}
 }
 
 impl WithInspector for MyEvmConfig {

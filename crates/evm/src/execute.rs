@@ -11,22 +11,18 @@ use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_consensus::ConsensusError;
 use reth_ethereum_consensus::validate_block_post_execution;
 use reth_evm::{
-    execute::{
+    env::EvmEnv, execute::{
         balance_increment_state, BlockExecutionError, BlockExecutionStrategy,
         BlockExecutionStrategyFactory, BlockValidationError, ExecuteOutput,
         InternalBlockExecutionError,
-    },
-    state_change::post_block_balance_increments,
-    system_calls::{OnStateHook, SystemCaller},
-    ConfigureEvm, Evm, TxEnvOverrides,
+    }, state_change::post_block_balance_increments, system_calls::{OnStateHook, SystemCaller}, ConfigureEvm, TxEnvOverrides
 };
 use reth_node_api::BlockBody;
-use reth_primitives::{EthPrimitives, Receipt, RecoveredBlock};
-use reth_primitives_traits::transaction::signed::SignedTransaction;
+use reth_primitives::{BlockWithSenders, EthPrimitives, Receipt};
 use reth_provider::ProviderError;
 use reth_revm::{
     db::State,
-    primitives::{Account, ResultAndState},
+    primitives::{Account, EnvWithHandlerCfg, ResultAndState},
     Database, DatabaseCommit, TransitionAccount,
 };
 
@@ -50,7 +46,8 @@ where
 
 impl<DB, EvmConfig> MyExecutionStrategy<DB, EvmConfig>
 where
-    EvmConfig: Clone,
+    DB: Database<Error: Into<ProviderError> + Display>,
+    EvmConfig: ConfigureEvm<Header = alloy_consensus::Header>,
 {
     pub fn new(state: State<DB>, chain_spec: Arc<ChainSpec>, evm_config: EvmConfig) -> Self {
         let system_caller = SystemCaller::new(evm_config.clone(), chain_spec.clone());
@@ -61,6 +58,17 @@ where
             system_caller,
             tx_env_overrides: None,
         }
+    }
+
+    /// Configures a new evm configuration and block environment for the given block.
+    ///
+    /// # Caution
+    ///
+    /// This does not initialize the tx environment.
+    fn evm_env_for_block(&self, header: &alloy_consensus::Header) -> EnvWithHandlerCfg {
+        let EvmEnv { cfg_env_with_handler_cfg, block_env } =
+            self.evm_config.cfg_and_block_env(header);
+        EnvWithHandlerCfg::new_with_cfg_env(cfg_env_with_handler_cfg, block_env, Default::default())
     }
 }
 
@@ -82,29 +90,27 @@ where
 
     fn apply_pre_execution_changes(
         &mut self,
-        block: &RecoveredBlock<reth_primitives::Block>,
+        block: &BlockWithSenders
     ) -> Result<(), Self::Error> {
         // Set state clear flag if the block is after the Spurious Dragon hardfork.
         let state_clear_flag =
             (*self.chain_spec).is_spurious_dragon_active_at_block(block.number());
         self.state.set_state_clear_flag(state_clear_flag);
 
-        let mut evm = self
-            .evm_config
-            .evm_for_block(&mut self.state, block.header());
+        let env = self.evm_env_for_block(&block.header);
+        let mut evm = self.evm_config.evm_with_env(&mut self.state, env);
 
-        self.system_caller
-            .apply_pre_execution_changes(block.header(), &mut evm)?;
+        self.system_caller.apply_pre_execution_changes(&block.block, &mut evm)?;
 
         Ok(())
     }
 
     fn execute_transactions(
         &mut self,
-        block: &RecoveredBlock<reth_primitives::Block>,
+        block: &BlockWithSenders,
     ) -> Result<ExecuteOutput<Receipt>, Self::Error> {
         // Prepare EVM configuration
-        let cfg_and_block_env = self.evm_config.cfg_and_block_env(block.header());
+        let env = self.evm_env_for_block(&block.header);
 
         // *** SIMULATION PHASE ***
 
@@ -115,7 +121,7 @@ where
         // Create EVM in inner scope
         let mut evm = self.evm_config.evm_with_env_and_inspector(
             &mut self.state,
-            cfg_and_block_env.clone(),
+            env.clone(),
             &mut *inspector,
         );
 
@@ -127,7 +133,7 @@ where
                 tx_env_overrides.apply(&mut tx_env);
             }
 
-            let _ = evm.transact(tx_env).map_err(move |err| {
+            let _ = evm.transact().map_err(move |err| {
                 let new_err = err.map_db_err(|e| e.into());
                 BlockValidationError::EVM {
                     hash: transaction.recalculate_hash(),
@@ -184,12 +190,12 @@ where
         // Create EVM
         let mut evm = self.evm_config.evm_with_env_and_inspector(
             &mut self.state,
-            cfg_and_block_env,
+            env,
             &mut *inspector,
         );
 
         let mut cumulative_gas_used = 0;
-        let mut receipts = Vec::with_capacity(block.body().transaction_count());
+        let mut receipts = Vec::with_capacity(block.body.transaction_count());
 
         for (sender, transaction) in block.transactions_with_sender() {
             // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
@@ -212,7 +218,7 @@ where
             }
 
             // Execute transaction.
-            let result_and_state = evm.transact(tx_env).map_err(move |err| {
+            let result_and_state = evm.transact().map_err(move |err| {
                 let new_err = err.map_db_err(|e| e.into());
                 // Ensure hash is calculated for error log, if not already done
                 BlockValidationError::EVM {
@@ -251,12 +257,11 @@ where
 
     fn apply_post_execution_changes(
         &mut self,
-        block: &RecoveredBlock<reth_primitives::Block>,
+        block: &BlockWithSenders,
         receipts: &[Receipt],
     ) -> Result<Requests, Self::Error> {
-        let mut evm = self
-            .evm_config
-            .evm_for_block(&mut self.state, block.header());
+        let env = self.evm_env_for_block(&block.header);
+        let mut evm = self.evm_config.evm_with_env(&mut self.state, env);
 
         let requests = if self
             .chain_spec
@@ -281,7 +286,7 @@ where
         };
         drop(evm);
 
-        let balance_increments = post_block_balance_increments(&self.chain_spec, block);
+        let balance_increments = post_block_balance_increments(&self.chain_spec, &block.block);
 
         // NOTE(powvt): This is a special case for the Ethereum DAO hardfork. Sova does not inherit this history.
         // // Irregular state change at Ethereum DAO hardfork
@@ -341,7 +346,7 @@ where
 
     fn validate_block_post_execution(
         &self,
-        block: &RecoveredBlock<reth_primitives::Block>,
+        block: &BlockWithSenders,
         receipts: &[Receipt],
         requests: &Requests,
     ) -> Result<(), ConsensusError> {

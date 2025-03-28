@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alloy_consensus::{Header, Transaction, Typed2718, EMPTY_OMMER_ROOT_HASH};
+use alloy_consensus::{Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
     eip4844::MAX_DATA_GAS_PER_BLOCK, eip6110, eip7685::Requests, eip7840::BlobParams,
     merge::BEACON_NONCE,
@@ -19,7 +19,7 @@ use reth_chainspec::{ChainSpec, ChainSpecProvider};
 use reth_errors::RethError;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
-    env::EvmEnv, system_calls::SystemCaller, ConfigureEvm, Evm, NextBlockEnvAttributes,
+    env::EvmEnv, system_calls::SystemCaller, ConfigureEvm, NextBlockEnvAttributes,
 };
 use reth_evm_ethereum::eip6110::parse_deposits_from_receipts;
 use reth_execution_types::ExecutionOutcome;
@@ -27,15 +27,15 @@ use reth_payload_builder::{EthBuiltPayload, EthPayloadBuilderAttributes};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{
-    proofs::calculate_transaction_root, Block, BlockBody, EthereumHardforks,
-    InvalidTransactionError, Receipt, RecoveredBlock, TransactionSigned,
+    proofs::calculate_transaction_root, Block, BlockBody, BlockExt, EthereumHardforks,
+    InvalidTransactionError, Receipt, TransactionSigned,
 };
-use reth_primitives_traits::{Block as _, SignedTransaction};
+use reth_primitives_traits::SignedTransaction;
 use reth_provider::StateProviderFactory;
 use reth_revm::{
     database::StateProviderDatabase,
     db::{states::bundle_state::BundleRetention, State},
-    primitives::{Account, EVMError, InvalidTransaction, ResultAndState},
+    primitives::{Account, BlockEnv, CfgEnvWithHandlerCfg, EVMError, EnvWithHandlerCfg, InvalidTransaction, ResultAndState, TxEnv},
     DatabaseCommit, TransitionAccount,
 };
 use reth_tracing::tracing::{debug, trace, warn};
@@ -104,7 +104,7 @@ where
         &self,
         args: BuildArguments<Pool, Client, EthPayloadBuilderAttributes, EthBuiltPayload>,
     ) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError> {
-        let evm_env = self
+        let EvmEnv { cfg_env_with_handler_cfg, block_env } = self
             .cfg_and_block_env(&args.config, &args.config.parent_header)
             .map_err(PayloadBuilderError::other)?;
 
@@ -113,7 +113,8 @@ where
             self.evm_config.clone(),
             self.builder_config.clone(),
             args,
-            evm_env,
+            cfg_env_with_handler_cfg,
+            block_env,
             |attributes| pool.best_transactions_with_attributes(attributes),
         )
     }
@@ -133,7 +134,7 @@ where
             None,
         );
 
-        let evm_env = self
+        let EvmEnv { cfg_env_with_handler_cfg, block_env } = self
             .cfg_and_block_env(&args.config, &args.config.parent_header)
             .map_err(PayloadBuilderError::other)?;
 
@@ -143,7 +144,8 @@ where
             self.evm_config.clone(),
             self.builder_config.clone(),
             args,
-            evm_env,
+            cfg_env_with_handler_cfg,
+            block_env,
             |attributes| pool.best_transactions_with_attributes(attributes),
         )?
         .into_payload()
@@ -163,7 +165,8 @@ pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
     evm_config: EvmConfig,
     builder_config: EthereumBuilderConfig,
     args: BuildArguments<Pool, Client, EthPayloadBuilderAttributes, EthBuiltPayload>,
-    evm_env: EvmEnv,
+    initialized_cfg: CfgEnvWithHandlerCfg,
+    initialized_block_env: BlockEnv,
     best_txs: F,
 ) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError>
 where
@@ -181,6 +184,12 @@ where
         best_payload,
     } = args;
 
+    let env = EnvWithHandlerCfg::new_with_cfg_env(
+        initialized_cfg.clone(),
+        initialized_block_env.clone(),
+        TxEnv::default(),
+    );
+
     let chain_spec = client.chain_spec();
     let state_provider = client.state_by_block_hash(config.parent_header.hash())?;
     let state = StateProviderDatabase::new(state_provider);
@@ -194,16 +203,16 @@ where
     } = config;
 
     debug!(target: "payload_builder", id=%attributes.id, parent_header = ?parent_header.hash(), parent_number = parent_header.number, "building new payload");
-    let block_gas_limit: u64 = evm_env.block_env.gas_limit.to::<u64>();
-    let base_fee = evm_env.block_env.basefee.to::<u64>();
-    let block_number = evm_env.block_env.number.to::<u64>();
-    let beneficiary = evm_env.block_env.coinbase;
+    let block_gas_limit: u64 = initialized_block_env.gas_limit.to::<u64>();
+    let base_fee = initialized_block_env.basefee.to::<u64>();
+    let block_number = initialized_block_env.number.to::<u64>();
+    let beneficiary = initialized_block_env.coinbase;
 
     let mut system_caller = SystemCaller::new(evm_config.clone(), chain_spec.clone());
 
     // apply eip-4788 pre block contract call
     system_caller
-        .pre_block_beacon_root_contract_call(&mut db, &evm_env, attributes.parent_beacon_block_root)
+        .pre_block_beacon_root_contract_call(&mut db, &initialized_cfg, &initialized_block_env, attributes.parent_beacon_block_root)
         .map_err(|err| {
             warn!(target: "payload_builder",
                 parent_hash=%parent_header.hash(),
@@ -216,7 +225,8 @@ where
     // apply eip-2935 blockhashes update
     system_caller.pre_block_blockhashes_contract_call(
         &mut db,
-        &evm_env,
+        &initialized_cfg,
+        &initialized_block_env,
         parent_header.hash(),
     )
     .map_err(|err| {
@@ -231,23 +241,23 @@ where
     let mut inspector = inspector_lock.write();
 
     // Create EVM
-    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, env.clone(), &mut *inspector);
 
     // Get simulation transaction iterator
     let mut best_txs_simulation = best_txs(BestTransactionsAttributes::new(
         base_fee,
-        evm_env
-            .block_env
-            .get_blob_gasprice()
-            .map(|gasprice| gasprice as u64),
+        initialized_block_env.get_blob_gasprice().map(|gasprice| gasprice as u64),
     ));
 
     // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
     while let Some(pool_tx) = best_txs_simulation.next() {
+        // convert tx to a signed transaction
         let tx = pool_tx.to_consensus();
-        let tx_env = evm_config.tx_env(tx.tx(), tx.signer());
 
-        match evm.transact(tx_env) {
+        // Configure the environment for the tx.
+        *evm.tx_mut() = evm_config.tx_env(tx.tx(), tx.signer());
+
+        match evm.transact() {
             Ok(res) => res,
             Err(err) => {
                 match err {
@@ -329,7 +339,7 @@ where
     let mut inspector = inspector_lock.write();
 
     // Create EVM
-    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, env, &mut *inspector);
 
     let mut cumulative_gas_used = 0;
     let mut sum_blob_gas_used = 0;
@@ -340,10 +350,7 @@ where
     // Create another transaction iterator for actual execution
     let mut best_txs = pool.best_transactions_with_attributes(BestTransactionsAttributes::new(
         base_fee,
-        evm_env
-            .block_env
-            .get_blob_gasprice()
-            .map(|gasprice| gasprice as u64),
+        initialized_block_env.get_blob_gasprice().map(|gasprice| gasprice as u64),
     ));
 
     let mut receipts = Vec::new();
@@ -390,9 +397,9 @@ where
         }
 
         // Configure the environment for the tx.
-        let tx_env = evm_config.tx_env(tx.tx(), tx.signer());
+        *evm.tx_mut() = evm_config.tx_env(tx.tx(), tx.signer());
 
-        let ResultAndState { result, state } = match evm.transact(tx_env) {
+        let ResultAndState { result, state } = match evm.transact() {
             Ok(res) => res,
             Err(err) => {
                 match err {
@@ -453,7 +460,7 @@ where
 
         // update add to total fees
         let miner_fee = tx
-            .effective_tip_per_gas(base_fee)
+            .effective_tip_per_gas(Some(base_fee))
             .expect("fee is always valid; execution succeeded");
         total_fees += U256::from(miner_fee) * U256::from(gas_used);
 
@@ -637,14 +644,12 @@ where
     };
 
     let sealed_block = Arc::new(block.seal_slow());
-    debug!(target: "payload_builder", id=%attributes.id, sealed_block_header = ?sealed_block.sealed_header(), "sealed built block");
+    debug!(target: "payload_builder", id=%attributes.id, sealed_block_header = ?sealed_block.header, "sealed built block");
 
     // create the executed block data
     let executed = ExecutedBlock {
-        recovered_block: Arc::new(RecoveredBlock::new_sealed(
-            sealed_block.as_ref().clone(),
-            executed_senders,
-        )),
+        block: sealed_block.clone(),
+        senders: Arc::new(executed_senders),
         execution_output: Arc::new(execution_outcome),
         hashed_state: Arc::new(hashed_state),
         trie: Arc::new(trie_output),
