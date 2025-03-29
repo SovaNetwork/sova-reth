@@ -18,11 +18,13 @@ use parking_lot::RwLock;
 use alloy_primitives::{Address, Bytes, U256};
 
 use reth_revm::{
-    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues},
+    context::{journaled_state::JournalCheckpoint, ContextTr},
+    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues, TransitionAccount},
+    inspector::JournalExt,
     interpreter::{
         CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    Database, EvmContext, Inspector, JournalCheckpoint, JournalEntry, TransitionAccount,
+    Database, Inspector, JournalEntry,
 };
 use reth_tracing::tracing::{debug, warn};
 
@@ -104,7 +106,7 @@ impl SovaInspector {
     }
 
     /// Process storage changes from journal entries and update accessed storage cache
-    fn process_storage_journal_entries(&mut self, context: &EvmContext<impl Database>) {
+    fn process_storage_journal_entries<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &mut CTX) {
         // Clear the broadcast accessed storage before processing
         self.cache.broadcast_accessed_storage.0.clear();
 
@@ -156,11 +158,7 @@ impl SovaInspector {
     /// This inspector hook is primarily used for storage slot lock enforcement.
     /// Any cached storage access prior to a broadcast btc tx CALL will be checked for a lock.
     /// Only one btc broadcast tx call is allowed per tx.
-    fn call_inner(
-        &mut self,
-        context: &mut EvmContext<impl Database>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call_inner<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         // intercept all BTC broadcast precompile calls and check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             return None;
@@ -190,9 +188,9 @@ impl SovaInspector {
     }
 
     /// Check to see if any of the broadcast storage slots are locked
-    fn handle_lock_checks(
+    fn handle_lock_checks<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
-        context: &mut EvmContext<impl Database>,
+        context: &mut CTX,
         inputs: &CallInputs,
     ) -> Option<CallOutcome> {
         // get current btc block height
@@ -314,11 +312,11 @@ impl SovaInspector {
     /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
     /// This inspector hook is primarily used for locking accessed
     /// storage slots if a bitcoin broadcast tx precompile executed successfully.
-    fn call_end_inner(
+    fn call_end_inner<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
-        context: &mut EvmContext<impl Database>,
+        context: &mut CTX,
         inputs: &CallInputs,
-        outcome: CallOutcome,
+        outcome: &mut CallOutcome,
     ) -> CallOutcome {
         // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
@@ -386,11 +384,11 @@ impl SovaInspector {
     }
 }
 
-impl<DB> Inspector<DB> for SovaInspector
+impl<CTX> Inspector<CTX> for SovaInspector
 where
-    DB: reth_revm::Database,
+    CTX: ContextTr<Journal: JournalExt>,
 {
-    fn initialize_interp(&mut self, _interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+    fn initialize_interp(&mut self, _interp: &mut Interpreter, context: &mut CTX) {
         // Ensure clean cache
         self.clear_cache();
 
@@ -400,11 +398,7 @@ where
         }
     }
 
-    fn call(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         // Create a checkpoint if there isnt one already
         if self.checkpoint.is_none() {
             self.checkpoint = Some(context.journaled_state.checkpoint());
@@ -413,12 +407,7 @@ where
         self.call_inner(context, inputs)
     }
 
-    fn call_end(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &CallInputs,
-        outcome: CallOutcome,
-    ) -> CallOutcome {
+    fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
         self.call_end_inner(context, inputs, outcome)
     }
 }
