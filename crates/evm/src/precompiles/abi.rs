@@ -2,7 +2,7 @@ use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{sol, SolValue};
 
-use reth_revm::precompile::{PrecompileError, PrecompileErrors};
+use reth_revm::precompile::PrecompileError;
 
 use bitcoin::hashes::Hash;
 use bitcoin::Network;
@@ -23,7 +23,7 @@ pub struct DecodedInput {
     pub destination: String,
 }
 
-pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileErrors> {
+pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
     let input_type = DynSolType::Tuple(vec![
         DynSolType::FixedBytes(4), // method selector
         DynSolType::Address,       // signer address
@@ -33,10 +33,10 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileErrors> {
     ]);
 
     let decoded = input_type.abi_decode(input).map_err(|e| {
-        PrecompileErrors::Error(PrecompileError::other(format!(
+        PrecompileError::other(format!(
             "Failed to decode input: {:?}",
             e
-        )))
+        ))
     })?;
 
     if let DynSolValue::Tuple(values) = decoded {
@@ -48,55 +48,55 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileErrors> {
             destination: extract_string(&values[4])?,
         })
     } else {
-        Err(PrecompileErrors::Error(PrecompileError::other(
+        Err(PrecompileError::other(
             "Invalid input structure",
-        )))
+        ))
     }
 }
 
-fn extract_fixed_bytes(value: &DynSolValue, size: usize) -> Result<Vec<u8>, PrecompileErrors> {
+fn extract_fixed_bytes(value: &DynSolValue, size: usize) -> Result<Vec<u8>, PrecompileError> {
     if let DynSolValue::FixedBytes(bytes, s) = value {
         if *s == size {
             Ok(bytes.as_slice().to_vec())
         } else {
-            Err(PrecompileErrors::Error(PrecompileError::other(
+            Err(PrecompileError::other(
                 "Invalid fixed bytes size",
-            )))
+            ))
         }
     } else {
-        Err(PrecompileErrors::Error(PrecompileError::other(
+        Err(PrecompileError::other(
             "Invalid fixed bytes",
-        )))
+        ))
     }
 }
 
-fn extract_address(value: &DynSolValue) -> Result<String, PrecompileErrors> {
+fn extract_address(value: &DynSolValue) -> Result<String, PrecompileError> {
     if let DynSolValue::Address(addr) = value {
         Ok(format!("{:?}", addr).trim_start_matches("0x").to_string())
     } else {
-        Err(PrecompileErrors::Error(PrecompileError::other(
+        Err(PrecompileError::other(
             "Invalid address",
-        )))
+        ))
     }
 }
 
-fn extract_uint(value: &DynSolValue) -> Result<u64, PrecompileErrors> {
+fn extract_uint(value: &DynSolValue) -> Result<u64, PrecompileError> {
     if let DynSolValue::Uint(amount, _) = value {
         Ok(amount.to::<u64>())
     } else {
-        Err(PrecompileErrors::Error(PrecompileError::other(
+        Err(PrecompileError::other(
             "Invalid uint",
-        )))
+        ))
     }
 }
 
-fn extract_string(value: &DynSolValue) -> Result<String, PrecompileErrors> {
+fn extract_string(value: &DynSolValue) -> Result<String, PrecompileError> {
     if let DynSolValue::String(s) = value {
         Ok(s.clone())
     } else {
-        Err(PrecompileErrors::Error(PrecompileError::other(
+        Err(PrecompileError::other(
             "Invalid string",
-        )))
+        ))
     }
 }
 

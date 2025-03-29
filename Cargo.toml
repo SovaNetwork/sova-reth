@@ -60,6 +60,9 @@ reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "v1.3.4"
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth.git", rev = "v1.3.4" }
 reth-trie-db = { git = "https://github.com/paradigmxyz/reth.git", rev = "v1.3.4" }
 
+# revm
+revm = "21.0.0" # needed for the inspector
+
 # alloy
 alloy-consensus = { version = "0.12.6", default-features = false }
 alloy-dyn-abi = "0.8.20"

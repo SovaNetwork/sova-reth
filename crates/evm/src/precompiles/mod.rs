@@ -14,9 +14,27 @@ use serde::{Deserialize, Serialize};
 
 use alloy_primitives::Bytes;
 
-use reth_revm::primitives::{
-    Env, PrecompileError, PrecompileErrors, PrecompileOutput, PrecompileResult, StatefulPrecompile,
+// Import directly from reth_revm
+use reth_revm::precompile::{
+    PrecompileError,
+    PrecompileOutput,
+    PrecompileResult,
 };
+
+// Create a local struct for errors to avoid import issues
+#[derive(Debug)]
+pub enum PrecompileErrors {
+    Error(PrecompileError),
+    Revert,
+}
+
+// Define a type alias for our environment
+pub type Env = reth_evm::EvmEnv;
+
+// Define the StatefulPrecompile trait locally
+pub trait StatefulPrecompile {
+    fn call(&self, input: &Bytes, gas_price: u64, env: &Env) -> PrecompileResult;
+}
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut};
 
@@ -86,7 +104,7 @@ impl BitcoinRpcPrecompile {
         endpoint: &str,
         method: reqwest::Method,
         payload: Option<&T>,
-    ) -> Result<R, PrecompileErrors> {
+    ) -> Result<R, PrecompileError> {
         let url = format!("{}/{}", base_url, endpoint);
         let mut request = self.http_client.request(method.clone(), &url);
 
@@ -100,17 +118,17 @@ impl BitcoinRpcPrecompile {
         request
             .send()
             .map_err(|e| {
-                PrecompileErrors::Error(PrecompileError::Other(format!(
+                PrecompileError::Other(format!(
                     "HTTP request failed: {}",
                     e
-                )))
+                ))
             })?
             .json()
             .map_err(|e| {
-                PrecompileErrors::Error(PrecompileError::Other(format!(
+                PrecompileError::Other(format!(
                     "Failed to parse response: {}",
                     e
-                )))
+                ))
             })
     }
 
@@ -118,7 +136,7 @@ impl BitcoinRpcPrecompile {
         &self,
         endpoint: &str,
         payload: &T,
-    ) -> Result<R, PrecompileErrors> {
+    ) -> Result<R, PrecompileError> {
         self.make_http_request(
             &self.network_signing_url,
             endpoint,
@@ -131,7 +149,7 @@ impl BitcoinRpcPrecompile {
         &self,
         endpoint: &str,
         payload: &T,
-    ) -> Result<R, PrecompileErrors> {
+    ) -> Result<R, PrecompileError> {
         self.make_http_request(
             &self.network_utxo_url,
             endpoint,
@@ -148,9 +166,9 @@ impl BitcoinRpcPrecompile {
             Ok(tx) => tx,
             Err(e) => {
                 debug!("Failed to deserialize Bitcoin transaction: {}", e);
-                return Err(PrecompileErrors::Error(PrecompileError::Other(
+                return Err(PrecompileError::Other(
                     "Failed to deserialize Bitcoin transaction".into(),
-                )));
+                ));
             }
         };
 
@@ -216,12 +234,10 @@ impl BitcoinRpcPrecompile {
                                                     "WARNING: Transaction rejected: {} (code: {})",
                                                     rpc_error.message, rpc_error.code
                                                 );
-                                                return Err(PrecompileErrors::Error(
-                                                    PrecompileError::Other(format!(
-                                                        "Transaction rejected: {}",
-                                                        rpc_error.message
-                                                    )),
-                                                ));
+                                                return Err(PrecompileError::Other(format!(
+                                                    "Transaction rejected: {}",
+                                                    rpc_error.message
+                                                )));
                                             }
                                         }
                                         // Other RPC error
@@ -230,21 +246,19 @@ impl BitcoinRpcPrecompile {
                                                 "WARNING: Bitcoin RPC error: {} (code: {})",
                                                 rpc_error.message, rpc_error.code
                                             );
-                                            return Err(PrecompileErrors::Error(
-                                                PrecompileError::Other(format!(
-                                                    "Bitcoin RPC error: {} (code: {})",
-                                                    rpc_error.message, rpc_error.code
-                                                )),
-                                            ));
+                                            return Err(PrecompileError::Other(format!(
+                                                "Bitcoin RPC error: {} (code: {})",
+                                                rpc_error.message, rpc_error.code
+                                            )));
                                         }
                                     }
                                 }
                                 // Other JSON-RPC errors
                                 _ => {
                                     warn!("WARNING: JSON-RPC error: {:?}", jsonrpc_err);
-                                    return Err(PrecompileErrors::Error(PrecompileError::Other(
+                                    return Err(PrecompileError::Other(
                                         format!("JSON-RPC error: {:?}", jsonrpc_err),
-                                    )));
+                                    ));
                                 }
                             }
                         }
@@ -259,18 +273,18 @@ impl BitcoinRpcPrecompile {
                                 tx.txid()
                             } else {
                                 warn!("WARNING: Bitcoin returned error: {}", err_msg);
-                                return Err(PrecompileErrors::Error(PrecompileError::Other(
+                                return Err(PrecompileError::Other(
                                     format!("Bitcoin returned error: {}", err_msg),
-                                )));
+                                ));
                             }
                         }
                         // All other error types
                         _ => {
                             warn!("WARNING: Bitcoin client error: {:?}", e);
-                            return Err(PrecompileErrors::Error(PrecompileError::Other(format!(
+                            return Err(PrecompileError::Other(format!(
                                 "Bitcoin client error: {:?}",
                                 e
-                            ))));
+                            )));
                         }
                     }
                 }
@@ -292,29 +306,29 @@ impl BitcoinRpcPrecompile {
         let gas_used: u64 = (4_000 + input.len() * 3) as u64;
 
         if gas_used > gas_limit {
-            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
+            return Err(PrecompileError::OutOfGas);
         }
 
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileErrors::Error(PrecompileError::Other(
+            PrecompileError::Other(
                 "Failed to deserialize Bitcoin transaction".into(),
-            ))
+            )
         })?;
 
         let data = self
             .bitcoin_client
             .decode_raw_transaction(&tx)
             .map_err(|_| {
-                PrecompileErrors::Error(PrecompileError::Other(
+                PrecompileError::Other(
                     "Decode raw transaction bitcoin rpc call failed".into(),
-                ))
+                )
             })?;
 
         let encoded_data = abi_encode_tx_data(&data, &self.network).map_err(|e| {
-            PrecompileErrors::Error(PrecompileError::Other(format!(
+            PrecompileError::Other(format!(
                 "Failed to encode transaction data: {:?}",
                 e
-            )))
+            ))
         })?;
 
         Ok(PrecompileOutput::new(
@@ -327,13 +341,13 @@ impl BitcoinRpcPrecompile {
         let gas_used: u64 = (6_000 + input.len() * 3) as u64;
 
         if gas_used > gas_limit {
-            return Err(PrecompileErrors::Error(PrecompileError::OutOfGas));
+            return Err(PrecompileError::OutOfGas);
         }
 
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileErrors::Error(PrecompileError::Other(
+            PrecompileError::Other(
                 "Failed to deserialize Bitcoin transaction".into(),
-            ))
+            )
         })?;
 
         let mut spent = |outpoint: &OutPoint| -> Option<TxOut> {
@@ -353,11 +367,11 @@ impl BitcoinRpcPrecompile {
         };
 
         tx.verify(&mut spent).map_err(|e| {
-            PrecompileErrors::Error(PrecompileError::Other(format!(
+            PrecompileError::Other(format!(
                 "Transaction verification failed: {:?}",
                 e
-            )))
-        })?;
+            ))
+        });
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(vec![1])))
     }
@@ -365,7 +379,7 @@ impl BitcoinRpcPrecompile {
     fn derive_btc_address(
         &self,
         ethereum_address_trimmed: &str,
-    ) -> Result<String, PrecompileErrors> {
+    ) -> Result<String, PrecompileError> {
         let enclave_request = serde_json::json!({
             "ethereum_address": ethereum_address_trimmed
         });
@@ -376,9 +390,9 @@ impl BitcoinRpcPrecompile {
             .as_str()
             .map(String::from)
             .ok_or_else(|| {
-                PrecompileErrors::Error(PrecompileError::Other(
+                PrecompileError::Other(
                     "Failed to extract Bitcoin address from response".into(),
-                ))
+                )
             })
     }
 
@@ -446,16 +460,16 @@ impl BitcoinRpcPrecompile {
             self.call_enclave("sign_transaction", &sign_request)?;
 
         let signed_tx_hex = sign_response["signed_tx"].as_str().ok_or_else(|| {
-            PrecompileErrors::Error(PrecompileError::Other(
+            PrecompileError::Other(
                 "Missing signed_tx in response".into(),
-            ))
+            )
         })?;
 
         let signed_tx_bytes = hex::decode(signed_tx_hex).map_err(|e| {
-            PrecompileErrors::Error(PrecompileError::Other(format!(
+            PrecompileError::Other(format!(
                 "Failed to decode signed transaction into hex: {:?}",
                 e
-            )))
+            ))
         })?;
 
         Ok(PrecompileOutput::new(
@@ -468,7 +482,7 @@ impl BitcoinRpcPrecompile {
 impl StatefulPrecompile for BitcoinRpcPrecompile {
     fn call(&self, input: &Bytes, _gas_price: u64, _env: &Env) -> PrecompileResult {
         let method = BitcoinMethod::try_from(input)
-            .map_err(|e| PrecompileErrors::Error(PrecompileError::Other(e.to_string())))?;
+            .map_err(|e| PrecompileError::Other(e.to_string()))?;
 
         // Skip the selector bytes and get the method's input data
         let input_data = &input[4..];

@@ -56,6 +56,27 @@ impl fmt::Debug for MethodError {
 
 impl std::error::Error for MethodError {}
 
+impl TryFrom<&Bytes> for BitcoinMethod {
+    type Error = MethodError;
+
+    fn try_from(input: &Bytes) -> Result<Self, Self::Error> {
+        if input.len() < 4 {
+            return Err(MethodError::InputTooShort);
+        }
+
+        let selector = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
+
+        match selector {
+            0x00000001 => Ok(BitcoinMethod::BroadcastTransaction),
+            0x00000002 => Ok(BitcoinMethod::DecodeTransaction),
+            0x00000003 => Ok(BitcoinMethod::CheckSignature),
+            0x00000004 => Ok(BitcoinMethod::ConvertAddress),
+            0x00000005 => Ok(BitcoinMethod::CreateAndSignTransaction),
+            _ => Err(MethodError::UnknownSelector),
+        }
+    }
+}
+
 impl TryFrom<&[u8]> for BitcoinMethod {
     type Error = MethodError;
 
@@ -74,14 +95,6 @@ impl TryFrom<&[u8]> for BitcoinMethod {
             0x00000005 => Ok(BitcoinMethod::CreateAndSignTransaction),
             _ => Err(MethodError::UnknownSelector),
         }
-    }
-}
-
-impl TryFrom<&Bytes> for BitcoinMethod {
-    type Error = MethodError;
-
-    fn try_from(input: &Bytes) -> Result<Self, Self::Error> {
-        Self::try_from(&input[..])
     }
 }
 
