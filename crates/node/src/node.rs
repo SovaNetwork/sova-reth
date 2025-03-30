@@ -7,10 +7,10 @@ use reth_ethereum_engine_primitives::{
 };
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{execute::BasicBlockExecutorProvider, ConfigureEvmFor};
-use reth_node_api::TxTy;
+use reth_node_api::{NodeTypes, TxTy};
 use reth_node_builder::{
     components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder},
-    node::{FullNodeTypes, NodeTypes, NodeTypesWithEngine},
+    node::{FullNodeTypes, NodeTypesWithEngine},
     BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig, PayloadTypes,
 };
 use reth_node_ethereum::{
@@ -90,13 +90,13 @@ impl SovaNode {
             .node_types::<Node>()
             .pool(EthereumPoolBuilder::default())
             .payload(MyPayloadBuilder::new(
-                &self.sova_config,
-                self.bitcoin_client.clone(),
+                &self.sova_config.clone(),
+                Arc::clone(&self.bitcoin_client),
             ))
             .network(EthereumNetworkBuilder::default())
             .executor(MyExecutorBuilder::new(
-                &self.sova_config,
-                self.bitcoin_client.clone(),
+                &self.sova_config.clone(),
+                Arc::clone(&self.bitcoin_client),
             ))
             .consensus(EthereumConsensusBuilder::default())
     }
@@ -107,27 +107,17 @@ impl NodeTypes for SovaNode {
     type ChainSpec = ChainSpec;
     type StateCommitment = MerklePatriciaTrie;
     type Storage = EthStorage;
-}
-
-impl NodeTypesWithEngine for SovaNode {
-    type Engine = EthEngineTypes;
+    type Payload = EthEngineTypes;
 }
 
 impl<N> Node<N> for SovaNode
 where
-    N: FullNodeTypes<
-        Types: NodeTypesWithEngine<
-            Engine = EthEngineTypes,
-            ChainSpec = ChainSpec,
-            Primitives = EthPrimitives,
-            Storage = EthStorage,
-        >,
-    >,
+    N: FullNodeTypes<Types = Self>,
 {
     type ComponentsBuilder = ComponentsBuilder<
         N,
         EthereumPoolBuilder,
-        MyPayloadBuilder,
+        BasicPayloadServiceBuilder<MyPayloadBuilder>,
         EthereumNetworkBuilder,
         MyExecutorBuilder,
         EthereumConsensusBuilder,
@@ -155,10 +145,10 @@ pub struct MyPayloadBuilder {
 }
 
 impl MyPayloadBuilder {
-    pub fn new(config: &SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
+    pub fn new(config: SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
         Self {
             inner: EthereumPayloadBuilder::default(),
-            config: config.clone(),
+            config,
             bitcoin_client,
         }
     }
@@ -186,7 +176,7 @@ impl MyPayloadBuilder {
         let conf = ctx.payload_builder_config();
         let payload_builder = sova_payload::MyPayloadBuilder::new(
             evm_config,
-            EthereumBuilderConfig::new(conf.extra_data_bytes()).with_gas_limit(conf.gas_limit()),
+            EthereumBuilderConfig::new().with_gas_limit(conf.gas_limit()),
         );
 
         let payload_job_config = BasicPayloadJobGeneratorConfig::default()
@@ -196,7 +186,6 @@ impl MyPayloadBuilder {
 
         let payload_generator = BasicPayloadJobGenerator::with_builder(
             ctx.provider().clone(),
-            pool,
             ctx.task_executor().clone(),
             payload_job_config,
             payload_builder,
@@ -224,7 +213,7 @@ where
         PayloadBuilderAttributes = EthPayloadBuilderAttributes,
     >,
 {
-    async fn spawn_payload_service(
+    async fn spawn_payload_builder_service(
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
@@ -246,14 +235,14 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct MyExecutorBuilder {
-    config: SovaConfig,
-    bitcoin_client: Arc<BitcoinClient>,
+    pub config: SovaConfig,
+    pub bitcoin_client: Arc<BitcoinClient>,
 }
 
 impl MyExecutorBuilder {
-    pub fn new(config: &SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
+    pub fn new(config: SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
         Self {
             config: config.clone(),
             bitcoin_client,
@@ -261,12 +250,13 @@ impl MyExecutorBuilder {
     }
 }
 
-impl<Node> ExecutorBuilder<Node> for MyExecutorBuilder
+impl<Types, Node> ExecutorBuilder<Node> for MyExecutorBuilder
 where
-    Node: FullNodeTypes<Types: NodeTypes<ChainSpec = ChainSpec, Primitives = EthPrimitives>>,
+    Types: NodeTypes<ChainSpec = ChainSpec, Primitives = EthPrimitives>,
+    Node: FullNodeTypes<Types = Types>,
 {
     type EVM = MyEvmConfig;
-    type Executor = BasicBlockExecutorProvider<MyExecutionStrategyFactory>;
+    type Executor = BasicBlockExecutorProvider<MyEvmConfig>;
 
     async fn build_evm(
         self,
@@ -287,10 +277,7 @@ where
 
         Ok((
             evm_config.clone(),
-            BasicBlockExecutorProvider::new(MyExecutionStrategyFactory {
-                chain_spec: ctx.chain_spec(),
-                evm_config,
-            }),
+            BasicBlockExecutorProvider::new(evm_config),
         ))
     }
 }

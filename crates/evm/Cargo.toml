@@ -30,6 +30,7 @@ reth-revm.workspace = true
 alloy-consensus.workspace = true
 alloy-dyn-abi.workspace = true
 alloy-eips.workspace = true
+alloy-evm.workspace = true
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 

@@ -76,12 +76,13 @@ impl AccessedStorage {
     }
 }
 
-#[derive(Clone, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, Hash, PartialEq)]
 pub struct BroadcastResult {
     pub txid: Option<Vec<u8>>,
     pub block: Option<u64>,
 }
 
+#[derive(Debug)]
 pub struct StorageCache {
     /// Bitcoin precompile address used for filtering calls to the broadcast tx method
     pub bitcoin_precompile_address: Address,

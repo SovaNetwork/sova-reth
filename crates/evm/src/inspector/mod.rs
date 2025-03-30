@@ -24,7 +24,7 @@ use reth_revm::{
     interpreter::{
         CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    Database, Inspector, JournalEntry,
+    Inspector, JournalEntry,
 };
 use reth_tracing::tracing::{debug, warn};
 
@@ -41,6 +41,7 @@ pub struct StorageChange {
     pub had_value: Option<U256>,
 }
 
+#[derive(Debug)]
 pub struct SovaInspector {
     /// accessed storage cache
     pub cache: StorageCache,
@@ -106,7 +107,10 @@ impl SovaInspector {
     }
 
     /// Process storage changes from journal entries and update accessed storage cache
-    fn process_storage_journal_entries<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &mut CTX) {
+    fn process_storage_journal_entries<CTX: ContextTr<Journal: JournalExt>>(
+        &mut self,
+        context: &mut CTX,
+    ) {
         // Clear the broadcast accessed storage before processing
         self.cache.broadcast_accessed_storage.0.clear();
 
@@ -158,7 +162,11 @@ impl SovaInspector {
     /// This inspector hook is primarily used for storage slot lock enforcement.
     /// Any cached storage access prior to a broadcast btc tx CALL will be checked for a lock.
     /// Only one btc broadcast tx call is allowed per tx.
-    fn call_inner<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+    fn call_inner<CTX: ContextTr<Journal: JournalExt>>(
+        &mut self,
+        context: &mut CTX,
+        inputs: &mut CallInputs,
+    ) -> Option<CallOutcome> {
         // intercept all BTC broadcast precompile calls and check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             return None;

@@ -64,6 +64,7 @@ reth-trie-db = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfe
 alloy-consensus = { version = "0.13.0", default-features = false }
 alloy-dyn-abi = "0.8.25"
 alloy-eips = { version = "0.13.0", default-features = false }
+alloy-evm = { version = "0.2.0", default-features = false }
 alloy-genesis = { version = "0.13.0", default-features = false }
 alloy-primitives = { version = "0.8.25", default-features = false, features = ["map-foldhash"] }
 alloy-sol-types = { version = "0.8.25", default-features = false }

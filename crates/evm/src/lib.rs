@@ -4,39 +4,135 @@ mod inspector;
 mod precompiles;
 
 use constants::BTC_PRECOMPILE_ADDRESS;
-pub use execute::MyExecutionStrategyFactory;
+pub use execute::MyBlockExecutor;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 pub use precompiles::BitcoinClient;
 use precompiles::BitcoinRpcPrecompile;
 
-use std::{convert::Infallible, error::Error, sync::Arc};
+use std::{error::Error, sync::Arc};
 
 use parking_lot::RwLock;
 
 use alloy_consensus::Header;
-use alloy_primitives::Address;
+use alloy_evm::{
+    block::{BlockExecutorFactory, BlockExecutorFor},
+    eth::{EthBlockExecutionCtx, EthEvmContext},
+    EthEvm, EvmFactory,
+};
+use alloy_primitives::{Address, Bytes};
 
 use reth_chainspec::ChainSpec;
-use reth_evm::{env::EvmEnv, ConfigureEvm};
-use reth_node_api::{ConfigureEvmEnv, NextBlockEnvAttributes};
-use reth_node_ethereum::{evm::EthEvm, EthEvmConfig};
-use reth_primitives::TransactionSigned;
+use reth_evm::{env::EvmEnv, ConfigureEvm, InspectorFor, NextBlockEnvAttributes};
+use reth_evm_ethereum::EthBlockAssembler;
+use reth_node_ethereum::EthEvmConfig;
+use reth_primitives::{Receipt, SealedBlock, SealedHeader, TransactionSigned};
 use reth_revm::{
-    handler::register::EvmHandler,
-    inspector_handle_register,
-    precompile::PrecompileSpecId,
-    primitives::{CfgEnvWithHandlerCfg, Precompile, TxEnv},
-    ContextPrecompile, ContextPrecompiles, Database, EvmBuilder, GetInspector,
+    context::{Cfg, Context, TxEnv},
+    context_interface::{
+        result::{EVMError, HaltReason},
+        ContextTr,
+    },
+    handler::{EthPrecompiles, PrecompileProvider},
+    inspector::{Inspector, NoOpInspector},
+    interpreter::{Gas, InputsImpl, InstructionResult, InterpreterResult},
+    precompile::PrecompileError,
+    primitives::hardfork::SpecId,
+    Database, MainBuilder, MainContext, State,
 };
 use reth_tasks::TaskExecutor;
 
 use sova_cli::SovaConfig;
 
+// Custom precompiles that include Bitcoin precompile
 #[derive(Clone)]
+pub struct CustomPrecompiles {
+    /// Standard Ethereum precompiles
+    pub standard: EthPrecompiles,
+    /// Bitcoin RPC precompile
+    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+}
+
+impl CustomPrecompiles {
+    pub fn new(bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>) -> Self {
+        Self {
+            standard: EthPrecompiles::default(),
+            bitcoin_rpc_precompile,
+        }
+    }
+}
+
+impl<CTX: ContextTr> PrecompileProvider<CTX> for CustomPrecompiles {
+    type Output = InterpreterResult;
+
+    fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) -> bool {
+        // Explicitly call the PrecompileProvider implementation for EthPrecompiles
+        <EthPrecompiles as PrecompileProvider<CTX>>::set_spec(&mut self.standard, spec)
+    }
+
+    fn run(
+        &mut self,
+        context: &mut CTX,
+        address: &Address,
+        inputs: &InputsImpl,
+        is_static: bool,
+        gas_limit: u64,
+    ) -> Result<Option<Self::Output>, String> {
+        if *address == BTC_PRECOMPILE_ADDRESS {
+            // Handle Bitcoin precompile
+            let precompile = self.bitcoin_rpc_precompile.write();
+
+            let mut result = InterpreterResult {
+                result: InstructionResult::Return,
+                gas: Gas::new(gas_limit),
+                output: Bytes::new(),
+            };
+            // Call the Bitcoin precompile implementation
+            match precompile.run(&inputs.input) {
+                Ok(output) => {
+                    let underflow = result.gas.record_cost(output.gas_used);
+                    assert!(underflow, "Gas underflow is not possible");
+                    result.result = InstructionResult::Return;
+                    result.output = output.bytes;
+                }
+                Err(PrecompileError::Fatal(e)) => return Err(e),
+                Err(e) => {
+                    result.result = if e.is_oog() {
+                        InstructionResult::PrecompileOOG
+                    } else {
+                        InstructionResult::PrecompileError
+                    };
+                }
+            }
+
+            Ok(Some(result))
+        } else {
+            // Delegate to standard precompiles
+            self.standard
+                .run(context, address, inputs, is_static, gas_limit)
+        }
+    }
+
+    fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
+        // Combine standard precompiles with Bitcoin precompile address
+        Box::new(
+            self.standard
+                .warm_addresses()
+                .chain(std::iter::once(BTC_PRECOMPILE_ADDRESS)),
+        )
+    }
+
+    fn contains(&self, address: &Address) -> bool {
+        *address == BTC_PRECOMPILE_ADDRESS || self.standard.contains(address)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct MyEvmConfig {
     /// Wrapper around mainnet configuration
     inner: EthEvmConfig,
+    /// EVM Factory
+    evm_factory: MyEvmFactory,
     /// Bitcoin precompile execution logic
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
     /// Engine inspector used to track bitcoin precompile execution for double spends
@@ -68,98 +164,165 @@ impl MyEvmConfig {
 
         Ok(Self {
             inner: EthEvmConfig::new(chain_spec),
+            evm_factory: MyEvmFactory::default(),
             bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
             inspector: Arc::new(RwLock::new(inspector)),
         })
     }
-
-    pub fn set_precompiles<EXT, DB>(
-        handler: &mut EvmHandler<EXT, DB>,
-        bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
-    ) where
-        DB: Database,
-    {
-        let spec_id = handler.cfg.spec_id;
-        let mut loaded_precompiles: ContextPrecompiles<DB> =
-            ContextPrecompiles::new(PrecompileSpecId::from_spec_id(spec_id));
-
-        loaded_precompiles.to_mut().insert(
-            BTC_PRECOMPILE_ADDRESS,
-            ContextPrecompile::Ordinary(Precompile::Stateful(Arc::new(
-                BitcoinRpcPrecompile::clone(&bitcoin_rpc_precompile.read()),
-            ))),
-        );
-
-        handler.pre_execution.load_precompiles = Arc::new(move || loaded_precompiles.clone());
-    }
 }
 
-impl ConfigureEvmEnv for MyEvmConfig {
-    type Header = Header;
+impl BlockExecutorFactory for MyEvmConfig {
+    type EvmFactory = MyEvmFactory;
+    type ExecutionCtx<'a> = EthBlockExecutionCtx<'a>;
     type Transaction = TransactionSigned;
+    type Receipt = Receipt;
 
-    type Error = Infallible;
-
-    fn fill_tx_env(&self, tx_env: &mut TxEnv, transaction: &TransactionSigned, sender: Address) {
-        self.inner.fill_tx_env(tx_env, transaction, sender);
+    fn evm_factory(&self) -> &Self::EvmFactory {
+        &self.evm_factory
     }
 
-    fn fill_cfg_env(&self, cfg_env: &mut CfgEnvWithHandlerCfg, header: &Self::Header) {
-        self.inner.fill_cfg_env(cfg_env, header);
-    }
-
-    fn next_cfg_and_block_env(
-        &self,
-        parent: &Self::Header,
-        attributes: NextBlockEnvAttributes,
-    ) -> Result<EvmEnv, Self::Error> {
-        self.inner.next_cfg_and_block_env(parent, attributes)
+    fn create_executor<'a, DB, I>(
+        &'a self,
+        evm: EthEvm<&'a mut State<DB>, I, CustomPrecompiles>,
+        ctx: EthBlockExecutionCtx<'a>,
+    ) -> impl BlockExecutorFor<'a, Self, DB, I>
+    where
+        DB: Database + 'a,
+        I: InspectorFor<Self, &'a mut State<DB>> + Inspector<EthEvmContext<&'a mut State<DB>>> + 'a,
+        <DB as Database>::Error: Send + Sync + 'static,
+    {
+        MyBlockExecutor::new(
+            evm,
+            ctx,
+            self.inner.chain_spec(),
+            self.inner.executor_factory.receipt_builder(),
+        )
     }
 }
 
 impl ConfigureEvm for MyEvmConfig {
-    type Evm<'a, DB: Database + 'a, I: 'a> = EthEvm<'a, I, DB>;
+    type Primitives = <EthEvmConfig as ConfigureEvm>::Primitives;
+    type Error = <EthEvmConfig as ConfigureEvm>::Error;
+    type NextBlockEnvCtx = <EthEvmConfig as ConfigureEvm>::NextBlockEnvCtx;
+    type BlockExecutorFactory = Self;
+    type BlockAssembler = EthBlockAssembler<ChainSpec>;
 
-    fn evm_with_env<DB: Database>(&self, db: DB, evm_env: EvmEnv) -> Self::Evm<'_, DB, ()> {
-        EvmBuilder::default()
-            .with_db(db)
-            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
-            .with_block_env(evm_env.block_env)
-            // add BTC precompiles
-            .append_handler_register_box(Box::new(move |handler| {
-                MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
-            }))
-            .build()
-            .into()
+    fn block_executor_factory(&self) -> &Self::BlockExecutorFactory {
+        self
     }
 
-    fn evm_with_env_and_inspector<DB, I>(
+    fn block_assembler(&self) -> &Self::BlockAssembler {
+        self.inner.block_assembler()
+    }
+
+    fn evm_env(&self, header: &Header) -> EvmEnv<SpecId> {
+        self.inner.evm_env(header)
+    }
+
+    fn next_evm_env(
         &self,
-        db: DB,
-        evm_env: EvmEnv,
-        inspector: I,
-    ) -> Self::Evm<'_, DB, I>
-    where
-        DB: Database,
-        I: GetInspector<DB>,
-    {
-        EvmBuilder::default()
-            .with_db(db)
-            .with_external_context(inspector)
-            .with_cfg_env_with_handler_cfg(evm_env.cfg_env_with_handler_cfg)
-            .with_block_env(evm_env.block_env)
-            // add additional precompiles
-            .append_handler_register_box(Box::new(move |handler| {
-                MyEvmConfig::set_precompiles(handler, self.bitcoin_rpc_precompile.clone())
-            }))
-            .append_handler_register(inspector_handle_register)
-            .build()
-            .into()
+        parent: &Header,
+        attributes: &NextBlockEnvAttributes,
+    ) -> Result<EvmEnv<SpecId>, Self::Error> {
+        self.inner.next_evm_env(parent, attributes)
+    }
+
+    fn context_for_block<'a>(&self, block: &'a SealedBlock) -> EthBlockExecutionCtx<'a> {
+        self.inner.context_for_block(block)
+    }
+
+    fn context_for_next_block(
+        &self,
+        parent: &SealedHeader,
+        attributes: Self::NextBlockEnvCtx,
+    ) -> EthBlockExecutionCtx<'_> {
+        self.inner.context_for_next_block(parent, attributes)
     }
 }
 
 impl WithInspector for MyEvmConfig {
     fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
         &self.inspector
+    }
+}
+
+/// Custom EVM configuration
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct MyEvmFactory {
+    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+}
+
+impl Default for MyEvmFactory {
+    fn default() -> Self {
+        Self {
+            bitcoin_rpc_precompile: Arc::new(RwLock::new(BitcoinRpcPrecompile::default())),
+        }
+    }
+}
+
+impl MyEvmFactory {
+    /// Create a new factory with the given Bitcoin precompile
+    pub fn new(bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>) -> Self {
+        Self {
+            bitcoin_rpc_precompile,
+        }
+    }
+}
+
+impl EvmFactory for MyEvmFactory {
+    type Evm<DB, I>
+        = EthEvm<DB, I, CustomPrecompiles>
+    where
+        DB: Database,
+        I: Inspector<Self::Context<DB>>,
+        <DB as Database>::Error: Send + Sync + 'static;
+
+    type Context<DB>
+        = EthEvmContext<DB>
+    where
+        DB: Database,
+        <DB as Database>::Error: Send + Sync + 'static;
+
+    type Tx = TxEnv;
+    type Error<DBError: Error + Send + Sync + 'static> = EVMError<DBError>;
+    type HaltReason = HaltReason;
+    type Spec = SpecId;
+
+    fn create_evm<DB: Database>(
+        &self,
+        db: DB,
+        input: EvmEnv<Self::Spec>,
+    ) -> Self::Evm<DB, NoOpInspector>
+    where
+        <DB as Database>::Error: Send + Sync + 'static,
+    {
+        let custom_precompiles = CustomPrecompiles::new(self.bitcoin_rpc_precompile.clone());
+
+        let evm = Context::mainnet()
+            .with_db(db)
+            .with_cfg(input.cfg_env)
+            .with_block(input.block_env)
+            .build_mainnet_with_inspector(NoOpInspector {})
+            .with_precompiles(custom_precompiles);
+
+        EthEvm::new(evm, false)
+    }
+
+    fn create_evm_with_inspector<DB: Database, I: Inspector<Self::Context<DB>>>(
+        &self,
+        db: DB,
+        input: EvmEnv<Self::Spec>,
+        inspector: I,
+    ) -> Self::Evm<DB, I>
+    where
+        <DB as Database>::Error: Send + Sync + 'static,
+    {
+        EthEvm::new(
+            self.create_evm(db, input)
+                .into_inner()
+                .with_inspector(inspector),
+            true,
+        )
     }
 }

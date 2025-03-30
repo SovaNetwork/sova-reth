@@ -23,6 +23,7 @@ pub trait SlotProvider {
     ) -> Result<(), SlotProviderError>;
 }
 
+#[derive(Debug)]
 pub struct StorageSlotProvider {
     /// Url endpoint of the sentinel service
     sentinel_url: String,
