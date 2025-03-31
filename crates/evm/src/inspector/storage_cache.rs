@@ -107,8 +107,9 @@ impl StorageCache {
         }
     }
 
-    /// Update data in the broadcast storage cache after opcode step
-    pub fn insert_accessed_storage_step_end(
+    /// Update data in the broadcast storage cache to be later enforced during block
+    /// execution and added to final lock data after current block process is done
+    pub fn insert_broadcast_accessed_storage(
         &mut self,
         address: Address,
         key: StorageKey,

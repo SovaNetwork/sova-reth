@@ -92,7 +92,9 @@ impl BitcoinRpcPrecompile {
 
     pub fn run(&self, input: &Bytes) -> PrecompileResult {
         let method =
-            BitcoinMethod::try_from(input).map_err(|e| PrecompileError::Other(e.to_string()))?;
+            BitcoinMethod::try_from(input).map_err(|e| PrecompileError::Other(
+                "Invalid precompile method selector".to_string() + &e.to_string()
+            ))?;
 
         // Skip the selector bytes and get the method's input data
         let input_data = &input[4..];
