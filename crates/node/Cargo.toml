@@ -16,6 +16,7 @@ reth-basic-payload-builder.workspace = true
 reth-chainspec.workspace = true
 reth-ethereum-engine-primitives.workspace = true
 reth-ethereum-payload-builder.workspace = true
+reth-ethereum-primitives.workspace = true
 reth-evm.workspace = true
 reth-node-api.workspace = true
 reth-node-builder.workspace = true

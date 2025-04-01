@@ -4,7 +4,7 @@ mod inspector;
 mod precompiles;
 
 use constants::BTC_PRECOMPILE_ADDRESS;
-pub use execute::MyBlockExecutor;
+pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 pub use precompiles::BitcoinClient;
@@ -133,8 +133,6 @@ pub struct MyEvmConfig {
     inner: EthEvmConfig,
     /// EVM Factory
     evm_factory: MyEvmFactory,
-    /// Bitcoin precompile execution logic
-    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
     /// Engine inspector used to track bitcoin precompile execution for double spends
     inspector: Arc<RwLock<SovaInspector>>,
 }
@@ -162,10 +160,10 @@ impl MyEvmConfig {
         )
         .map_err(|e| Box::new(e) as Box<dyn Error>)?;
 
+        let bitcoin_precompile = Arc::new(RwLock::new(bitcoin_precompile));
         Ok(Self {
             inner: EthEvmConfig::new(chain_spec),
-            evm_factory: MyEvmFactory::default(),
-            bitcoin_rpc_precompile: Arc::new(RwLock::new(bitcoin_precompile)),
+            evm_factory: MyEvmFactory::new(bitcoin_precompile),
             inspector: Arc::new(RwLock::new(inspector)),
         })
     }
@@ -251,14 +249,6 @@ impl WithInspector for MyEvmConfig {
 #[non_exhaustive]
 pub struct MyEvmFactory {
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
-}
-
-impl Default for MyEvmFactory {
-    fn default() -> Self {
-        Self {
-            bitcoin_rpc_precompile: Arc::new(RwLock::new(BitcoinRpcPrecompile::default())),
-        }
-    }
 }
 
 impl MyEvmFactory {

@@ -2,29 +2,25 @@ use std::sync::Arc;
 
 use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
 use reth_chainspec::ChainSpec;
-use reth_ethereum_engine_primitives::{
-    EthBuiltPayload, EthEngineTypes, EthPayloadAttributes, EthPayloadBuilderAttributes,
-};
+use reth_ethereum_engine_primitives::EthEngineTypes;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
-use reth_evm::{execute::BasicBlockExecutorProvider, ConfigureEvmFor};
-use reth_node_api::{NodeTypes, TxTy};
+use reth_node_api::NodeTypes;
 use reth_node_builder::{
     components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder},
-    node::{FullNodeTypes, NodeTypesWithEngine},
-    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig, PayloadTypes,
+    node::FullNodeTypes,
+    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
 };
-use reth_node_ethereum::{
-    node::{EthereumAddOns, EthereumConsensusBuilder, EthereumNetworkBuilder, EthereumPoolBuilder},
-    payload::EthereumPayloadBuilder,
+use reth_node_ethereum::node::{
+    EthereumAddOns, EthereumConsensusBuilder, EthereumNetworkBuilder, EthereumPoolBuilder,
 };
 use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
-use reth_primitives::EthPrimitives;
+use reth_primitives::{EthPrimitives, TransactionSigned};
 use reth_provider::{CanonStateSubscriptions, EthStorage};
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
 use sova_cli::{BitcoinConfig, SovaConfig};
-use sova_evm::{BitcoinClient, MyEvmConfig, MyExecutionStrategyFactory, WithInspector};
+use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
 
 use crate::SovaArgs;
 
@@ -79,8 +75,8 @@ impl SovaNode {
     >
     where
         Node: FullNodeTypes<
-            Types: NodeTypesWithEngine<
-                Engine = EthEngineTypes,
+            Types: NodeTypes<
+                Payload = EthEngineTypes,
                 ChainSpec = ChainSpec,
                 Primitives = EthPrimitives,
             >,
@@ -90,12 +86,12 @@ impl SovaNode {
             .node_types::<Node>()
             .pool(EthereumPoolBuilder::default())
             .payload(MyPayloadBuilder::new(
-                &self.sova_config.clone(),
+                self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
             ))
             .network(EthereumNetworkBuilder::default())
             .executor(MyExecutorBuilder::new(
-                &self.sova_config.clone(),
+                self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
             ))
             .consensus(EthereumConsensusBuilder::default())
@@ -117,7 +113,7 @@ where
     type ComponentsBuilder = ComponentsBuilder<
         N,
         EthereumPoolBuilder,
-        BasicPayloadServiceBuilder<MyPayloadBuilder>,
+        MyPayloadBuilder,
         EthereumNetworkBuilder,
         MyExecutorBuilder,
         EthereumConsensusBuilder,
@@ -139,7 +135,6 @@ where
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct MyPayloadBuilder {
-    pub inner: EthereumPayloadBuilder,
     pub config: SovaConfig,
     pub bitcoin_client: Arc<BitcoinClient>,
 }
@@ -147,34 +142,47 @@ pub struct MyPayloadBuilder {
 impl MyPayloadBuilder {
     pub fn new(config: SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
         Self {
-            inner: EthereumPayloadBuilder::default(),
             config,
             bitcoin_client,
         }
     }
+}
 
-    /// A helper method initializing [`PayloadBuilderService`] with the given EVM config.
-    pub fn spawn<Types, Node, Evm, Pool>(
+impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for MyPayloadBuilder
+where
+    Node: FullNodeTypes<
+        Types: NodeTypes<
+            Payload = EthEngineTypes,
+            ChainSpec = ChainSpec,
+            Primitives = EthPrimitives,
+        >,
+    >,
+    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>
+        + Unpin
+        + 'static,
+{
+    async fn spawn_payload_builder_service(
         self,
-        evm_config: Evm,
         ctx: &BuilderContext<Node>,
         pool: Pool,
-    ) -> eyre::Result<PayloadBuilderHandle<Types::Engine>>
-    where
-        Types: NodeTypesWithEngine<ChainSpec = ChainSpec, Primitives = EthPrimitives>,
-        Node: FullNodeTypes<Types = Types>,
-        Evm: ConfigureEvmFor<Types::Primitives> + WithInspector,
-        Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
-            + Unpin
-            + 'static,
-        Types::Engine: PayloadTypes<
-            BuiltPayload = EthBuiltPayload,
-            PayloadAttributes = EthPayloadAttributes,
-            PayloadBuilderAttributes = EthPayloadBuilderAttributes,
-        >,
-    {
+    ) -> eyre::Result<PayloadBuilderHandle<<Node::Types as NodeTypes>::Payload>> {
+        let evm_config = MyEvmConfig::new(
+            &self.config,
+            ctx.chain_spec(),
+            self.bitcoin_client.clone(),
+            ctx.task_executor().clone(),
+        )
+        .map_err(|e| {
+            eyre::eyre!(
+                "PayloadServiceBuilder::spawn_payload_service: Failed to create EVM config: {}",
+                e
+            )
+        })?;
+
         let conf = ctx.payload_builder_config();
         let payload_builder = sova_payload::MyPayloadBuilder::new(
+            ctx.provider().clone(),
+            pool,
             evm_config,
             EthereumBuilderConfig::new().with_gas_limit(conf.gas_limit()),
         );
@@ -200,42 +208,7 @@ impl MyPayloadBuilder {
     }
 }
 
-impl<Types, Node, Pool> PayloadServiceBuilder<Node, Pool> for MyPayloadBuilder
-where
-    Types: NodeTypesWithEngine<ChainSpec = ChainSpec, Primitives = EthPrimitives>,
-    Node: FullNodeTypes<Types = Types>,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
-        + Unpin
-        + 'static,
-    Types::Engine: PayloadTypes<
-        BuiltPayload = EthBuiltPayload,
-        PayloadAttributes = EthPayloadAttributes,
-        PayloadBuilderAttributes = EthPayloadBuilderAttributes,
-    >,
-{
-    async fn spawn_payload_builder_service(
-        self,
-        ctx: &BuilderContext<Node>,
-        pool: Pool,
-    ) -> eyre::Result<PayloadBuilderHandle<Types::Engine>> {
-        let evm_config = MyEvmConfig::new(
-            &self.config,
-            ctx.chain_spec(),
-            self.bitcoin_client.clone(),
-            ctx.task_executor().clone(),
-        )
-        .map_err(|e| {
-            eyre::eyre!(
-                "PayloadServiceBuilder::spawn_payload_service: Failed to create EVM config: {}",
-                e
-            )
-        })?;
-
-        self.spawn(evm_config, ctx, pool)
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct MyExecutorBuilder {
     pub config: SovaConfig,
     pub bitcoin_client: Arc<BitcoinClient>,
@@ -256,7 +229,7 @@ where
     Node: FullNodeTypes<Types = Types>,
 {
     type EVM = MyEvmConfig;
-    type Executor = BasicBlockExecutorProvider<MyEvmConfig>;
+    type Executor = SovaBlockExecutorProvider<MyEvmConfig>;
 
     async fn build_evm(
         self,
@@ -277,7 +250,7 @@ where
 
         Ok((
             evm_config.clone(),
-            BasicBlockExecutorProvider::new(evm_config),
+            SovaBlockExecutorProvider::new(evm_config),
         ))
     }
 }

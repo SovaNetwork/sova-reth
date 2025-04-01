@@ -42,6 +42,7 @@ reth-errors = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef
 reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
 reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
 reth-ethereum-consensus = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
+reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
 reth-execution-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
@@ -59,6 +60,9 @@ reth-tasks = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef3
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
 reth-trie-db = { git = "https://github.com/paradigmxyz/reth.git", rev = "5514dfef32685aef1d22f81b1325d19efaade91d" }
+
+# revm
+revm = { version = "21.0.0", default-features = false }
 
 # alloy
 alloy-consensus = { version = "0.13.0", default-features = false }

@@ -368,10 +368,7 @@ impl SovaInspector {
     }
 
     /// Cache the broadcast btc precompile result for future use in lock storage enforcement
-    fn handle_cache_btc_data(
-        &mut self,
-        outcome: &mut CallOutcome,
-    ) {
+    fn handle_cache_btc_data(&mut self, outcome: &mut CallOutcome) {
         let broadcast_txid = outcome.result.output[..32].to_vec();
         let broadcast_block = u64::from_be_bytes(outcome.result.output[32..40].try_into().unwrap());
 
@@ -397,9 +394,6 @@ where
         // Create a checkpoint if one doesn't exist yet
         if self.checkpoint.is_none() {
             self.checkpoint = Some(context.journal().checkpoint());
-        } else {
-            // No checkpoint available, this is usually not good and a potential edge case
-            warn!("WARNING: No checkpoint available for reversion");
         }
     }
 
