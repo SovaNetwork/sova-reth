@@ -185,13 +185,14 @@ where
     };
 
     // Get evm_env for the next block
-    let evm_env = evm_config.next_evm_env(&parent_header, &next_block_attributes)
-        .map_err(|e| RethError::other(e))?;
+    let evm_env = evm_config
+        .next_evm_env(&parent_header, &next_block_attributes)
+        .map_err(RethError::other)?;
 
     // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
-    
+
     // Create EVM with inspector
     let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
@@ -201,7 +202,7 @@ where
     // *** SIMULATION PHASE ***
 
     // Get simulation transaction iterator
-    let best_txs_sim = best_txs(BestTransactionsAttributes::new(
+    let mut best_txs_sim = best_txs(BestTransactionsAttributes::new(
         base_fee,
         evm_env
             .block_env
@@ -210,7 +211,7 @@ where
     ));
 
     // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-    for pool_tx in best_txs_sim {
+    while let Some(pool_tx) = best_txs_sim.next() {
         let tx = pool_tx.to_consensus();
 
         match evm.transact(tx) {
@@ -275,10 +276,10 @@ where
     // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
-    
+
     // Create EVM with inspector
     let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
-    
+
     // Create block builder
     let ctx = evm_config.context_for_next_block(&parent_header, next_block_attributes);
     let mut builder = evm_config.create_block_builder(evm, &parent_header, ctx);

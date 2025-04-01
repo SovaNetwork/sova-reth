@@ -279,6 +279,11 @@ impl EvmFactory for MyEvmFactory {
     type HaltReason = HaltReason;
     type Spec = SpecId;
 
+    /// Create a new EVM
+    ///
+    /// NOTE: The evm should never run on its own without an inspector.
+    /// The lock state is updated via the inspector and needs to be in sync on every tx.
+    /// Use create_evm_with_inspector() when creating an EVM in sova-reth.
     fn create_evm<DB: Database>(
         &self,
         db: DB,

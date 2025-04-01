@@ -6,22 +6,35 @@ use alloy_consensus::{BlockHeader, Transaction, TxReceipt};
 use alloy_eips::{eip7685::Requests, Encodable2718};
 use alloy_evm::block::ExecutableTx;
 
-use alloy_primitives::{map::foldhash::{HashMap, HashMapExt}, Address};
+use alloy_primitives::{
+    map::foldhash::{HashMap, HashMapExt},
+    Address,
+};
 use reth_chainspec::EthereumHardfork;
 use reth_errors::RethError;
 use reth_evm::{
-    block::{BlockExecutor, InternalBlockExecutionError, StateChangePostBlockSource, StateChangeSource, SystemCaller}, eth::{
+    block::{
+        BlockExecutor, InternalBlockExecutionError, StateChangePostBlockSource, StateChangeSource,
+        SystemCaller,
+    },
+    eth::{
         dao_fork, eip6110,
         receipt_builder::{ReceiptBuilder, ReceiptBuilderCtx},
         spec::EthExecutorSpec,
         EthBlockExecutionCtx,
-    }, execute::{BlockExecutionError, BlockExecutorProvider, BlockValidationError, Executor}, state_change::{balance_increment_state, post_block_balance_increments}, ConfigureEvm, Database, Evm, EvmFactory, FromRecoveredTx, OnStateHook
+    },
+    execute::{BlockExecutionError, BlockExecutorProvider, BlockValidationError, Executor},
+    state_change::{balance_increment_state, post_block_balance_increments},
+    ConfigureEvm, Database, Evm, EvmFactory, FromRecoveredTx, OnStateHook,
 };
 use reth_node_api::NodePrimitives;
 use reth_primitives::{Log, RecoveredBlock};
 use reth_provider::BlockExecutionResult;
 use reth_revm::{
-    context::result::{ExecutionResult, ResultAndState}, db::{states::bundle_state::BundleRetention, State, TransitionAccount}, state::Account, DatabaseCommit
+    context::result::{ExecutionResult, ResultAndState},
+    db::{states::bundle_state::BundleRetention, State, TransitionAccount},
+    state::Account,
+    DatabaseCommit,
 };
 
 use crate::WithInspector;
@@ -68,9 +81,15 @@ pub struct SovaBlockExecutor<F, DB> {
 impl<F, DB: Database> SovaBlockExecutor<F, DB> {
     /// Creates a new `SovaBlockExecutor` with the given strategy.
     pub fn new(strategy_factory: F, db: DB) -> Self {
-        let db =
-            State::builder().with_database(db).with_bundle_update().without_state_clear().build();
-        Self { strategy_factory, db }
+        let db = State::builder()
+            .with_database(db)
+            .with_bundle_update()
+            .without_state_clear()
+            .build();
+        Self {
+            strategy_factory,
+            db,
+        }
     }
 }
 
@@ -87,11 +106,24 @@ where
         block: &RecoveredBlock<<Self::Primitives as NodePrimitives>::Block>,
     ) -> Result<BlockExecutionResult<<Self::Primitives as NodePrimitives>::Receipt>, Self::Error>
     {
-        let mut strategy = self.strategy_factory.executor_for_block(&mut self.db, block);
+        let inspector_lock = self.strategy_factory.with_inspector();
+        let mut inspector = inspector_lock.write();
+
+        let evm_env = self.strategy_factory.evm_env(block.header());
+        let evm = self.strategy_factory.evm_with_env_and_inspector(
+            &mut self.db,
+            evm_env,
+            &mut *inspector,
+        );
+        let ctx = self.strategy_factory.context_for_block(block);
+        let mut strategy = self.strategy_factory.create_executor(evm, ctx);
+
+        // let strategy = self.strategy_factory.executor_for_block(&mut self.db, block);
 
         strategy.apply_pre_execution_changes()?;
 
         drop(strategy);
+        drop(inspector);
 
         // *** SIMULATION PHASE ***
 
@@ -102,7 +134,9 @@ where
         let inspector_lock = self.strategy_factory.with_inspector();
         let mut inspector = inspector_lock.write();
 
-        let mut evm = self.strategy_factory.evm_factory()
+        let mut evm = self
+            .strategy_factory
+            .evm_factory()
             .create_evm_with_inspector(&mut self.db, evm_env, &mut *inspector);
 
         for tx in block.transactions_recovered() {
@@ -160,12 +194,24 @@ where
 
         // *** EXECUTION PHASE ***
 
-        let mut strategy = self.strategy_factory.executor_for_block(&mut self.db, block);
+        let inspector_lock = self.strategy_factory.with_inspector();
+        let mut inspector = inspector_lock.write();
+
+        let evm_env = self.strategy_factory.evm_env(block.header());
+        let evm = self.strategy_factory.evm_with_env_and_inspector(
+            &mut self.db,
+            evm_env,
+            &mut *inspector,
+        );
+        let ctx = self.strategy_factory.context_for_block(block);
+        let mut strategy = self.strategy_factory.create_executor(evm, ctx);
 
         for tx in block.transactions_recovered() {
             strategy.execute_transaction(tx)?;
         }
         let result = strategy.apply_post_execution_changes()?;
+
+        drop(inspector);
 
         {
             let inspector_lock = self.strategy_factory.with_inspector();
