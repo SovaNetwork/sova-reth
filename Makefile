@@ -180,7 +180,7 @@ run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest
 	--authrpc.addr "127.0.0.1" \
 	--authrpc.port 8551 \
 	--datadir ./data \
-	--log.stdout.filter debug \
+	--log.stdout.filter info \
 	--dev
 
 .PHONY: run-sova-mainnet-regtest

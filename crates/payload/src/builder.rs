@@ -202,7 +202,7 @@ where
     // *** SIMULATION PHASE ***
 
     // Get simulation transaction iterator
-    let mut best_txs_sim = best_txs(BestTransactionsAttributes::new(
+    let best_txs_sim = best_txs(BestTransactionsAttributes::new(
         base_fee,
         evm_env
             .block_env
@@ -211,7 +211,7 @@ where
     ));
 
     // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-    while let Some(pool_tx) = best_txs_sim.next() {
+    for pool_tx in best_txs_sim {
         let tx = pool_tx.to_consensus();
 
         match evm.transact(tx) {
@@ -403,6 +403,10 @@ where
     if !is_better_payload(best_payload.as_ref(), total_fees) {
         // Release db
         drop(builder);
+
+        // Release inspector
+        drop(inspector);
+
         // can skip building the block
         return Ok(BuildOutcome::Aborted {
             fees: total_fees,
@@ -419,6 +423,7 @@ where
     // Release inspector
     drop(inspector);
 
+    // *** UPDATE SENTINEL LOCKS ***
     {
         let inspector_lock = evm_config.with_inspector();
         let mut inspector = inspector_lock.write();

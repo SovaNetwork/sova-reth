@@ -363,7 +363,13 @@ impl SovaInspector {
                 self.handle_cache_btc_data(outcome);
             }
             Ok(_) => (), // Other methods we don't care about do nothing
-            Err(err) => warn!("Invalid Bitcoin method: {}", err), // This should be caught in the precompile run() method
+            Err(err) => {
+                *outcome = Self::create_revert_outcome(
+                    format!("Invalid Bitcoin method: {}", err),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                )
+            }
         }
     }
 

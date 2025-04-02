@@ -23,7 +23,9 @@ use alloy_evm::{
 use alloy_primitives::{Address, Bytes};
 
 use reth_chainspec::ChainSpec;
-use reth_evm::{env::EvmEnv, ConfigureEvm, InspectorFor, NextBlockEnvAttributes};
+use reth_evm::{
+    env::EvmEnv, eth::EthBlockExecutor, ConfigureEvm, InspectorFor, NextBlockEnvAttributes,
+};
 use reth_evm_ethereum::EthBlockAssembler;
 use reth_node_ethereum::EthEvmConfig;
 use reth_primitives::{Receipt, SealedBlock, SealedHeader, TransactionSigned};
@@ -189,12 +191,14 @@ impl BlockExecutorFactory for MyEvmConfig {
         I: InspectorFor<Self, &'a mut State<DB>> + Inspector<EthEvmContext<&'a mut State<DB>>> + 'a,
         <DB as Database>::Error: Send + Sync + 'static,
     {
-        MyBlockExecutor::new(
-            evm,
-            ctx,
-            self.inner.chain_spec(),
-            self.inner.executor_factory.receipt_builder(),
-        )
+        MyBlockExecutor {
+            inner: EthBlockExecutor::new(
+                evm,
+                ctx,
+                self.inner.chain_spec(),
+                self.inner.executor_factory.receipt_builder(),
+            ),
+        }
     }
 }
 
