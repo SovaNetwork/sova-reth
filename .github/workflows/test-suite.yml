@@ -27,7 +27,7 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: "1.83.0"
+        toolchain: stable
         components: clippy, rustfmt
 
     - name: Install Protobuf Compiler
@@ -65,7 +65,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.83.0"
+          toolchain: stable
           target: x86_64-pc-windows-gnu
           components: clippy, rustfmt
       

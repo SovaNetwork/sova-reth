@@ -35,7 +35,7 @@ CHAIN_ID="120893"
 
 # Bitcoin RPC Configuration - using the working parameters
 # Port automatically assigned by satoshi-suite
-BTC_RPC_URL="http:localhost"
+BTC_RPC_URL="http://localhost"
 BTC_RPC_USER="user"
 BTC_RPC_PASS="password"
 BTC_NETWORK="regtest"

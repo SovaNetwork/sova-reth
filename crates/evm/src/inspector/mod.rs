@@ -18,11 +18,13 @@ use parking_lot::RwLock;
 use alloy_primitives::{Address, Bytes, U256};
 
 use reth_revm::{
-    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues},
+    context::{journaled_state::JournalCheckpoint, Block, ContextTr, JournalTr},
+    db::{states::StorageSlot, AccountStatus, StorageWithOriginalValues, TransitionAccount},
+    inspector::JournalExt,
     interpreter::{
         CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    Database, EvmContext, Inspector, JournalCheckpoint, JournalEntry, TransitionAccount,
+    Inspector, JournalEntry,
 };
 use reth_tracing::tracing::{debug, warn};
 
@@ -39,6 +41,8 @@ pub struct StorageChange {
     pub had_value: Option<U256>,
 }
 
+/// EVM engine inspector for enforcing storage slot locks
+#[derive(Debug)]
 pub struct SovaInspector {
     /// accessed storage cache
     pub cache: StorageCache,
@@ -104,33 +108,34 @@ impl SovaInspector {
     }
 
     /// Process storage changes from journal entries and update accessed storage cache
-    fn process_storage_journal_entries(&mut self, context: &EvmContext<impl Database>) {
+    fn process_storage_journal_entries<CTX: ContextTr<Journal: JournalExt>>(
+        &mut self,
+        context: &mut CTX,
+    ) {
         // Clear the broadcast accessed storage before processing
         self.cache.broadcast_accessed_storage.0.clear();
 
-        // Iterate through journal entries
-        for journal_entries in context.journaled_state.journal.iter() {
-            for entry in journal_entries.iter() {
-                if let JournalEntry::StorageChanged {
-                    address,
-                    key,
-                    had_value,
-                } = entry
-                {
-                    let value = context.journaled_state.state[address].storage[key].present_value();
+        // Iterate through journal entries since last checkpoint and add to broadcast_accessed_storage cache
+        for entry in context.journal_ref().last_journal() {
+            if let JournalEntry::StorageChanged {
+                address,
+                key,
+                had_value,
+            } = entry
+            {
+                let value = context.journal_ref().evm_state()[address].storage[key].present_value();
 
-                    let storage_change = StorageChange {
-                        key: *key,
-                        value,
-                        had_value: Some(*had_value),
-                    };
+                let storage_change = StorageChange {
+                    key: *key,
+                    value,
+                    had_value: Some(*had_value),
+                };
 
-                    self.cache.insert_accessed_storage_step_end(
-                        *address,
-                        (*key).into(),
-                        storage_change,
-                    );
-                }
+                self.cache.insert_broadcast_accessed_storage(
+                    *address,
+                    (*key).into(),
+                    storage_change,
+                );
             }
         }
     }
@@ -156,9 +161,9 @@ impl SovaInspector {
     /// This inspector hook is primarily used for storage slot lock enforcement.
     /// Any cached storage access prior to a broadcast btc tx CALL will be checked for a lock.
     /// Only one btc broadcast tx call is allowed per tx.
-    fn call_inner(
+    fn call_inner<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
-        context: &mut EvmContext<impl Database>,
+        context: &mut CTX,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         // intercept all BTC broadcast precompile calls and check locks
@@ -174,7 +179,7 @@ impl SovaInspector {
                 // Process storage journal entries to find sstores before checking locks
                 self.process_storage_journal_entries(context);
 
-                // always check locks
+                // check locks
                 self.handle_lock_checks(context, inputs)
             }
             Ok(_) => None, // Other methods we don't care about
@@ -190,9 +195,9 @@ impl SovaInspector {
     }
 
     /// Check to see if any of the broadcast storage slots are locked
-    fn handle_lock_checks(
+    fn handle_lock_checks<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
-        context: &mut EvmContext<impl Database>,
+        context: &mut CTX,
         inputs: &CallInputs,
     ) -> Option<CallOutcome> {
         // get current btc block height
@@ -211,7 +216,7 @@ impl SovaInspector {
         // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
             &self.cache.broadcast_accessed_storage,
-            context.env.block.number.saturating_to(),
+            context.block().number(),
             current_btc_block_height,
         ) {
             Ok(batch_response) => {
@@ -237,7 +242,7 @@ impl SovaInspector {
 
                             // CRITICAL: Always revert state changes in journal when a lock is detected
                             if let Some(checkpoint) = self.checkpoint {
-                                context.journaled_state.checkpoint_revert(checkpoint);
+                                context.journal().checkpoint_revert(checkpoint);
                             } else {
                                 // No checkpoint available, this is usually not good and a potential edge case
                                 warn!("WARNING: No checkpoint available for reversion");
@@ -314,12 +319,12 @@ impl SovaInspector {
     /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode
     /// This inspector hook is primarily used for locking accessed
     /// storage slots if a bitcoin broadcast tx precompile executed successfully.
-    fn call_end_inner(
+    fn call_end_inner<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
-        context: &mut EvmContext<impl Database>,
+        context: &mut CTX,
         inputs: &CallInputs,
-        outcome: CallOutcome,
-    ) -> CallOutcome {
+        outcome: &mut CallOutcome,
+    ) {
         // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             // CHECK LOCKS FOR ANY SSTORE IN ANY TX
@@ -328,12 +333,15 @@ impl SovaInspector {
 
             match self.handle_lock_checks(context, inputs) {
                 Some(revert_outcome) => {
+                    // Replace outcome with revert_outcome
+                    *outcome = revert_outcome;
                     // clear checkpoint after reverting
                     self.checkpoint = None;
-
-                    return revert_outcome;
                 }
-                None => return outcome,
+                None => {
+                    // Keep the existing outcome
+                    return;
+                }
             }
         }
         debug!("----- precompile call end hook -----");
@@ -342,34 +350,31 @@ impl SovaInspector {
         match BitcoinMethod::try_from(&inputs.input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call end hook");
-                self.handle_cache_btc_data(inputs, &outcome)
-                    .unwrap_or(outcome)
+                // only update if call was successful
+                if outcome.result.result != InstructionResult::Return {
+                    debug!("Broadcast btc precompile execution failed");
+                    *outcome = Self::create_revert_outcome(
+                        "Broadcast btc precompile execution failed".to_string(),
+                        inputs.gas_limit,
+                        outcome.memory_offset.clone(),
+                    );
+                }
+
+                self.handle_cache_btc_data(outcome);
             }
-            Ok(_) => outcome, // Other methods we don't care about
-            Err(err) => Self::create_revert_outcome(
-                format!("Invalid Bitcoin method: {}", err),
-                inputs.gas_limit,
-                outcome.memory_offset,
-            ),
+            Ok(_) => (), // Other methods we don't care about do nothing
+            Err(err) => {
+                *outcome = Self::create_revert_outcome(
+                    format!("Invalid Bitcoin method: {}", err),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                )
+            }
         }
     }
 
     /// Cache the broadcast btc precompile result for future use in lock storage enforcement
-    fn handle_cache_btc_data(
-        &mut self,
-        inputs: &CallInputs,
-        outcome: &CallOutcome,
-    ) -> Option<CallOutcome> {
-        // only update if call was successful
-        if outcome.result.result != InstructionResult::Return {
-            debug!("Broadcast btc precompile execution failed");
-            return Some(Self::create_revert_outcome(
-                "Broadcast btc precompile execution failed".to_string(),
-                inputs.gas_limit,
-                outcome.memory_offset.clone(),
-            ));
-        }
-
+    fn handle_cache_btc_data(&mut self, outcome: &mut CallOutcome) {
         let broadcast_txid = outcome.result.output[..32].to_vec();
         let broadcast_block = u64::from_be_bytes(outcome.result.output[32..40].try_into().unwrap());
 
@@ -381,45 +386,34 @@ impl SovaInspector {
 
         // Commit the broadcast storage to block storage and lock data
         self.cache.commit_broadcast(broadcast_result);
-
-        None
     }
 }
 
-impl<DB> Inspector<DB> for SovaInspector
+impl<CTX> Inspector<CTX> for SovaInspector
 where
-    DB: reth_revm::Database,
+    CTX: ContextTr<Journal: JournalExt>,
 {
-    fn initialize_interp(&mut self, _interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+    fn initialize_interp(&mut self, _interp: &mut Interpreter, context: &mut CTX) {
         // Ensure clean cache
         self.clear_cache();
 
         // Create a checkpoint if one doesn't exist yet
         if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journaled_state.checkpoint());
+            self.checkpoint = Some(context.journal().checkpoint());
         }
     }
 
-    fn call(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         // Create a checkpoint if there isnt one already
         if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journaled_state.checkpoint());
+            self.checkpoint = Some(context.journal().checkpoint());
         }
 
         self.call_inner(context, inputs)
     }
 
-    fn call_end(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &CallInputs,
-        outcome: CallOutcome,
-    ) -> CallOutcome {
-        self.call_end_inner(context, inputs, outcome)
+    fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
+        self.call_end_inner(context, inputs, outcome);
     }
 }
 
