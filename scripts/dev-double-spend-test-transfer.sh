@@ -19,10 +19,11 @@ set -e
 # Configuration
 WALLET_1="user"
 WALLET_2="miner"
-UBTC_BITCOIN_RECEIVE_ADDRESS="bcrt1q8pw3u88q56mfdqhxyeu0a7fesddq8jwsxxqng8"
-DOUBLE_SPEND_RECEIVE_ADDRESS="bcrt1q6xxa0arlrk6jdz02alxc6smdv5g953v7zkswaw" # random address for double spend
-ETH_RPC_URL="http://localhost:8545"
-ETH_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+UBTC_BITCOIN_RECEIVE_ADDRESS="bcrt1q7c3qwje2ku5ej38s38srftxaqt6zh0szl5qstz"
+DOUBLE_SPEND_RECEIVE_ADDRESS="bcrt1q6xxa0arlrk6jdz02alxc6smdv5g953v7zkswaw" # random address
+ETH_RPC_URL="http://localhost:56511"
+ETH_ADDRESS="0x8943545177806ED17B9F23F0a21ee5948eCaa776"
+ETH_PRIVATE_KEY="0xbcdf20249abf0ed6d944c0288fad489e33f66b3960d9e6229c1cd214ed3bbe31"
 CHAIN_ID="120893"
 
 # Function to convert BTC to smallest unit (satoshis)
@@ -80,7 +81,7 @@ cast send \
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
+        "$ETH_ADDRESS" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "totalSupply()" | cast to-dec)
 
@@ -103,7 +104,7 @@ cast send \
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
+        "$ETH_ADDRESS" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "totalSupply()" | cast to-dec)
 
@@ -128,7 +129,7 @@ cast send \
 echo "Checking contract state..."
     BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "balanceOf(address)" \
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" | cast to-dec)
+        "$ETH_ADDRESS" | cast to-dec)
     TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
         "totalSupply()" | cast to-dec)
 
