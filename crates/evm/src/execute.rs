@@ -8,8 +8,7 @@ use alloy_consensus::BlockHeader;
 use alloy_evm::block::ExecutableTx;
 
 use alloy_primitives::{
-    map::foldhash::{HashMap, HashMapExt},
-    Address,
+    map::foldhash::{HashMap, HashMapExt}, Address
 };
 use reth_chainspec::ChainSpec;
 use reth_errors::RethError;

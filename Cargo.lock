@@ -2616,6 +2616,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
+ "unicode-xid",
 ]
 
 [[package]]
@@ -9408,6 +9409,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sova-engine-primitives"
+version = "0.0.2"
+dependencies = [
+ "alloy-eips",
+ "alloy-primitives",
+ "alloy-rpc-types-engine",
+ "reth-payload-primitives",
+ "reth-primitives-traits",
+ "sova-primitives",
+]
+
+[[package]]
 name = "sova-evm"
 version = "0.0.2"
 dependencies = [
@@ -9471,6 +9484,7 @@ dependencies = [
  "sova-cli",
  "sova-evm",
  "sova-payload",
+ "sova-primitives",
 ]
 
 [[package]]
@@ -9481,6 +9495,9 @@ dependencies = [
  "alloy-eips",
  "alloy-evm",
  "alloy-primitives",
+ "alloy-rlp",
+ "alloy-sol-macro",
+ "alloy-sol-types",
  "eyre",
  "reth-basic-payload-builder",
  "reth-chain-state",
@@ -9502,7 +9519,31 @@ dependencies = [
  "reth-transaction-pool",
  "revm",
  "sova-cli",
+ "sova-engine-primitives",
  "sova-evm",
+ "sova-primitives",
+]
+
+[[package]]
+name = "sova-primitives"
+version = "0.0.2"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-evm",
+ "alloy-primitives",
+ "alloy-rlp",
+ "auto_impl",
+ "bytes",
+ "derive_more 1.0.0",
+ "reth-codecs",
+ "reth-ethereum-primitives",
+ "reth-primitives-traits",
+ "reth-revm",
+ "reth-zstd-compressors",
+ "revm",
+ "serde",
+ "serde_with",
 ]
 
 [[package]]

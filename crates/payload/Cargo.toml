@@ -9,7 +9,9 @@ keywords.workspace = true
 
 [dependencies]
 sova-cli.workspace = true
+sova-engine-primitives.workspace = true
 sova-evm.workspace = true
+sova-primitives.workspace = true
 
 reth-basic-payload-builder.workspace = true
 reth-chain-state.workspace = true
@@ -36,5 +38,8 @@ alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-evm.workspace = true
 alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-sol-macro.workspace = true
+alloy-sol-types.workspace = true
 
 eyre.workspace = true

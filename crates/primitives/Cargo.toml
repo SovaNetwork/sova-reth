@@ -1,0 +1,29 @@
+[package]
+name = "sova-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+
+[dependencies]
+reth-codecs.workspace = true
+reth-ethereum-primitives.workspace = true
+reth-primitives-traits.workspace = true
+reth-revm.workspace = true
+reth-zstd-compressors.workspace = true
+
+revm.workspace = true
+
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-evm.workspace = true
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+
+auto_impl.workspace = true
+bytes.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "deref", "from", "into", "constructor", "display"] }
+serde.workspace = true
+serde_with.workspace = true

@@ -14,13 +14,13 @@ use reth_node_ethereum::node::{
     EthereumAddOns, EthereumConsensusBuilder, EthereumNetworkBuilder, EthereumPoolBuilder,
 };
 use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
-use reth_primitives::{EthPrimitives, TransactionSigned};
 use reth_provider::{CanonStateSubscriptions, EthStorage};
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
+use sova_primitives::{SovaPrimitives, SovaTransactionSigned};
 
 use crate::SovaArgs;
 
@@ -78,7 +78,7 @@ impl SovaNode {
             Types: NodeTypes<
                 Payload = EthEngineTypes,
                 ChainSpec = ChainSpec,
-                Primitives = EthPrimitives,
+                Primitives = SovaPrimitives,
             >,
         >,
     {
@@ -99,7 +99,7 @@ impl SovaNode {
 }
 
 impl NodeTypes for SovaNode {
-    type Primitives = EthPrimitives;
+    type Primitives = SovaPrimitives;
     type ChainSpec = ChainSpec;
     type StateCommitment = MerklePatriciaTrie;
     type Storage = EthStorage;
@@ -154,10 +154,10 @@ where
         Types: NodeTypes<
             Payload = EthEngineTypes,
             ChainSpec = ChainSpec,
-            Primitives = EthPrimitives,
+            Primitives = SovaPrimitives,
         >,
     >,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>
+    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = SovaTransactionSigned>>
         + Unpin
         + 'static,
 {
@@ -225,7 +225,7 @@ impl MyExecutorBuilder {
 
 impl<Types, Node> ExecutorBuilder<Node> for MyExecutorBuilder
 where
-    Types: NodeTypes<ChainSpec = ChainSpec, Primitives = EthPrimitives>,
+    Types: NodeTypes<ChainSpec = ChainSpec, Primitives = SovaPrimitives>,
     Node: FullNodeTypes<Types = Types>,
 {
     type EVM = MyEvmConfig;

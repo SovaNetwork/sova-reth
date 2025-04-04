@@ -1,0 +1,18 @@
+[package]
+name = "sova-engine-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+
+[dependencies]
+sova-primitives.workspace = true
+
+reth-payload-primitives.workspace = true
+reth-primitives-traits.workspace = true
+
+alloy-eips.workspace = true
+alloy-primitives.workspace = true
+alloy-rpc-types-engine.workspace = true

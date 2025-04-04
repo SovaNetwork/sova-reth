@@ -11,6 +11,7 @@ keywords.workspace = true
 sova-cli.workspace = true
 sova-evm.workspace = true
 sova-payload.workspace = true
+sova-primitives.workspace = true
 
 reth-basic-payload-builder.workspace = true
 reth-chainspec.workspace = true

@@ -49,7 +49,7 @@ pub struct SovaInspector {
     /// client for calling lock storage service
     pub storage_slot_provider: Arc<StorageSlotProvider>,
     /// btc client
-    btc_client: Arc<BitcoinClient>,
+    pub btc_client: Arc<BitcoinClient>,
     /// transition state for applying slot reverts
     pub slot_revert_cache: Vec<(Address, TransitionAccount)>,
     /// Journal checkpoint for the current transaction
