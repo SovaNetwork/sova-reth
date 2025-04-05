@@ -2,16 +2,20 @@
 
 extern crate alloc;
 
+use std::convert::Infallible;
+
 use alloc::{sync::Arc, vec::Vec};
-use alloy_eips::{eip4844::BlobTransactionSidecar, eip7685::Requests};
-use alloy_primitives::U256;
+use alloy_eips::{eip4844::BlobTransactionSidecar, eip4895::Withdrawals, eip7685::Requests};
+use alloy_primitives::{Address, B256, U256};
+use alloy_rlp::Encodable;
 use alloy_rpc_types_engine::{
-    ExecutionPayloadEnvelopeV2, ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4,
-    ExecutionPayloadFieldV2, ExecutionPayloadV1, ExecutionPayloadV3, PayloadId,
+    ExecutionPayloadEnvelopeV2, ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4, ExecutionPayloadFieldV2, ExecutionPayloadV1, ExecutionPayloadV3, PayloadAttributes, PayloadId
 };
-use sova_primitives::{Block, SovaPrimitives};
-use reth_payload_primitives::BuiltPayload;
-use reth_primitives_traits::SealedBlock;
+
+use reth_payload_primitives::{BuiltPayload, PayloadBuilderAttributes};
+use reth_primitives_traits::{NodePrimitives, SealedBlock};
+
+use sova_primitives::{SovaBlock, SovaPrimitives};
 
 /// Contains the built payload.
 ///
@@ -19,11 +23,11 @@ use reth_primitives_traits::SealedBlock;
 /// Therefore, the empty-block here is always available and full-block will be set/updated
 /// afterward.
 #[derive(Debug, Clone)]
-pub struct SovaBuiltPayload {
+pub struct SovaBuiltPayload<N: NodePrimitives = SovaPrimitives> {
     /// Identifier of the payload
     pub(crate) id: PayloadId,
     /// The built block
-    pub(crate) block: Arc<SealedBlock<Block>>,
+    pub(crate) block: Arc<SealedBlock<N::Block>>,
     /// The fees of the block
     pub(crate) fees: U256,
     /// The blobs, proofs, and commitments in the block. If the block is pre-cancun, this will be
@@ -33,15 +37,13 @@ pub struct SovaBuiltPayload {
     pub(crate) requests: Option<Requests>,
 }
 
-// === impl BuiltPayload ===
-
-impl SovaBuiltPayload {
+impl<N: NodePrimitives> SovaBuiltPayload<N> {
     /// Initializes the payload with the given initial block
     ///
     /// Caution: This does not set any [`BlobTransactionSidecar`].
     pub const fn new(
         id: PayloadId,
-        block: Arc<SealedBlock<Block>>,
+        block: Arc<SealedBlock<N::Block>>,
         fees: U256,
         requests: Option<Requests>,
     ) -> Self {
@@ -54,7 +56,7 @@ impl SovaBuiltPayload {
     }
 
     /// Returns the built block(sealed)
-    pub fn block(&self) -> &SealedBlock<Block> {
+    pub fn block(&self) -> &SealedBlock<N::Block> {
         &self.block
     }
 
@@ -83,10 +85,10 @@ impl SovaBuiltPayload {
     }
 }
 
-impl BuiltPayload for SovaBuiltPayload {
-    type Primitives = SovaPrimitives;
+impl<N: NodePrimitives> BuiltPayload for SovaBuiltPayload<N> {
+    type Primitives = N;
 
-    fn block(&self) -> &SealedBlock<Block> {
+    fn block(&self) -> &SealedBlock<N::Block> {
         &self.block
     }
 
@@ -100,8 +102,11 @@ impl BuiltPayload for SovaBuiltPayload {
 }
 
 // V1 engine_getPayloadV1 response
-impl From<SovaBuiltPayload> for ExecutionPayloadV1 {
-    fn from(value: SovaBuiltPayload) -> Self {
+impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadV1
+where
+    N: NodePrimitives<Block = SovaBlock>,
+{
+    fn from(value: SovaBuiltPayload<N>) -> Self {
         Self::from_block_unchecked(
             value.block().hash(),
             &Arc::unwrap_or_clone(value.block).into_block(),
@@ -110,8 +115,11 @@ impl From<SovaBuiltPayload> for ExecutionPayloadV1 {
 }
 
 // V2 engine_getPayloadV2 response
-impl From<SovaBuiltPayload> for ExecutionPayloadEnvelopeV2 {
-    fn from(value: SovaBuiltPayload) -> Self {
+impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV2 
+where
+    N: NodePrimitives<Block = SovaBlock>,
+{
+    fn from(value: SovaBuiltPayload<N>) -> Self {
         let SovaBuiltPayload { block, fees, .. } = value;
 
         Self {
@@ -124,8 +132,11 @@ impl From<SovaBuiltPayload> for ExecutionPayloadEnvelopeV2 {
     }
 }
 
-impl From<SovaBuiltPayload> for ExecutionPayloadEnvelopeV3 {
-    fn from(value: SovaBuiltPayload) -> Self {
+impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV3 
+where
+    N: NodePrimitives<Block = SovaBlock>,
+{
+    fn from(value: SovaBuiltPayload<N>) -> Self {
         let SovaBuiltPayload { block, fees, sidecars, .. } = value;
 
         Self {
@@ -148,11 +159,239 @@ impl From<SovaBuiltPayload> for ExecutionPayloadEnvelopeV3 {
     }
 }
 
-impl From<SovaBuiltPayload> for ExecutionPayloadEnvelopeV4 {
-    fn from(value: SovaBuiltPayload) -> Self {
+impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV4 
+where
+    N: NodePrimitives<Block = SovaBlock>,
+{
+    fn from(value: SovaBuiltPayload<N>) -> Self {
         Self {
             execution_requests: value.requests.clone().unwrap_or_default(),
             envelope_inner: value.into(),
         }
+    }
+}
+
+/// Container type for all components required to build a payload.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SovaPayloadBuilderAttributes {
+    /// Id of the payload
+    pub id: PayloadId,
+    /// Parent block to build the payload on top
+    pub parent: B256,
+    /// Unix timestamp for the generated payload
+    ///
+    /// Number of seconds since the Unix epoch.
+    pub timestamp: u64,
+    /// Address of the recipient for collecting transaction fee
+    pub suggested_fee_recipient: Address,
+    /// Randomness value for the generated payload
+    pub prev_randao: B256,
+    /// Withdrawals for the generated payload
+    pub withdrawals: Withdrawals,
+    /// Root of the parent beacon block
+    pub parent_beacon_block_root: Option<B256>,
+}
+
+// === impl SovaPayloadBuilderAttributes ===
+
+impl SovaPayloadBuilderAttributes {
+    /// Returns the identifier of the payload.
+    pub const fn payload_id(&self) -> PayloadId {
+        self.id
+    }
+
+    /// Creates a new payload builder for the given parent block and the attributes.
+    ///
+    /// Derives the unique [`PayloadId`] for the given parent and attributes
+    pub fn new(parent: B256, attributes: PayloadAttributes) -> Self {
+        let id = payload_id(&parent, &attributes);
+
+        Self {
+            id,
+            parent,
+            timestamp: attributes.timestamp,
+            suggested_fee_recipient: attributes.suggested_fee_recipient,
+            prev_randao: attributes.prev_randao,
+            withdrawals: attributes.withdrawals.unwrap_or_default().into(),
+            parent_beacon_block_root: attributes.parent_beacon_block_root,
+        }
+    }
+}
+
+impl PayloadBuilderAttributes for SovaPayloadBuilderAttributes {
+    type RpcPayloadAttributes = PayloadAttributes;
+    type Error = Infallible;
+
+    /// Creates a new payload builder for the given parent block and the attributes.
+    ///
+    /// Derives the unique [`PayloadId`] for the given parent and attributes
+    fn try_new(
+        parent: B256,
+        attributes: PayloadAttributes,
+        _version: u8,
+    ) -> Result<Self, Infallible> {
+        Ok(Self::new(parent, attributes))
+    }
+
+    fn payload_id(&self) -> PayloadId {
+        self.id
+    }
+
+    fn parent(&self) -> B256 {
+        self.parent
+    }
+
+    fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+
+    fn parent_beacon_block_root(&self) -> Option<B256> {
+        self.parent_beacon_block_root
+    }
+
+    fn suggested_fee_recipient(&self) -> Address {
+        self.suggested_fee_recipient
+    }
+
+    fn prev_randao(&self) -> B256 {
+        self.prev_randao
+    }
+
+    fn withdrawals(&self) -> &Withdrawals {
+        &self.withdrawals
+    }
+}
+
+/// Generates the payload id for the configured payload from the [`PayloadAttributes`].
+///
+/// Returns an 8-byte identifier by hashing the payload components with sha256 hash.
+pub(crate) fn payload_id(parent: &B256, attributes: &PayloadAttributes) -> PayloadId {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(parent.as_slice());
+    hasher.update(&attributes.timestamp.to_be_bytes()[..]);
+    hasher.update(attributes.prev_randao.as_slice());
+    hasher.update(attributes.suggested_fee_recipient.as_slice());
+    if let Some(withdrawals) = &attributes.withdrawals {
+        let mut buf = Vec::new();
+        withdrawals.encode(&mut buf);
+        hasher.update(buf);
+    }
+
+    if let Some(parent_beacon_block) = attributes.parent_beacon_block_root {
+        hasher.update(parent_beacon_block);
+    }
+
+    let out = hasher.finalize();
+    PayloadId::new(out.as_slice()[..8].try_into().expect("sufficient length"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_eips::eip4895::Withdrawal;
+    use alloy_primitives::B64;
+    use core::str::FromStr;
+
+    #[test]
+    fn attributes_serde() {
+        let attributes = r#"{"timestamp":"0x1235","prevRandao":"0xf343b00e02dc34ec0124241f74f32191be28fb370bb48060f5fa4df99bda774c","suggestedFeeRecipient":"0x0000000000000000000000000000000000000000","withdrawals":null,"parentBeaconBlockRoot":null}"#;
+        let _attributes: PayloadAttributes = serde_json::from_str(attributes).unwrap();
+    }
+
+    #[test]
+    fn test_payload_id_basic() {
+        // Create a parent block and payload attributes
+        let parent =
+            B256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a")
+                .unwrap();
+        let attributes = PayloadAttributes {
+            timestamp: 0x5,
+            prev_randao: B256::from_str(
+                "0x0000000000000000000000000000000000000000000000000000000000000000",
+            )
+            .unwrap(),
+            suggested_fee_recipient: Address::from_str(
+                "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+            )
+            .unwrap(),
+            withdrawals: None,
+            parent_beacon_block_root: None,
+        };
+
+        // Verify that the generated payload ID matches the expected value
+        assert_eq!(
+            payload_id(&parent, &attributes),
+            PayloadId(B64::from_str("0xa247243752eb10b4").unwrap())
+        );
+    }
+
+    #[test]
+    fn test_payload_id_with_withdrawals() {
+        // Set up the parent and attributes with withdrawals
+        let parent =
+            B256::from_str("0x9876543210abcdef9876543210abcdef9876543210abcdef9876543210abcdef")
+                .unwrap();
+        let attributes = PayloadAttributes {
+            timestamp: 1622553200,
+            prev_randao: B256::from_slice(&[1; 32]),
+            suggested_fee_recipient: Address::from_str(
+                "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+            )
+            .unwrap(),
+            withdrawals: Some(vec![
+                Withdrawal {
+                    index: 1,
+                    validator_index: 123,
+                    address: Address::from([0xAA; 20]),
+                    amount: 10,
+                },
+                Withdrawal {
+                    index: 2,
+                    validator_index: 456,
+                    address: Address::from([0xBB; 20]),
+                    amount: 20,
+                },
+            ]),
+            parent_beacon_block_root: None,
+        };
+
+        // Verify that the generated payload ID matches the expected value
+        assert_eq!(
+            payload_id(&parent, &attributes),
+            PayloadId(B64::from_str("0xedddc2f84ba59865").unwrap())
+        );
+    }
+
+    #[test]
+    fn test_payload_id_with_parent_beacon_block_root() {
+        // Set up the parent and attributes with a parent beacon block root
+        let parent =
+            B256::from_str("0x9876543210abcdef9876543210abcdef9876543210abcdef9876543210abcdef")
+                .unwrap();
+        let attributes = PayloadAttributes {
+            timestamp: 1622553200,
+            prev_randao: B256::from_str(
+                "0x123456789abcdef123456789abcdef123456789abcdef123456789abcdef1234",
+            )
+            .unwrap(),
+            suggested_fee_recipient: Address::from_str(
+                "0xc94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+            )
+            .unwrap(),
+            withdrawals: None,
+            parent_beacon_block_root: Some(
+                B256::from_str(
+                    "0x2222222222222222222222222222222222222222222222222222222222222222",
+                )
+                .unwrap(),
+            ),
+        };
+
+        // Verify that the generated payload ID matches the expected value
+        assert_eq!(
+            payload_id(&parent, &attributes),
+            PayloadId(B64::from_str("0x0fc49cd532094cce").unwrap())
+        );
     }
 }

@@ -10,9 +10,16 @@ keywords.workspace = true
 [dependencies]
 sova-primitives.workspace = true
 
+reth-engine-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
 reth-payload-primitives.workspace = true
 reth-primitives-traits.workspace = true
 
 alloy-eips.workspace = true
 alloy-primitives.workspace = true
+alloy-rlp.workspace = true
 alloy-rpc-types-engine.workspace = true
+
+sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true

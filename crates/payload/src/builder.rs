@@ -17,7 +17,6 @@ use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
     execute::{BlockBuilder, BlockBuilderOutcome}, ConfigureEvm, Evm, NextBlockEnvAttributes
 };
-use reth_payload_builder::EthPayloadBuilderAttributes;
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{EthereumHardforks, InvalidTransactionError, Recovered};
@@ -37,7 +36,7 @@ use reth_transaction_pool::{
 
 use revm::{context_interface::Block as _, state::Account};
 
-use sova_engine_primitives::SovaBuiltPayload;
+use sova_engine_primitives::{SovaBuiltPayload, SovaPayloadBuilderAttributes};
 use sova_evm::{MyEvmConfig, WithInspector};
 use sova_primitives::{tx::{l1_block::TxL1Block, typed::SovaTypedTransaction}, SovaPrimitives, SovaTransactionSigned};
 
@@ -83,12 +82,12 @@ where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec> + Clone,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = SovaTransactionSigned>>,
 {
-    type Attributes = EthPayloadBuilderAttributes;
+    type Attributes = SovaPayloadBuilderAttributes;
     type BuiltPayload = SovaBuiltPayload;
 
     fn try_build(
         &self,
-        args: BuildArguments<EthPayloadBuilderAttributes, SovaBuiltPayload>,
+        args: BuildArguments<SovaPayloadBuilderAttributes, SovaBuiltPayload>,
     ) -> Result<BuildOutcome<SovaBuiltPayload>, PayloadBuilderError> {
         default_sova_payload(
             self.evm_config.clone(),
@@ -189,7 +188,7 @@ pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
     client: Client,
     pool: Pool,
     builder_config: EthereumBuilderConfig,
-    args: BuildArguments<EthPayloadBuilderAttributes, SovaBuiltPayload>,
+    args: BuildArguments<SovaPayloadBuilderAttributes, SovaBuiltPayload>,
     best_txs: F,
 ) -> Result<BuildOutcome<SovaBuiltPayload>, PayloadBuilderError>
 where

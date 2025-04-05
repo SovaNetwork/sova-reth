@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
 use reth_chainspec::ChainSpec;
-use reth_ethereum_engine_primitives::EthEngineTypes;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_node_api::NodeTypes;
 use reth_node_builder::{
@@ -19,10 +18,14 @@ use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
 use sova_cli::{BitcoinConfig, SovaConfig};
+use sova_engine_primitives::SovaEngineTypes;
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
 use sova_primitives::{SovaPrimitives, SovaTransactionSigned};
 
 use crate::SovaArgs;
+
+/// Storage implementation for Optimism.
+pub type SovaStorage = EthStorage<SovaTransactionSigned>;
 
 /// Type configuration for a regular Sova node.
 #[derive(Debug, Default, Clone)]
@@ -76,9 +79,10 @@ impl SovaNode {
     where
         Node: FullNodeTypes<
             Types: NodeTypes<
-                Payload = EthEngineTypes,
+                Payload = SovaEngineTypes,
                 ChainSpec = ChainSpec,
                 Primitives = SovaPrimitives,
+                Storage = SovaStorage,
             >,
         >,
     {
@@ -102,13 +106,20 @@ impl NodeTypes for SovaNode {
     type Primitives = SovaPrimitives;
     type ChainSpec = ChainSpec;
     type StateCommitment = MerklePatriciaTrie;
-    type Storage = EthStorage;
-    type Payload = EthEngineTypes;
+    type Storage = SovaStorage;
+    type Payload = SovaEngineTypes;
 }
 
 impl<N> Node<N> for SovaNode
 where
-    N: FullNodeTypes<Types = Self>,
+    N: FullNodeTypes<
+        Types: NodeTypes<
+            Payload = SovaEngineTypes,
+            ChainSpec = ChainSpec,
+            Primitives = SovaPrimitives,
+            Storage = SovaStorage,
+        >,
+    >,  
 {
     type ComponentsBuilder = ComponentsBuilder<
         N,
@@ -152,7 +163,7 @@ impl<Node, Pool> PayloadServiceBuilder<Node, Pool> for MyPayloadBuilder
 where
     Node: FullNodeTypes<
         Types: NodeTypes<
-            Payload = EthEngineTypes,
+            Payload = SovaEngineTypes,
             ChainSpec = ChainSpec,
             Primitives = SovaPrimitives,
         >,

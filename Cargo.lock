@@ -9414,9 +9414,15 @@ version = "0.0.2"
 dependencies = [
  "alloy-eips",
  "alloy-primitives",
+ "alloy-rlp",
  "alloy-rpc-types-engine",
+ "reth-engine-primitives",
+ "reth-ethereum-primitives",
  "reth-payload-primitives",
  "reth-primitives-traits",
+ "serde",
+ "serde_json",
+ "sha2 0.10.8",
  "sova-primitives",
 ]
 
@@ -9453,6 +9459,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sova-cli",
+ "sova-primitives",
  "sova-sentinel-client",
  "sova-sentinel-proto",
  "tokio",
@@ -9482,6 +9489,7 @@ dependencies = [
  "reth-transaction-pool",
  "reth-trie-db",
  "sova-cli",
+ "sova-engine-primitives",
  "sova-evm",
  "sova-payload",
  "sova-primitives",

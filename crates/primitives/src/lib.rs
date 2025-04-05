@@ -5,10 +5,10 @@ pub use reth_ethereum_primitives::serde_bincode_compat::*;
 use reth_primitives_traits::NodePrimitives;
 
 /// Type alias for the ethereum block
-pub type Block = alloy_consensus::Block<SovaTransactionSigned>;
+pub type SovaBlock = alloy_consensus::Block<SovaTransactionSigned>;
 
 /// Type alias for the ethereum blockbody
-pub type BlockBody = alloy_consensus::BlockBody<SovaTransactionSigned>;
+pub type SovaBlockBody = alloy_consensus::BlockBody<SovaTransactionSigned>;
 
 /// Helper struct that specifies the ethereum
 /// [`NodePrimitives`](reth_primitives_traits::NodePrimitives) types.
@@ -18,9 +18,9 @@ pub type BlockBody = alloy_consensus::BlockBody<SovaTransactionSigned>;
 pub struct SovaPrimitives;
 
 impl NodePrimitives for SovaPrimitives {
-    type Block = Block;
+    type Block = SovaBlock;
     type BlockHeader = alloy_consensus::Header;
-    type BlockBody = BlockBody;
+    type BlockBody = SovaBlockBody;
     type SignedTx = SovaTransactionSigned;
     type Receipt = reth_ethereum_primitives::Receipt;
 }
