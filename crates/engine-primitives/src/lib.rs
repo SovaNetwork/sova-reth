@@ -1,6 +1,8 @@
 //! Sova specific engine API types and impls.
 
 mod payload;
+use std::sync::Arc;
+
 pub use payload::{SovaBuiltPayload, SovaPayloadBuilderAttributes};
 
 extern crate alloc;
@@ -10,12 +12,15 @@ pub use alloy_rpc_types_engine::{
     ExecutionPayloadEnvelopeV2, ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4,
     ExecutionPayloadV1, PayloadAttributes as EthPayloadAttributes,
 };
+use reth::{api::{FullNodeComponents, NodeTypes}, builder::rpc::EngineValidatorBuilder};
+use reth_chainspec::ChainSpec;
 use reth_engine_primitives::EngineTypes;
+use reth_ethereum_payload_builder::EthereumExecutionPayloadValidator;
 use reth_payload_primitives::{BuiltPayload, PayloadTypes};
 use reth_primitives_traits::{NodePrimitives, SealedBlock};
 use sova_primitives::{SovaBlock, SovaPrimitives};
 
-/// The types used in the default mainnet ethereum beacon consensus engine.
+/// The types used in the default mainnet sova beacon consensus engine.
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 #[non_exhaustive]
 pub struct SovaEngineTypes<T: PayloadTypes = SovaPayloadTypes> {

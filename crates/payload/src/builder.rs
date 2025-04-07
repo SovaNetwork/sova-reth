@@ -17,9 +17,10 @@ use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
     execute::{BlockBuilder, BlockBuilderOutcome}, ConfigureEvm, Evm, NextBlockEnvAttributes
 };
+use reth_payload_builder::{EthBuiltPayload, EthPayloadBuilderAttributes};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
-use reth_primitives::{EthereumHardforks, InvalidTransactionError, Recovered};
+use reth_primitives::{EthPrimitives, EthereumHardforks, InvalidTransactionError, Recovered, TransactionSigned};
 use reth_primitives_traits::SignedTransaction;
 use reth_provider::StateProviderFactory;
 use reth_revm::{
@@ -36,9 +37,7 @@ use reth_transaction_pool::{
 
 use revm::{context_interface::Block as _, state::Account};
 
-use sova_engine_primitives::{SovaBuiltPayload, SovaPayloadBuilderAttributes};
 use sova_evm::{MyEvmConfig, WithInspector};
-use sova_primitives::{tx::{l1_block::TxL1Block, typed::SovaTypedTransaction}, SovaPrimitives, SovaTransactionSigned};
 
 type BestTransactionsIter<Pool> = Box<
     dyn BestTransactions<Item = Arc<ValidPoolTransaction<<Pool as TransactionPool>::Transaction>>>,
@@ -77,18 +76,18 @@ impl<Pool, Client, EvmConfig> MyPayloadBuilder<Pool, Client, EvmConfig> {
 // Default implementation of [PayloadBuilder] for unit type
 impl<Pool, Client, EvmConfig> PayloadBuilder for MyPayloadBuilder<Pool, Client, EvmConfig>
 where
-    EvmConfig: ConfigureEvm<Primitives = SovaPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>
+    EvmConfig: ConfigureEvm<Primitives = EthPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>
         + WithInspector,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec> + Clone,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = SovaTransactionSigned>>,
+    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
 {
-    type Attributes = SovaPayloadBuilderAttributes;
-    type BuiltPayload = SovaBuiltPayload;
+    type Attributes = EthPayloadBuilderAttributes;
+    type BuiltPayload = EthBuiltPayload;
 
     fn try_build(
         &self,
-        args: BuildArguments<SovaPayloadBuilderAttributes, SovaBuiltPayload>,
-    ) -> Result<BuildOutcome<SovaBuiltPayload>, PayloadBuilderError> {
+        args: BuildArguments<EthPayloadBuilderAttributes, EthBuiltPayload>,
+    ) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError> {
         default_sova_payload(
             self.evm_config.clone(),
             self.client.clone(),
@@ -113,7 +112,7 @@ where
     fn build_empty_payload(
         &self,
         config: PayloadConfig<Self::Attributes>,
-    ) -> Result<SovaBuiltPayload, PayloadBuilderError> {
+    ) -> Result<EthBuiltPayload, PayloadBuilderError> {
         let args = BuildArguments::new(Default::default(), config, Default::default(), None);
 
         default_sova_payload(
@@ -188,14 +187,14 @@ pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
     client: Client,
     pool: Pool,
     builder_config: EthereumBuilderConfig,
-    args: BuildArguments<SovaPayloadBuilderAttributes, SovaBuiltPayload>,
+    args: BuildArguments<EthPayloadBuilderAttributes, EthBuiltPayload>,
     best_txs: F,
-) -> Result<BuildOutcome<SovaBuiltPayload>, PayloadBuilderError>
+) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError>
 where
-    EvmConfig: ConfigureEvm<Primitives = SovaPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>
+    EvmConfig: ConfigureEvm<Primitives = EthPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>
         + WithInspector,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec>,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = SovaTransactionSigned>>,
+    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
     F: FnOnce(BestTransactionsAttributes) -> BestTransactionsIter<Pool>,
 {
     let BuildArguments {
@@ -353,10 +352,10 @@ where
     })?;
 
     // *** APPLY BITCOIN CONTEXT TXS ***
-    execute_l1_block_txs(&mut builder, btc_block_num).map_err(|err| {
-        warn!(target: "payload_builder", %err, "failed to execute L1 block transactions");
-        err
-    })?;
+    // execute_l1_block_txs(&mut builder, btc_block_num).map_err(|err| {
+    //     warn!(target: "payload_builder", %err, "failed to execute L1 block transactions");
+    //     err
+    // })?;
 
     let mut block_blob_count = 0;
     let blob_params = chain_spec.blob_params_at_timestamp(attributes.timestamp);
@@ -521,7 +520,7 @@ where
     let sealed_block = Arc::new(block.sealed_block().clone());
     debug!(target: "payload_builder", id=%attributes.id, sealed_block_header = ?sealed_block.sealed_header(), "sealed built block");
 
-    let mut payload = SovaBuiltPayload::new(attributes.id, sealed_block, total_fees, requests);
+    let mut payload = EthBuiltPayload::new(attributes.id, sealed_block, total_fees, requests);
 
     // extend the payload with the blob sidecars from the executed txs
     payload.extend_sidecars(blob_sidecars.into_iter().map(Arc::unwrap_or_clone));
@@ -542,52 +541,52 @@ sol! {
     );
 }
 
-pub fn execute_l1_block_txs(
-    builder: &mut impl BlockBuilder<Primitives = SovaPrimitives>,
-    btc_block_num: u64,
-) -> Result<ExecutionInfo, PayloadBuilderError> {
-    let mut info = ExecutionInfo::new();
+// pub fn execute_l1_block_txs(
+//     builder: &mut impl BlockBuilder<Primitives = EthPrimitives>,
+//     btc_block_num: u64,
+// ) -> Result<ExecutionInfo, PayloadBuilderError> {
+//     let mut info = ExecutionInfo::new();
     
-    // TODO: rm hardcoded parts
-    let signer_addr = address!("0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001");
+//     // TODO: rm hardcoded parts
+//     let signer_addr = address!("0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001");
 
-    let tx_l1_block = SovaTransactionSigned::new_unhashed(
-        SovaTypedTransaction::L1Block(TxL1Block {
-            from: signer_addr,
-            to: TxKind::Call(address!("0x2100000000000000000000000000000000000015")),
-            gas_limit: 21_000u64,
-            input: setBitcoinBlockDataCall {
-                _blockHeight: btc_block_num,
-                _blockTimestamp: U256::ZERO,
-                _networkDifficulty: U256::ZERO,
-                _blockHash: FixedBytes::new([0; 32]),
-                _sequenceNumber: 0,
-            }
-            .abi_encode().into(),
-            ..Default::default()
-        }),
-        TxL1Block::signature(),
-    );
+//     let tx_l1_block = TransactionSigned::new_unhashed(
+//         SovaTypedTransaction::L1Block(TxL1Block {
+//             from: signer_addr,
+//             to: TxKind::Call(address!("0x2100000000000000000000000000000000000015")),
+//             gas_limit: 21_000u64,
+//             input: setBitcoinBlockDataCall {
+//                 _blockHeight: btc_block_num,
+//                 _blockTimestamp: U256::ZERO,
+//                 _networkDifficulty: U256::ZERO,
+//                 _blockHash: FixedBytes::new([0; 32]),
+//                 _sequenceNumber: 0,
+//             }
+//             .abi_encode().into(),
+//             ..Default::default()
+//         }),
+//         TxL1Block::signature(),
+//     );
 
-    let tx = Recovered::new_unchecked(tx_l1_block, signer_addr);
+//     let tx = Recovered::new_unchecked(tx_l1_block, signer_addr);
 
-    let gas_used = match builder.execute_transaction(tx.clone()) {
-        Ok(gas_used) => gas_used,
-        Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
-            error,
-            ..
-        })) => {
-            warn!(target: "payload_builder", %error, ?tx, "Error in L1Block transaction.");
-            return Err(PayloadBuilderError::Internal(RethError::msg(error.to_string())));
-        }
-        Err(err) => {
-            // this is an error that we should treat as fatal for this attempt
-            return Err(PayloadBuilderError::EvmExecutionError(Box::new(err)))
-        }
-    };
+//     let gas_used = match builder.execute_transaction(tx.clone()) {
+//         Ok(gas_used) => gas_used,
+//         Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
+//             error,
+//             ..
+//         })) => {
+//             warn!(target: "payload_builder", %error, ?tx, "Error in L1Block transaction.");
+//             return Err(PayloadBuilderError::Internal(RethError::msg(error.to_string())));
+//         }
+//         Err(err) => {
+//             // this is an error that we should treat as fatal for this attempt
+//             return Err(PayloadBuilderError::EvmExecutionError(Box::new(err)))
+//         }
+//     };
 
-    // add gas used by the transaction to cumulative gas used, before creating the receipt
-    info.cumulative_gas_used += gas_used;
+//     // add gas used by the transaction to cumulative gas used, before creating the receipt
+//     info.cumulative_gas_used += gas_used;
     
-    Ok(info)
-}
+//     Ok(info)
+// }

@@ -10,11 +10,15 @@ keywords.workspace = true
 [dependencies]
 sova-primitives.workspace = true
 
+reth.workspace = true
+reth-chainspec.workspace = true
 reth-engine-primitives.workspace = true
 reth-ethereum-primitives.workspace = true
+reth-ethereum-payload-builder.workspace = true
 reth-payload-primitives.workspace = true
 reth-primitives-traits.workspace = true
 
+alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true

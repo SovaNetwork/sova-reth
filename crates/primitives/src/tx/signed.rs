@@ -783,13 +783,13 @@ pub mod serde_bincode_compat {
 
     /// Bincode-compatible [`super::OpTransactionSigned`] serde implementation.
     #[derive(Debug, Serialize, Deserialize)]
-    pub struct OpTransactionSigned<'a> {
+    pub struct SovaTransactionSigned<'a> {
         hash: TxHash,
         signature: Signature,
         transaction: SovaTypedTransaction<'a>,
     }
 
-    impl<'a> From<&'a super::SovaTransactionSigned> for OpTransactionSigned<'a> {
+    impl<'a> From<&'a super::SovaTransactionSigned> for SovaTransactionSigned<'a> {
         fn from(value: &'a super::SovaTransactionSigned) -> Self {
             Self {
                 hash: *value.tx_hash(),
@@ -799,8 +799,8 @@ pub mod serde_bincode_compat {
         }
     }
 
-    impl<'a> From<OpTransactionSigned<'a>> for super::SovaTransactionSigned {
-        fn from(value: OpTransactionSigned<'a>) -> Self {
+    impl<'a> From<SovaTransactionSigned<'a>> for super::SovaTransactionSigned {
+        fn from(value: SovaTransactionSigned<'a>) -> Self {
             Self {
                 hash: value.hash.into(),
                 signature: value.signature,
@@ -810,7 +810,7 @@ pub mod serde_bincode_compat {
     }
 
     impl SerdeBincodeCompat for super::SovaTransactionSigned {
-        type BincodeRepr<'a> = OpTransactionSigned<'a>;
+        type BincodeRepr<'a> = SovaTransactionSigned<'a>;
 
         fn as_repr(&self) -> Self::BincodeRepr<'_> {
             self.into()

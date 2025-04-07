@@ -7,7 +7,7 @@ members = [
     "crates/evm",
     "crates/node",
     "crates/payload",
-    "crates/primitives",
+    "crates/primitives", "crates/rpc",
 ]
 default-members = ["bin/sova/"]
 resolver = "2"
@@ -52,6 +52,7 @@ reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth.git", re
 reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-execution-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-network-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-node-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
@@ -62,6 +63,12 @@ reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e
 reth-primitives-traits = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-provider = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-revm = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-rpc = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-rpc-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-rpc-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-rpc-eth-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-rpc-eth-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-storage-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-tasks = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
@@ -77,9 +84,12 @@ alloy-dyn-abi = "0.8.25"
 alloy-eips = { version = "0.13.0", default-features = false }
 alloy-evm = { version = "0.2.0", default-features = false }
 alloy-genesis = { version = "0.13.0", default-features = false }
+alloy-network = { version = "0.13.0", default-features = false }
+alloy-network-primitives = { version = "0.13.0", default-features = false }
 alloy-primitives = { version = "0.8.25", default-features = false, features = ["map-foldhash"] }
 alloy-rlp = { version = "0.3", default-features = false }
 alloy-rpc-types-engine = { version = "0.13.0", default-features = false }
+alloy-rpc-types-eth = { version = "0.13.0", default-features = false }
 alloy-sol-macro = "0.8.9"
 alloy-sol-types = { version = "0.8.25", default-features = false }
 

@@ -3,29 +3,31 @@ use std::sync::Arc;
 use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGeneratorConfig};
 use reth_chainspec::ChainSpec;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
-use reth_node_api::NodeTypes;
+use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor, NextBlockEnvAttributes};
+use reth_node_api::{FullNodeComponents, NodeAddOns, NodeTypes};
 use reth_node_builder::{
-    components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder},
-    node::FullNodeTypes,
-    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
+    components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder}, node::FullNodeTypes, rpc::{BasicEngineApiBuilder, EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder, EthApiCtx, RethRpcAddOns, RpcAddOns, RpcHandle}, BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig
 };
 use reth_node_ethereum::node::{
     EthereumAddOns, EthereumConsensusBuilder, EthereumNetworkBuilder, EthereumPoolBuilder,
 };
 use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
+use reth_primitives::TransactionSigned;
 use reth_provider::{CanonStateSubscriptions, EthStorage};
+use reth_rpc::{eth::core::EthApiFor, ValidationApi};
+use reth_rpc_api::{eth::FullEthApiServer, servers::BlockSubmissionValidationApiServer};
+use reth_rpc_builder::{config::RethRpcServerConfig, RethRpcModule};
+use reth_rpc_eth_types::{error::FromEvmError, EthApiError};
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
+use revm::context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_engine_primitives::SovaEngineTypes;
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
-use sova_primitives::{SovaPrimitives, SovaTransactionSigned};
+use sova_primitives::{tx::SovaTransaction, SovaPrimitives};
 
-use crate::SovaArgs;
-
-/// Storage implementation for Optimism.
-pub type SovaStorage = EthStorage<SovaTransactionSigned>;
+use crate::{engine::SovaEngineValidator, SovaArgs};
 
 /// Type configuration for a regular Sova node.
 #[derive(Debug, Default, Clone)]
@@ -82,7 +84,7 @@ impl SovaNode {
                 Payload = SovaEngineTypes,
                 ChainSpec = ChainSpec,
                 Primitives = SovaPrimitives,
-                Storage = SovaStorage,
+                Storage = EthStorage,
             >,
         >,
     {
@@ -106,7 +108,7 @@ impl NodeTypes for SovaNode {
     type Primitives = SovaPrimitives;
     type ChainSpec = ChainSpec;
     type StateCommitment = MerklePatriciaTrie;
-    type Storage = SovaStorage;
+    type Storage = EthStorage;
     type Payload = SovaEngineTypes;
 }
 
@@ -117,7 +119,7 @@ where
             Payload = SovaEngineTypes,
             ChainSpec = ChainSpec,
             Primitives = SovaPrimitives,
-            Storage = SovaStorage,
+            Storage = EthStorage,
         >,
     >,  
 {
@@ -130,16 +132,148 @@ where
         EthereumConsensusBuilder,
     >;
 
-    type AddOns = EthereumAddOns<
-        NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>,
-    >;
+    type AddOns =
+        SovaAddOns<NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>>;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components(self)
     }
 
     fn add_ons(&self) -> Self::AddOns {
-        EthereumAddOns::default()
+        SovaAddOns::default()
+    }
+}
+
+#[derive(Debug)]
+pub struct SovaAddOns<N>
+where
+    N: FullNodeComponents,
+{
+    inner: RpcAddOns<
+        N,
+        SovaEthApiBuilder,
+        SovaEngineValidatorBuilder,
+        BasicEngineApiBuilder<SovaEngineValidatorBuilder>,
+    >,
+}
+
+impl<N: FullNodeComponents> Default for SovaAddOns<N>
+where
+    N: FullNodeComponents<Types: NodeTypes<Primitives = SovaPrimitives>>,
+    SovaEthApiBuilder: EthApiBuilder<N>,
+{
+    fn default() -> Self {
+        Self { inner: Default::default() }
+    }
+}
+
+impl<N> NodeAddOns<N> for SovaAddOns<N>
+where
+    N: FullNodeComponents<
+        Types: NodeTypes<
+            ChainSpec = ChainSpec,
+            Primitives = SovaPrimitives,
+            Storage = EthStorage,
+            Payload = SovaEngineTypes,
+        >,
+        Evm: ConfigureEvm<NextBlockEnvCtx = NextBlockEnvAttributes>,
+    >,
+    SovaEthApiError: FromEvmError<N::Evm>,
+    <N::Pool as TransactionPool>::Transaction: SovaPooledTx,
+    EvmFactoryFor<N::Evm>: EvmFactory<Tx = TxEnv>,
+{
+    type Handle = RpcHandle<N, SovaEthApi<N>>;
+
+    async fn launch_add_ons(
+        self,
+        ctx: reth_node_api::AddOnsContext<'_, N>,
+    ) -> eyre::Result<Self::Handle> {
+        let validation_api = ValidationApi::new(
+            ctx.node.provider().clone(),
+            Arc::new(ctx.node.consensus().clone()),
+            ctx.node.block_executor().clone(),
+            ctx.config.rpc.flashbots_config(),
+            Box::new(ctx.node.task_executor().clone()),
+            Arc::new(SovaEngineValidator::new(ctx.config.chain.clone())),
+        );
+
+        self.inner
+            .launch_add_ons_with(ctx, move |modules, _, _| {
+                modules.merge_if_module_configured(
+                    RethRpcModule::Flashbots,
+                    validation_api.into_rpc(),
+                )?;
+
+                Ok(())
+            })
+            .await
+    }
+}
+
+impl<N> RethRpcAddOns<N> for SovaAddOns<N>
+where
+    N: FullNodeComponents<
+        Types: NodeTypes<
+            ChainSpec = ChainSpec,
+            Primitives = SovaPrimitives,
+            Storage = EthStorage,
+            Payload = SovaEngineTypes,
+        >,
+        Evm: ConfigureEvm<NextBlockEnvCtx = NextBlockEnvAttributes>,
+    >,
+    SovaEthApiError: FromEvmError<N::Evm>,
+    <<N as FullNodeComponents>::Pool as TransactionPool>::Transaction: SovaPooledTx,
+    EvmFactoryFor<N::Evm>: EvmFactory<Tx = SovaTransaction<TxEnv>>,
+{
+    type EthApi = SovaEthApi<N>;
+
+    fn hooks_mut(&mut self) -> &mut reth_node_builder::rpc::RpcHooks<N, Self::EthApi> {
+        self.rpc_add_ons.hooks_mut()
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SovaEthApiBuilder;
+
+impl<N> EthApiBuilder<N> for SovaEthApiBuilder
+where
+    N: FullNodeComponents,
+    EthApiFor<N>: FullEthApiServer<Provider = N::Provider, Pool = N::Pool>,
+{
+    type EthApi = EthApiFor<N>;
+
+    fn build_eth_api(self, ctx: EthApiCtx<'_, N>) -> Self::EthApi {
+        reth_rpc::EthApiBuilder::new(
+            ctx.components.provider().clone(),
+            ctx.components.pool().clone(),
+            ctx.components.network().clone(),
+            ctx.components.evm_config().clone(),
+        )
+        .eth_cache(ctx.cache)
+        .task_spawner(ctx.components.task_executor().clone())
+        .gas_cap(ctx.config.rpc_gas_cap.into())
+        .max_simulate_blocks(ctx.config.rpc_max_simulate_blocks)
+        .eth_proof_window(ctx.config.eth_proof_window)
+        .fee_history_cache_config(ctx.config.fee_history_cache)
+        .proof_permits(ctx.config.proof_permits)
+        .build()
+    }
+}
+
+/// Builder for [`SovaEngineValidator`].
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct SovaEngineValidatorBuilder;
+
+impl<Node, Types> EngineValidatorBuilder<Node> for SovaEngineValidatorBuilder
+where
+    Types: NodeTypes<ChainSpec = ChainSpec, Payload = SovaEngineTypes, Primitives = SovaPrimitives>,
+    Node: FullNodeComponents<Types = Types>,
+{
+    type Validator = SovaEngineValidator;
+
+    async fn build(self, ctx: &AddOnsContext<'_, Node>) -> eyre::Result<Self::Validator> {
+        Ok(SovaEngineValidator::new(ctx.config.chain.clone()))
     }
 }
 
@@ -168,7 +302,7 @@ where
             Primitives = SovaPrimitives,
         >,
     >,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = SovaTransactionSigned>>
+    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>
         + Unpin
         + 'static,
 {

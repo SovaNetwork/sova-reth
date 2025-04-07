@@ -8701,6 +8701,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afab94fb28594581f62d981211a9a4d53cc8130bbcbbb89a0440d9b8e81a7746"
 
 [[package]]
+name = "rpc"
+version = "0.0.2"
+dependencies = [
+ "alloy-consensus",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-rpc-types-eth",
+ "parking_lot",
+ "reth-chain-state",
+ "reth-chainspec",
+ "reth-network-api",
+ "reth-node-builder",
+ "reth-rpc",
+ "reth-rpc-eth-api",
+ "reth-rpc-eth-types",
+ "reth-storage-api",
+ "reth-tasks",
+ "reth-transaction-pool",
+ "sova-primitives",
+]
+
+[[package]]
 name = "ruint"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9412,11 +9434,15 @@ dependencies = [
 name = "sova-engine-primitives"
 version = "0.0.2"
 dependencies = [
+ "alloy-consensus",
  "alloy-eips",
  "alloy-primitives",
  "alloy-rlp",
  "alloy-rpc-types-engine",
+ "reth",
+ "reth-chainspec",
  "reth-engine-primitives",
+ "reth-ethereum-payload-builder",
  "reth-ethereum-primitives",
  "reth-payload-primitives",
  "reth-primitives-traits",
@@ -9470,12 +9496,14 @@ dependencies = [
 name = "sova-node"
 version = "0.0.2"
 dependencies = [
+ "alloy-rpc-types-engine",
  "bitcoin",
  "bitcoincore-rpc",
  "clap",
  "eyre",
  "reth-basic-payload-builder",
  "reth-chainspec",
+ "reth-engine-primitives",
  "reth-ethereum-engine-primitives",
  "reth-ethereum-payload-builder",
  "reth-ethereum-primitives",
@@ -9484,10 +9512,17 @@ dependencies = [
  "reth-node-builder",
  "reth-node-ethereum",
  "reth-payload-builder",
+ "reth-payload-primitives",
  "reth-primitives",
+ "reth-primitives-traits",
  "reth-provider",
+ "reth-rpc",
+ "reth-rpc-api",
+ "reth-rpc-builder",
+ "reth-rpc-eth-types",
  "reth-transaction-pool",
  "reth-trie-db",
+ "revm",
  "sova-cli",
  "sova-engine-primitives",
  "sova-evm",

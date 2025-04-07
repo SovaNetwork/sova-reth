@@ -171,6 +171,14 @@ where
     }
 }
 
+impl From<SovaBuiltPayload>
+    for alloy_consensus::Block<<SovaPrimitives as NodePrimitives>::SignedTx>
+{
+    fn from(value: SovaBuiltPayload) -> Self {
+        value.block().clone().into_block()
+    }
+}
+
 /// Container type for all components required to build a payload.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SovaPayloadBuilderAttributes {
