@@ -2,7 +2,8 @@
 //! protocol on Sova.
 
 use alloy_consensus::{
-    transaction::{RlpEcdsaDecodableTx, TxEip1559, TxEip2930, TxLegacy}, SignableTransaction, Signed, Transaction, TxEip4844, TxEip7702, TxEnvelope, Typed2718
+    transaction::{RlpEcdsaDecodableTx, TxEip1559, TxEip2930, TxLegacy},
+    SignableTransaction, Signed, Transaction, TxEip4844, TxEip7702, TxEnvelope, Typed2718,
 };
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Eip2718Result, Encodable2718},
@@ -10,7 +11,7 @@ use alloy_eips::{
     eip7702::SignedAuthorization,
 };
 use alloy_primitives::{
-    B256, Bytes, ChainId, PrimitiveSignature as Signature, TxHash, TxKind, U256, bytes,
+    bytes, Bytes, ChainId, PrimitiveSignature as Signature, TxHash, TxKind, B256, U256,
 };
 use alloy_rlp::{Decodable, Encodable, Header};
 use core::hash::{Hash, Hasher};
@@ -25,8 +26,7 @@ use super::envelope::SovaTxEnvelope;
 ///
 /// The difference between this and the [`SovaTxEnvelope`] is that this type does not have the deposit
 /// transaction variant, which is not expected to be pooled.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SovaPooledTransaction {
     /// An untagged [`TxLegacy`].
     Legacy(Signed<TxLegacy>),
@@ -80,7 +80,11 @@ impl SovaPooledTransaction {
     fn network_len(&self) -> usize {
         let mut payload_length = self.encode_2718_len();
         if !self.is_legacy() {
-            payload_length += Header { list: false, payload_length }.length();
+            payload_length += Header {
+                list: false,
+                payload_length,
+            }
+            .length();
         }
 
         payload_length
@@ -262,7 +266,10 @@ impl Encodable2718 for SovaPooledTransaction {
 
 impl Decodable2718 for SovaPooledTransaction {
     fn typed_decode(ty: u8, buf: &mut &[u8]) -> Eip2718Result<Self> {
-        match ty.try_into().map_err(|_| alloy_rlp::Error::Custom("unexpected tx type"))? {
+        match ty
+            .try_into()
+            .map_err(|_| alloy_rlp::Error::Custom("unexpected tx type"))?
+        {
             SovaTxType::Eip2930 => Ok(TxEip2930::rlp_decode_signed(buf)?.into()),
             SovaTxType::Eip1559 => Ok(TxEip1559::rlp_decode_signed(buf)?.into()),
             SovaTxType::Eip4844 => Ok(TxEip4844::rlp_decode_signed(buf)?.into()),
@@ -273,7 +280,9 @@ impl Decodable2718 for SovaPooledTransaction {
     }
 
     fn fallback_decode(buf: &mut &[u8]) -> Eip2718Result<Self> {
-        TxLegacy::rlp_decode_signed(buf).map(Into::into).map_err(Into::into)
+        TxLegacy::rlp_decode_signed(buf)
+            .map(Into::into)
+            .map_err(Into::into)
     }
 }
 
@@ -527,7 +536,10 @@ mod tests {
         );
 
         let res = SovaPooledTransaction::decode_2718(&mut &data[..]).unwrap();
-        assert_eq!(res.to(), Some(address!("714b6a4ea9b94a8a7d9fd362ed72630688c8898c")));
+        assert_eq!(
+            res.to(),
+            Some(address!("714b6a4ea9b94a8a7d9fd362ed72630688c8898c"))
+        );
     }
 
     #[test]

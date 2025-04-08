@@ -1,5 +1,8 @@
 use alloy_network::{Network, TransactionBuilder};
-use sova_primitives::{tx::{envelope::SovaTxEnvelope, typed::SovaTypedTransaction, SovaTransaction}, SovaTxType};
+use sova_primitives::{
+    tx::{envelope::SovaTxEnvelope, typed::SovaTypedTransaction, SovaTransaction},
+    SovaTxType,
+};
 
 /// Types for a mainnet-like Sova network.
 #[derive(Clone, Copy, Debug)]
@@ -103,7 +106,8 @@ impl TransactionBuilder<Sova> for SovaTransactionRequest {
     }
 
     fn set_max_priority_fee_per_gas(&mut self, max_priority_fee_per_gas: u128) {
-        self.as_mut().set_max_priority_fee_per_gas(max_priority_fee_per_gas);
+        self.as_mut()
+            .set_max_priority_fee_per_gas(max_priority_fee_per_gas);
     }
 
     fn gas_limit(&self) -> Option<u64> {
@@ -167,8 +171,10 @@ impl TransactionBuilder<Sova> for SovaTransactionRequest {
     fn build_unsigned(self) -> BuildResult<OpTypedTransaction, Optimism> {
         if let Err((tx_type, missing)) = self.as_ref().missing_keys() {
             let tx_type = OpTxType::try_from(tx_type as u8).unwrap();
-            return Err(TransactionBuilderError::InvalidTransactionRequest(tx_type, missing)
-                .into_unbuilt(self));
+            return Err(
+                TransactionBuilderError::InvalidTransactionRequest(tx_type, missing)
+                    .into_unbuilt(self),
+            );
         }
         Ok(self.build_typed_tx().expect("checked by missing_keys"))
     }

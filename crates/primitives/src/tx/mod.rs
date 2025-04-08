@@ -4,8 +4,8 @@ pub mod envelope;
 pub mod l1_block;
 pub mod pooled;
 pub mod signed;
-pub mod typed;
 pub mod tx_type;
+pub mod typed;
 
 use auto_impl::auto_impl;
 use revm::{
@@ -17,8 +17,7 @@ use std::vec;
 
 pub const L1_BLOCK_TRANSACTION_TYPE: u8 = 0x7E;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DepositTransactionParts {
     pub source_hash: B256,
     pub mint: Option<u128>,
@@ -34,7 +33,6 @@ impl DepositTransactionParts {
         }
     }
 }
-
 
 #[auto_impl(&, &mut, Box, Arc)]
 pub trait SovaTxTr: Transaction {
@@ -55,8 +53,7 @@ pub trait SovaTxTr: Transaction {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SovaTransaction<T: Transaction> {
     pub base: T,
     /// An enveloped EIP-2718 typed transaction

@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloy_consensus::Typed2718;
 use alloy_eips::eip2718::Eip2718Error;
-use alloy_primitives::{U8, U64};
+use alloy_primitives::{U64, U8};
 use alloy_rlp::{BufMut, Decodable, Encodable};
 use derive_more::Display;
 
@@ -19,8 +19,20 @@ pub const L1_BLOCK_TX_TYPE_ID: u8 = 126; // 0x7E
 /// [2930]: https://eips.ethereum.org/EIPS/eip-2930
 /// [4844]: https://eips.ethereum.org/EIPS/eip-4844
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, Eq, Default, PartialEq, PartialOrd, Ord, Hash, Display)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    Default,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[serde(into = "U8", try_from = "U64")]
 pub enum SovaTxType {
     /// Legacy transaction type.
@@ -46,8 +58,14 @@ pub enum SovaTxType {
 
 impl SovaTxType {
     /// List of all variants.
-    pub const ALL: [Self; 6] =
-        [Self::Legacy, Self::Eip2930, Self::Eip1559, Self::Eip4844, Self::Eip7702, Self::L1Block];
+    pub const ALL: [Self; 6] = [
+        Self::Legacy,
+        Self::Eip2930,
+        Self::Eip1559,
+        Self::Eip4844,
+        Self::Eip7702,
+        Self::L1Block,
+    ];
 }
 
 impl From<SovaTxType> for U8 {

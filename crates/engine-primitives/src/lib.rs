@@ -12,7 +12,10 @@ pub use alloy_rpc_types_engine::{
     ExecutionPayloadEnvelopeV2, ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4,
     ExecutionPayloadV1, PayloadAttributes as EthPayloadAttributes,
 };
-use reth::{api::{FullNodeComponents, NodeTypes}, builder::rpc::EngineValidatorBuilder};
+use reth::{
+    api::{FullNodeComponents, NodeTypes},
+    builder::rpc::EngineValidatorBuilder,
+};
 use reth_chainspec::ChainSpec;
 use reth_engine_primitives::EngineTypes;
 use reth_ethereum_payload_builder::EthereumExecutionPayloadValidator;
@@ -31,7 +34,7 @@ impl<
         T: PayloadTypes<
             ExecutionData = ExecutionData,
             BuiltPayload: BuiltPayload<Primitives: NodePrimitives<Block = SovaBlock>>,
-            >,
+        >,
     > PayloadTypes for SovaEngineTypes<T>
 {
     type ExecutionData = T::ExecutionData;

@@ -8,12 +8,27 @@ use alloy_primitives::U256;
 use reth_chain_state::CanonStateSubscriptions;
 use reth_chainspec::{ChainSpecProvider, EthChainSpec, EthereumHardforks};
 use reth_network_api::NetworkInfo;
-use reth_node_builder::{rpc::{EthApiBuilder, EthApiCtx}, ConfigureEvm, FullNodeComponents, NodePrimitives};
+use reth_node_builder::{
+    rpc::{EthApiBuilder, EthApiCtx},
+    ConfigureEvm, FullNodeComponents, NodePrimitives,
+};
 use reth_rpc::eth::{core::EthApiInner, DevSigner, EthApiTypes, FullEthApiServer, RpcNodeCore};
-use reth_rpc_eth_api::{helpers::{AddDevSigners, EthApiSpec, EthFees, EthSigner, EthState, LoadBlock, LoadFee, LoadState, SpawnBlocking, Trace}, FromEvmError, RpcNodeCoreExt};
+use reth_rpc_eth_api::{
+    helpers::{
+        AddDevSigners, EthApiSpec, EthFees, EthSigner, EthState, LoadBlock, LoadFee, LoadState,
+        SpawnBlocking, Trace,
+    },
+    FromEvmError, RpcNodeCoreExt,
+};
 use reth_rpc_eth_types::{EthStateCache, FeeHistoryCache, GasPriceOracle};
-use reth_storage_api::{BlockNumReader, BlockReader, BlockReaderIdExt, ProviderBlock, ProviderHeader, ProviderReceipt, ProviderTx, StageCheckpointReader, StateProviderFactory};
-use reth_tasks::{pool::{BlockingTaskGuard, BlockingTaskPool}, TaskSpawner};
+use reth_storage_api::{
+    BlockNumReader, BlockReader, BlockReaderIdExt, ProviderBlock, ProviderHeader, ProviderReceipt,
+    ProviderTx, StageCheckpointReader, StateProviderFactory,
+};
+use reth_tasks::{
+    pool::{BlockingTaskGuard, BlockingTaskPool},
+    TaskSpawner,
+};
 use reth_transaction_pool::TransactionPool;
 use sova_primitives::SovaPrimitives;
 
@@ -73,7 +88,7 @@ where
 {
     type Error = OpEthApiError;
     type NetworkTypes = Sova;
-    
+
     type TransactionCompat = Self;
 
     fn tx_resp_builder(&self) -> &Self::TransactionCompat {
@@ -296,6 +311,8 @@ where
         .proof_permits(ctx.config.proof_permits)
         .build_inner();
 
-        SovaEthApi { inner: Arc::new(SovaEthApiInner { eth_api }) }
+        SovaEthApi {
+            inner: Arc::new(SovaEthApiInner { eth_api }),
+        }
     }
 }

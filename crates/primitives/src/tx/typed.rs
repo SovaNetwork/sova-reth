@@ -1,9 +1,10 @@
 use alloy_consensus::{
-    transaction::RlpEcdsaEncodableTx, SignableTransaction, Signed, Transaction, TxEip1559, TxEip2930, TxEip4844, TxEip7702, TxLegacy, Typed2718
+    transaction::RlpEcdsaEncodableTx, SignableTransaction, Signed, Transaction, TxEip1559,
+    TxEip2930, TxEip4844, TxEip7702, TxLegacy, Typed2718,
 };
-use alloy_eips::{Encodable2718, eip2930::AccessList};
+use alloy_eips::{eip2930::AccessList, Encodable2718};
 use alloy_primitives::{
-    Address, B256, Bytes, ChainId, PrimitiveSignature as Signature, TxHash, TxKind, bytes::BufMut,
+    bytes::BufMut, Address, Bytes, ChainId, PrimitiveSignature as Signature, TxHash, TxKind, B256,
 };
 use reth_primitives_traits::InMemorySize;
 
@@ -16,8 +17,7 @@ use super::{envelope::SovaTxEnvelope, l1_block::TxL1Block, tx_type::SovaTxType};
 /// 2. EIP2930 (state access lists) [`TxEip2930`]
 /// 3. EIP1559 [`TxEip1559`]
 /// 4. L1Block [`TxL1Block`]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SovaTypedTransaction {
     /// Legacy transaction
     Legacy(TxLegacy),
@@ -539,31 +539,35 @@ impl reth_codecs::Compact for SovaTypedTransaction {
     }
 
     fn from_compact(buf: &[u8], tx_type: usize) -> (Self, &[u8]) {
-        match tx_type.try_into().map_err(|_| format!("Unknown transaction type: {}", tx_type)).unwrap() {
+        match tx_type
+            .try_into()
+            .map_err(|_| format!("Unknown transaction type: {}", tx_type))
+            .unwrap()
+        {
             SovaTxType::Legacy => {
                 let (tx, buf) = TxLegacy::from_compact(buf, buf.len());
                 (Self::Legacy(tx), buf)
-            },
+            }
             SovaTxType::Eip2930 => {
                 let (tx, buf) = TxEip2930::from_compact(buf, buf.len());
                 (Self::Eip2930(tx), buf)
-            },
+            }
             SovaTxType::Eip1559 => {
                 let (tx, buf) = TxEip1559::from_compact(buf, buf.len());
                 (Self::Eip1559(tx), buf)
-            },
+            }
             SovaTxType::Eip4844 => {
                 let (tx, buf) = TxEip4844::from_compact(buf, buf.len());
                 (Self::Eip4844(tx), buf)
-            },
+            }
             SovaTxType::Eip7702 => {
                 let (tx, buf) = TxEip7702::from_compact(buf, buf.len());
                 (Self::Eip7702(tx), buf)
-            },
+            }
             SovaTxType::L1Block => {
                 let (tx, buf) = TxL1Block::from_compact(buf, buf.len());
                 (Self::L1Block(tx), buf)
-            },
+            }
         }
     }
 }

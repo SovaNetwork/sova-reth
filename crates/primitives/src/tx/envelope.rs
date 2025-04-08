@@ -1,14 +1,15 @@
 extern crate alloc;
 
 use alloy_consensus::{
-    transaction::RlpEcdsaDecodableTx, Sealable, Sealed, Signed, Transaction, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, TxEnvelope, TxLegacy, Typed2718
+    transaction::RlpEcdsaDecodableTx, Sealable, Sealed, Signed, Transaction, TxEip1559, TxEip2930,
+    TxEip4844, TxEip4844Variant, TxEip7702, TxEnvelope, TxLegacy, Typed2718,
 };
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Eip2718Result, Encodable2718},
     eip2930::AccessList,
     eip7702::SignedAuthorization,
 };
-use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
+use alloy_primitives::{Address, Bytes, TxKind, B256, U256};
 use alloy_rlp::{Decodable, Encodable};
 
 use super::{l1_block::TxL1Block, tx_type::SovaTxType, typed::SovaTypedTransaction};
@@ -24,8 +25,7 @@ use super::{l1_block::TxL1Block, tx_type::SovaTxType, typed::SovaTypedTransactio
 /// flag.
 ///
 /// [EIP-2718]: https://eips.ethereum.org/EIPS/eip-2718
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SovaTxEnvelope {
     /// An untagged [`TxLegacy`].
     Legacy(Signed<TxLegacy>),
@@ -75,9 +75,7 @@ impl From<Signed<TxEip4844Variant>> for SovaTxEnvelope {
     fn from(v: Signed<TxEip4844Variant>) -> Self {
         let (tx_variant, sig, hash) = v.into_parts();
         match tx_variant {
-            TxEip4844Variant::TxEip4844(tx) => {
-                Self::Eip4844(Signed::new_unchecked(tx, sig, hash))
-            }
+            TxEip4844Variant::TxEip4844(tx) => Self::Eip4844(Signed::new_unchecked(tx, sig, hash)),
             TxEip4844Variant::TxEip4844WithSidecar(tx_with_sidecar) => {
                 Self::Eip4844(Signed::new_unchecked(tx_with_sidecar.tx, sig, hash))
             }
@@ -523,16 +521,19 @@ impl Decodable for SovaTxEnvelope {
 
 impl Decodable2718 for SovaTxEnvelope {
     fn typed_decode(ty: u8, buf: &mut &[u8]) -> Eip2718Result<Self> {
-        match ty.try_into().map_err(|_| Eip2718Error::UnexpectedType(ty))? {
+        match ty
+            .try_into()
+            .map_err(|_| Eip2718Error::UnexpectedType(ty))?
+        {
             SovaTxType::Eip2930 => Ok(Self::Eip2930(TxEip2930::rlp_decode_signed(buf)?)),
             SovaTxType::Eip1559 => Ok(Self::Eip1559(TxEip1559::rlp_decode_signed(buf)?)),
             SovaTxType::Eip4844 => Ok(Self::Eip4844(TxEip4844::rlp_decode_signed(buf)?)),
             SovaTxType::Eip7702 => Ok(Self::Eip7702(TxEip7702::rlp_decode_signed(buf)?)),
             SovaTxType::L1Block => Ok(Self::L1Block(TxL1Block::decode(buf)?.seal_slow())),
-            SovaTxType::Legacy => {
-                Err(alloy_rlp::Error::Custom("type-0 eip2718 transactions are not supported")
-                    .into())
-            }
+            SovaTxType::Legacy => Err(alloy_rlp::Error::Custom(
+                "type-0 eip2718 transactions are not supported",
+            )
+            .into()),
         }
     }
 
@@ -596,18 +597,24 @@ mod tests {
     use super::*;
     use alloc::vec;
     use alloy_consensus::SignableTransaction;
-    use alloy_primitives::{Address, B256, Bytes, PrimitiveSignature, TxKind, U256, hex};
+    use alloy_primitives::{hex, Address, Bytes, PrimitiveSignature, TxKind, B256, U256};
 
     #[test]
     fn test_tx_gas_limit() {
-        let tx = TxL1Block { gas_limit: 1, ..Default::default() };
+        let tx = TxL1Block {
+            gas_limit: 1,
+            ..Default::default()
+        };
         let tx_envelope = SovaTxEnvelope::L1Block(tx.seal_slow());
         assert_eq!(tx_envelope.gas_limit(), 1);
     }
 
     #[test]
     fn test_deposit() {
-        let tx = TxL1Block { is_system_transaction: true, ..Default::default() };
+        let tx = TxL1Block {
+            is_system_transaction: true,
+            ..Default::default()
+        };
         let tx_envelope = SovaTxEnvelope::L1Block(tx.seal_slow());
         assert!(tx_envelope.is_deposit());
 
@@ -619,7 +626,10 @@ mod tests {
 
     #[test]
     fn test_system_transaction() {
-        let mut tx = TxL1Block { is_system_transaction: true, ..Default::default() };
+        let mut tx = TxL1Block {
+            is_system_transaction: true,
+            ..Default::default()
+        };
         let tx_envelope = SovaTxEnvelope::L1Block(tx.clone().seal_slow());
         assert!(tx_envelope.is_system_transaction());
 

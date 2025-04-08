@@ -9,7 +9,8 @@ use alloy_eips::{eip4844::BlobTransactionSidecar, eip4895::Withdrawals, eip7685:
 use alloy_primitives::{Address, B256, U256};
 use alloy_rlp::Encodable;
 use alloy_rpc_types_engine::{
-    ExecutionPayloadEnvelopeV2, ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4, ExecutionPayloadFieldV2, ExecutionPayloadV1, ExecutionPayloadV3, PayloadAttributes, PayloadId
+    ExecutionPayloadEnvelopeV2, ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4,
+    ExecutionPayloadFieldV2, ExecutionPayloadV1, ExecutionPayloadV3, PayloadAttributes, PayloadId,
 };
 
 use reth_payload_primitives::{BuiltPayload, PayloadBuilderAttributes};
@@ -47,7 +48,13 @@ impl<N: NodePrimitives> SovaBuiltPayload<N> {
         fees: U256,
         requests: Option<Requests>,
     ) -> Self {
-        Self { id, block, fees, sidecars: Vec::new(), requests }
+        Self {
+            id,
+            block,
+            fees,
+            sidecars: Vec::new(),
+            requests,
+        }
     }
 
     /// Returns the identifier of the payload.
@@ -115,7 +122,7 @@ where
 }
 
 // V2 engine_getPayloadV2 response
-impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV2 
+impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV2
 where
     N: NodePrimitives<Block = SovaBlock>,
 {
@@ -132,12 +139,17 @@ where
     }
 }
 
-impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV3 
+impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV3
 where
     N: NodePrimitives<Block = SovaBlock>,
 {
     fn from(value: SovaBuiltPayload<N>) -> Self {
-        let SovaBuiltPayload { block, fees, sidecars, .. } = value;
+        let SovaBuiltPayload {
+            block,
+            fees,
+            sidecars,
+            ..
+        } = value;
 
         Self {
             execution_payload: ExecutionPayloadV3::from_block_unchecked(
@@ -159,7 +171,7 @@ where
     }
 }
 
-impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV4 
+impl<N> From<SovaBuiltPayload<N>> for ExecutionPayloadEnvelopeV4
 where
     N: NodePrimitives<Block = SovaBlock>,
 {

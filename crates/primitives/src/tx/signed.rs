@@ -4,7 +4,9 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use alloy_consensus::{
-    transaction::{RlpEcdsaDecodableTx, RlpEcdsaEncodableTx}, Sealed, SignableTransaction, Signed, Transaction, TxEip1559, TxEip2930, TxEip4844, TxEip7702, TxLegacy, Typed2718
+    transaction::{RlpEcdsaDecodableTx, RlpEcdsaEncodableTx},
+    Sealed, SignableTransaction, Signed, Transaction, TxEip1559, TxEip2930, TxEip4844, TxEip7702,
+    TxLegacy, Typed2718,
 };
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Eip2718Result, Encodable2718},
@@ -31,11 +33,15 @@ use reth_revm::context::TxEnv;
 
 use crate::SovaTxType;
 
-use super::{envelope::SovaTxEnvelope, l1_block::TxL1Block, pooled::SovaPooledTransaction, typed::SovaTypedTransaction, DepositTransactionParts, SovaTransaction};
+use super::{
+    envelope::SovaTxEnvelope, l1_block::TxL1Block, pooled::SovaPooledTransaction,
+    typed::SovaTypedTransaction, DepositTransactionParts, SovaTransaction,
+};
 
 /// Signed transaction.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[derive(Debug, Clone, Eq, derive_more::AsRef, derive_more::Deref)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, derive_more::AsRef, derive_more::Deref,
+)]
 pub struct SovaTransactionSigned {
     /// Transaction hash
     #[serde(skip)]
@@ -51,7 +57,11 @@ pub struct SovaTransactionSigned {
 impl SovaTransactionSigned {
     /// Creates a new signed transaction from the given transaction, signature and hash.
     pub fn new(transaction: SovaTypedTransaction, signature: Signature, hash: B256) -> Self {
-        Self { hash: hash.into(), signature, transaction }
+        Self {
+            hash: hash.into(),
+            signature,
+            transaction,
+        }
     }
 
     /// Consumes the type and returns the transaction.
@@ -75,7 +85,11 @@ impl SovaTransactionSigned {
     ///
     /// Note: this only calculates the hash on the first [`SovaTransactionSigned::hash`] call.
     pub fn new_unhashed(transaction: SovaTypedTransaction, signature: Signature) -> Self {
-        Self { hash: Default::default(), signature, transaction }
+        Self {
+            hash: Default::default(),
+            signature,
+            transaction,
+        }
     }
 
     /// Returns whether this transaction is a deposit.
@@ -107,10 +121,14 @@ impl SignedTransaction for SovaTransactionSigned {
         // Optimism's Deposit transaction does not have a signature. Directly return the
         // `from` address.
         if let SovaTypedTransaction::L1Block(TxL1Block { from, .. }) = self.transaction {
-            return Ok(from)
+            return Ok(from);
         }
 
-        let Self { transaction, signature, .. } = self;
+        let Self {
+            transaction,
+            signature,
+            ..
+        } = self;
         let signature_hash = signature_hash(transaction);
         recover_signer(signature, signature_hash)
     }
@@ -119,10 +137,14 @@ impl SignedTransaction for SovaTransactionSigned {
         // Optimism's Deposit transaction does not have a signature. Directly return the
         // `from` address.
         if let SovaTypedTransaction::L1Block(TxL1Block { from, .. }) = &self.transaction {
-            return Ok(*from)
+            return Ok(*from);
         }
 
-        let Self { transaction, signature, .. } = self;
+        let Self {
+            transaction,
+            signature,
+            ..
+        } = self;
         let signature_hash = signature_hash(transaction);
         recover_signer_unchecked(signature, signature_hash)
     }
@@ -162,7 +184,14 @@ macro_rules! impl_from_signed {
     };
 }
 
-impl_from_signed!(TxLegacy, TxEip2930, TxEip1559, TxEip4844, TxEip7702, SovaTypedTransaction);
+impl_from_signed!(
+    TxLegacy,
+    TxEip2930,
+    TxEip1559,
+    TxEip4844,
+    TxEip7702,
+    SovaTypedTransaction
+);
 
 impl From<SovaTxEnvelope> for SovaTransactionSigned {
     fn from(value: SovaTxEnvelope) -> Self {
@@ -201,7 +230,11 @@ impl From<SovaTransactionSigned> for Signed<SovaTypedTransaction> {
 impl From<Sealed<TxL1Block>> for SovaTransactionSigned {
     fn from(value: Sealed<TxL1Block>) -> Self {
         let (tx, hash) = value.into_parts();
-        Self::new(SovaTypedTransaction::L1Block(tx), TxL1Block::signature(), hash)
+        Self::new(
+            SovaTypedTransaction::L1Block(tx),
+            TxL1Block::signature(),
+            hash,
+        )
     }
 }
 
@@ -356,7 +389,11 @@ impl alloy_rlp::Encodable for SovaTransactionSigned {
     fn length(&self) -> usize {
         let mut payload_length = self.encode_2718_len();
         if !self.is_legacy() {
-            payload_length += Header { list: false, payload_length }.length();
+            payload_length += Header {
+                list: false,
+                payload_length,
+            }
+            .length();
         }
 
         payload_length
@@ -400,7 +437,11 @@ impl Encodable2718 for SovaTransactionSigned {
     }
 
     fn encode_2718(&self, out: &mut dyn alloy_rlp::BufMut) {
-        let Self { transaction, signature, .. } = self;
+        let Self {
+            transaction,
+            signature,
+            ..
+        } = self;
 
         match &transaction {
             SovaTypedTransaction::Legacy(legacy_tx) => {
@@ -416,7 +457,9 @@ impl Encodable2718 for SovaTransactionSigned {
             SovaTypedTransaction::Eip4844(dynamic_fee_tx) => {
                 dynamic_fee_tx.eip2718_encode(signature, out)
             }
-            SovaTypedTransaction::Eip7702(set_code_tx) => set_code_tx.eip2718_encode(signature, out),
+            SovaTypedTransaction::Eip7702(set_code_tx) => {
+                set_code_tx.eip2718_encode(signature, out)
+            }
             SovaTypedTransaction::L1Block(deposit_tx) => deposit_tx.encode_2718(out),
         }
     }
@@ -424,7 +467,10 @@ impl Encodable2718 for SovaTransactionSigned {
 
 impl Decodable2718 for SovaTransactionSigned {
     fn typed_decode(ty: u8, buf: &mut &[u8]) -> Eip2718Result<Self> {
-        match ty.try_into().map_err(|_| Eip2718Error::UnexpectedType(ty))? {
+        match ty
+            .try_into()
+            .map_err(|_| Eip2718Error::UnexpectedType(ty))?
+        {
             SovaTxType::Legacy => Err(Eip2718Error::UnexpectedType(0)),
             SovaTxType::Eip2930 => {
                 let (tx, signature, hash) = TxEip2930::rlp_decode_signed(buf)?.into_parts();
@@ -547,9 +593,9 @@ impl Typed2718 for SovaTransactionSigned {
 
 impl PartialEq for SovaTransactionSigned {
     fn eq(&self, other: &Self) -> bool {
-        self.signature == other.signature &&
-            self.transaction == other.transaction &&
-            self.tx_hash() == other.tx_hash()
+        self.signature == other.signature
+            && self.transaction == other.transaction
+            && self.tx_hash() == other.tx_hash()
     }
 }
 
@@ -570,104 +616,107 @@ impl reth_codecs::Compact for SovaTransactionSigned {
     {
         // Store the starting position of the buffer
         let start = buf.as_mut().len();
-        
+
         // Write a placeholder for the bitflags
         buf.put_u8(0);
-        
+
         // Compact-encode the signature and get the signature bit
         let sig_bit = self.signature.to_compact(buf) as u8;
-        
+
         // Compact-encode the transaction and get the transaction type bits
         let tx_bits = match &self.transaction {
             SovaTypedTransaction::Legacy(tx) => {
                 tx.to_compact(buf);
                 SovaTxType::Legacy as u8
-            },
+            }
             SovaTypedTransaction::Eip2930(tx) => {
                 tx.to_compact(buf);
                 SovaTxType::Eip2930 as u8
-            },
+            }
             SovaTypedTransaction::Eip1559(tx) => {
                 tx.to_compact(buf);
                 SovaTxType::Eip1559 as u8
-            },
+            }
             SovaTypedTransaction::Eip4844(tx) => {
                 tx.to_compact(buf);
                 SovaTxType::Eip4844 as u8
-            },
+            }
             SovaTypedTransaction::Eip7702(tx) => {
                 tx.to_compact(buf);
                 SovaTxType::Eip7702 as u8
-            },
+            }
             SovaTypedTransaction::L1Block(tx) => {
                 tx.to_compact(buf);
                 SovaTxType::L1Block as u8
-            },
+            }
         };
-        
+
         // Update the bitflags byte with actual values
         // Format: [SignatureBit(1bit) | TransactionTypeBits(3bits)]
         buf.as_mut()[start] = sig_bit | (tx_bits << 1);
-        
+
         // Return the number of bytes written
         buf.as_mut().len() - start
     }
 
-    fn from_compact(buf: &[u8], _len: usize) -> (Self, &[u8]) {       
+    fn from_compact(buf: &[u8], _len: usize) -> (Self, &[u8]) {
         let mut remaining = buf;
-        
+
         // Read the bitflags byte
         let bitflags = remaining[0] as usize;
         remaining = &remaining[1..];
-        
+
         // Extract the signature bit and decode the signature
         let sig_bit = bitflags & 1;
         let (signature, updated) = Signature::from_compact(remaining, sig_bit);
         remaining = updated;
-        
+
         // Extract the transaction type bits
         let tx_type_bits = (bitflags >> 1) & 0b111;
-        
+
         // Convert to SovaTxType
         let tx_type = match SovaTxType::try_from(tx_type_bits) {
             Ok(ty) => ty,
             Err(err) => panic!("{}", err), // Or handle more gracefully
         };
-        
+
         // Decode the appropriate transaction type
         let (transaction, remaining) = match tx_type {
             SovaTxType::Legacy => {
                 let (tx, updated) = TxLegacy::from_compact(remaining, remaining.len());
                 (SovaTypedTransaction::Legacy(tx), updated)
-            },
+            }
             SovaTxType::Eip2930 => {
                 let (tx, updated) = TxEip2930::from_compact(remaining, remaining.len());
                 (SovaTypedTransaction::Eip2930(tx), updated)
-            },
+            }
             SovaTxType::Eip1559 => {
                 let (tx, updated) = TxEip1559::from_compact(remaining, remaining.len());
                 (SovaTypedTransaction::Eip1559(tx), updated)
-            },
+            }
             SovaTxType::Eip4844 => {
                 let (tx, updated) = TxEip4844::from_compact(remaining, remaining.len());
                 (SovaTypedTransaction::Eip4844(tx), updated)
-            },
+            }
             SovaTxType::Eip7702 => {
                 let (tx, updated) = TxEip7702::from_compact(remaining, remaining.len());
                 (SovaTypedTransaction::Eip7702(tx), updated)
-            },
+            }
             SovaTxType::L1Block => {
                 let (tx, updated) = TxL1Block::from_compact(remaining, remaining.len());
                 (SovaTypedTransaction::L1Block(tx), updated)
-            },
+            }
         };
-        
+
         // Return the constructed transaction and the remaining buffer
-        (Self { 
-            hash: Default::default(), 
-            signature, 
-            transaction 
-        }, remaining)
+        (
+            Self {
+                hash: Default::default(),
+                signature,
+                transaction,
+            },
+            remaining,
+        )
     }
 }
 
@@ -705,7 +754,11 @@ impl TryFrom<SovaTransactionSigned> for SovaPooledTransaction {
 
     fn try_from(value: SovaTransactionSigned) -> Result<Self, Self::Error> {
         let hash = *value.tx_hash();
-        let SovaTransactionSigned { hash: _, signature, transaction } = value;
+        let SovaTransactionSigned {
+            hash: _,
+            signature,
+            transaction,
+        } = value;
 
         match transaction {
             SovaTypedTransaction::Legacy(tx) => {
@@ -732,9 +785,10 @@ pub mod serde_bincode_compat {
     extern crate alloc;
 
     use alloc::borrow::Cow;
-    use alloy_consensus::{transaction::serde_bincode_compat::{
-        TxEip1559, TxEip2930, TxEip7702, TxLegacy,
-    }, TxEip4844};
+    use alloy_consensus::{
+        transaction::serde_bincode_compat::{TxEip1559, TxEip2930, TxEip7702, TxLegacy},
+        TxEip4844,
+    };
     use alloy_primitives::{PrimitiveSignature as Signature, TxHash};
     use reth_primitives_traits::{serde_bincode_compat::SerdeBincodeCompat, SignedTransaction};
     use serde::{Deserialize, Serialize};

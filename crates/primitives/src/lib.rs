@@ -12,8 +12,7 @@ pub type SovaBlockBody = alloy_consensus::BlockBody<SovaTransactionSigned>;
 
 /// Helper struct that specifies the ethereum
 /// [`NodePrimitives`](reth_primitives_traits::NodePrimitives) types.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub struct SovaPrimitives;
 

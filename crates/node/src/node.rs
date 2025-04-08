@@ -6,7 +6,13 @@ use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor, NextBlockEnvAttributes};
 use reth_node_api::{FullNodeComponents, NodeAddOns, NodeTypes};
 use reth_node_builder::{
-    components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder}, node::FullNodeTypes, rpc::{BasicEngineApiBuilder, EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder, EthApiCtx, RethRpcAddOns, RpcAddOns, RpcHandle}, BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig
+    components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder},
+    node::FullNodeTypes,
+    rpc::{
+        BasicEngineApiBuilder, EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder,
+        EthApiCtx, RethRpcAddOns, RpcAddOns, RpcHandle,
+    },
+    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
 };
 use reth_node_ethereum::node::{
     EthereumAddOns, EthereumConsensusBuilder, EthereumNetworkBuilder, EthereumPoolBuilder,
@@ -121,7 +127,7 @@ where
             Primitives = SovaPrimitives,
             Storage = EthStorage,
         >,
-    >,  
+    >,
 {
     type ComponentsBuilder = ComponentsBuilder<
         N,
@@ -132,8 +138,9 @@ where
         EthereumConsensusBuilder,
     >;
 
-    type AddOns =
-        SovaAddOns<NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>>;
+    type AddOns = SovaAddOns<
+        NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>,
+    >;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components(self)
@@ -163,7 +170,9 @@ where
     SovaEthApiBuilder: EthApiBuilder<N>,
 {
     fn default() -> Self {
-        Self { inner: Default::default() }
+        Self {
+            inner: Default::default(),
+        }
     }
 }
 

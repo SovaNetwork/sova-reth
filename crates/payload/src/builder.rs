@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
 use alloy_primitives::{
-    address, map::foldhash::{HashMap, HashMapExt}, Address, FixedBytes, TxKind, U256
+    address,
+    map::foldhash::{HashMap, HashMapExt},
+    Address, FixedBytes, TxKind, U256,
 };
 use alloy_rlp::Encodable;
 use alloy_sol_macro::sol;
@@ -15,12 +17,15 @@ use reth_chainspec::{ChainSpec, ChainSpecProvider, EthChainSpec};
 use reth_errors::{BlockExecutionError, BlockValidationError, RethError};
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
-    execute::{BlockBuilder, BlockBuilderOutcome}, ConfigureEvm, Evm, NextBlockEnvAttributes
+    execute::{BlockBuilder, BlockBuilderOutcome},
+    ConfigureEvm, Evm, NextBlockEnvAttributes,
 };
 use reth_payload_builder::{EthBuiltPayload, EthPayloadBuilderAttributes};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
-use reth_primitives::{EthPrimitives, EthereumHardforks, InvalidTransactionError, Recovered, TransactionSigned};
+use reth_primitives::{
+    EthPrimitives, EthereumHardforks, InvalidTransactionError, Recovered, TransactionSigned,
+};
 use reth_primitives_traits::SignedTransaction;
 use reth_provider::StateProviderFactory;
 use reth_revm::{
@@ -142,7 +147,11 @@ pub struct ExecutionInfo {
 impl ExecutionInfo {
     /// Create a new instance with allocated slots.
     pub fn new() -> Self {
-        Self { cumulative_gas_used: 0, cumulative_da_bytes_used: 0, total_fees: U256::ZERO }
+        Self {
+            cumulative_gas_used: 0,
+            cumulative_da_bytes_used: 0,
+            total_fees: U256::ZERO,
+        }
     }
 
     /// Returns true if the transaction would exceed the block limits:
@@ -546,7 +555,7 @@ sol! {
 //     btc_block_num: u64,
 // ) -> Result<ExecutionInfo, PayloadBuilderError> {
 //     let mut info = ExecutionInfo::new();
-    
+
 //     // TODO: rm hardcoded parts
 //     let signer_addr = address!("0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001");
 
@@ -587,6 +596,6 @@ sol! {
 
 //     // add gas used by the transaction to cumulative gas used, before creating the receipt
 //     info.cumulative_gas_used += gas_used;
-    
+
 //     Ok(info)
 // }

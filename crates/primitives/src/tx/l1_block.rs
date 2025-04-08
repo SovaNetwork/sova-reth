@@ -9,10 +9,10 @@ use alloy_eips::{
     eip2930::AccessList,
 };
 use alloy_primitives::{
-    Address, B256, Bytes, ChainId, PrimitiveSignature as Signature, TxHash, TxKind, U256, keccak256,
+    keccak256, Address, Bytes, ChainId, PrimitiveSignature as Signature, TxHash, TxKind, B256, U256,
 };
 use alloy_rlp::{
-    Buf, BufMut, Decodable, EMPTY_STRING_CODE, Encodable, Error as DecodeError, Header,
+    Buf, BufMut, Decodable, Encodable, Error as DecodeError, Header, EMPTY_STRING_CODE,
 };
 use core::mem;
 
@@ -20,8 +20,7 @@ use crate::SovaTxType;
 
 /// L1Block transactions, also known as bitcoin context transactions are initiated by block builder,
 /// and added as the first transaction in a Sova block.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub struct TxL1Block {
     /// Hash that uniquely identifies the source of the deposit.
     pub source_hash: B256,
@@ -146,7 +145,10 @@ impl TxL1Block {
 
     /// Create an rlp header for the transaction.
     fn rlp_header(&self) -> Header {
-        Header { list: true, payload_length: self.rlp_encoded_fields_length() }
+        Header {
+            list: true,
+            payload_length: self.rlp_encoded_fields_length(),
+        }
     }
 
     /// RLP encodes the transaction.
@@ -167,7 +169,10 @@ impl TxL1Block {
     }
 
     fn network_header(&self) -> Header {
-        Header { list: false, payload_length: self.eip2718_encoded_length() }
+        Header {
+            list: false,
+            payload_length: self.eip2718_encoded_length(),
+        }
     }
 
     /// Get the length of the transaction when network encoded. This is the
@@ -289,7 +294,9 @@ impl Encodable2718 for TxL1Block {
 
 impl Decodable2718 for TxL1Block {
     fn typed_decode(ty: u8, data: &mut &[u8]) -> Eip2718Result<Self> {
-        let ty: SovaTxType = ty.try_into().map_err(|_| Eip2718Error::UnexpectedType(ty))?;
+        let ty: SovaTxType = ty
+            .try_into()
+            .map_err(|_| Eip2718Error::UnexpectedType(ty))?;
         if ty != SovaTxType::L1Block as u8 {
             return Err(Eip2718Error::UnexpectedType(ty as u8));
         }
@@ -305,13 +312,22 @@ impl Decodable2718 for TxL1Block {
 
 impl Encodable for TxL1Block {
     fn encode(&self, out: &mut dyn BufMut) {
-        Header { list: true, payload_length: self.rlp_encoded_fields_length() }.encode(out);
+        Header {
+            list: true,
+            payload_length: self.rlp_encoded_fields_length(),
+        }
+        .encode(out);
         self.rlp_encode_fields(out);
     }
 
     fn length(&self) -> usize {
         let payload_length = self.rlp_encoded_fields_length();
-        Header { list: true, payload_length }.length() + payload_length
+        Header {
+            list: true,
+            payload_length,
+        }
+        .length()
+            + payload_length
     }
 }
 
@@ -384,7 +400,11 @@ pub fn serde_deposit_tx_rpc<T: serde::Serialize, S: serde::Serializer>(
         signature: Signature,
     }
 
-    SerdeHelper { value, signature: TxL1Block::signature() }.serialize(serializer)
+    SerdeHelper {
+        value,
+        signature: TxL1Block::signature(),
+    }
+    .serialize(serializer)
 }
 
 /// Bincode-compatible [`TxL1Block`] serde implementation.
@@ -392,7 +412,7 @@ pub(super) mod serde_bincode_compat {
     extern crate alloc;
 
     use alloc::borrow::Cow;
-    use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
+    use alloy_primitives::{Address, Bytes, TxKind, B256, U256};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use serde_with::{DeserializeAs, SerializeAs};
 
@@ -480,12 +500,12 @@ impl reth_codecs::Compact for TxL1Block {
         B: bytes::BufMut + AsMut<[u8]>,
     {
         let start = buf.as_mut().len();
-        
+
         // Encode each field
         self.source_hash.to_compact(buf);
         self.from.to_compact(buf);
         self.to.to_compact(buf);
-        
+
         // Handle Option<u128> for mint
         if let Some(mint) = self.mint {
             // 1 bit flag indicating mint is present
@@ -496,36 +516,36 @@ impl reth_codecs::Compact for TxL1Block {
             // 0 bit flag indicating mint is absent
             buf.put_u8(0);
         }
-        
+
         self.value.to_compact(buf);
         self.gas_limit.to_compact(buf);
-        
+
         // Encode boolean
         buf.put_u8(self.is_system_transaction as u8);
-        
+
         // Encode input bytes
         self.input.to_compact(buf);
-        
+
         buf.as_mut().len() - start
     }
 
-    fn from_compact(buf: &[u8], _len: usize) -> (Self, &[u8]) {      
+    fn from_compact(buf: &[u8], _len: usize) -> (Self, &[u8]) {
         let mut remaining = buf;
-        
+
         // Decode each field
         let (source_hash, updated) = B256::from_compact(remaining, remaining.len());
         remaining = updated;
-        
+
         let (from, updated) = Address::from_compact(remaining, remaining.len());
         remaining = updated;
-        
+
         let (to, updated) = TxKind::from_compact(remaining, remaining.len());
         remaining = updated;
-        
+
         // Decode Option<u128> for mint
         let has_mint = remaining[0] != 0;
         remaining = &remaining[1..]; // Advance past the flag byte
-        
+
         let (mint, updated) = if has_mint {
             let (mint_value, updated) = u128::from_compact(remaining, remaining.len());
             (Some(mint_value), updated)
@@ -533,21 +553,21 @@ impl reth_codecs::Compact for TxL1Block {
             (None, remaining)
         };
         remaining = updated;
-        
+
         let (value, updated) = U256::from_compact(remaining, remaining.len());
         remaining = updated;
-        
+
         let (gas_limit, updated) = u64::from_compact(remaining, remaining.len());
         remaining = updated;
-        
+
         // Decode boolean
         let is_system_transaction = remaining[0] != 0;
         remaining = &remaining[1..]; // Advance past the boolean byte
-        
+
         // Decode input bytes
         let (input, updated) = Bytes::from_compact(remaining, remaining.len());
         remaining = updated;
-        
+
         (
             Self {
                 source_hash,
