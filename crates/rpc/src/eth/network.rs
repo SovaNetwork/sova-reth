@@ -1,8 +1,13 @@
-use alloy_network::{Network, TransactionBuilder};
+use alloy_consensus::{TxEnvelope, TxType, TypedTransaction};
+use alloy_network::{BuildResult, Ethereum, EthereumWallet, Network, NetworkWallet, TransactionBuilder, TransactionBuilderError};
+use alloy_primitives::{Address, Bytes, ChainId, TxKind, U256};
+use alloy_rpc_types_eth::AccessList;
 use sova_primitives::{
-    tx::{envelope::SovaTxEnvelope, typed::SovaTypedTransaction, SovaTransaction},
+    tx::{envelope::SovaTxEnvelope, request::SovaTransactionRequest, typed::SovaTypedTransaction},
     SovaTxType,
 };
+
+use crate::types::Transaction;
 
 /// Types for a mainnet-like Sova network.
 #[derive(Clone, Copy, Debug)]
@@ -23,13 +28,13 @@ impl Network for Sova {
 
     type TransactionRequest = SovaTransactionRequest;
 
-    type TransactionResponse = SovaTransaction<alloy_rpc_types_eth::Transaction>;
+    type TransactionResponse = Transaction;
 
     type ReceiptResponse = alloy_rpc_types_eth::TransactionReceipt;
 
     type HeaderResponse = alloy_rpc_types_eth::Header;
 
-    type BlockResponse = alloy_rpc_types_eth::Block;
+    type BlockResponse = alloy_rpc_types_eth::Block<Self::TransactionResponse, Self::HeaderResponse>;
 }
 
 impl TransactionBuilder<Sova> for SovaTransactionRequest {
@@ -126,9 +131,9 @@ impl TransactionBuilder<Sova> for SovaTransactionRequest {
         self.as_mut().set_access_list(access_list);
     }
 
-    fn complete_type(&self, ty: OpTxType) -> Result<(), Vec<&'static str>> {
+    fn complete_type(&self, ty: SovaTxType) -> Result<(), Vec<&'static str>> {
         match ty {
-            OpTxType::Deposit => Err(vec!["not implemented for deposit tx"]),
+            SovaTxType::L1Block => Err(vec!["not implemented for deposit tx"]),
             _ => {
                 let ty = TxType::try_from(ty as u8).unwrap();
                 self.as_ref().complete_type(ty)
@@ -145,22 +150,22 @@ impl TransactionBuilder<Sova> for SovaTransactionRequest {
     }
 
     #[doc(alias = "output_transaction_type")]
-    fn output_tx_type(&self) -> OpTxType {
+    fn output_tx_type(&self) -> SovaTxType {
         match self.as_ref().preferred_type() {
-            TxType::Eip1559 | TxType::Eip4844 => OpTxType::Eip1559,
-            TxType::Eip2930 => OpTxType::Eip2930,
-            TxType::Eip7702 => OpTxType::Eip7702,
-            TxType::Legacy => OpTxType::Legacy,
+            TxType::Eip1559 | TxType::Eip4844 => SovaTxType::Eip1559,
+            TxType::Eip2930 => SovaTxType::Eip2930,
+            TxType::Eip7702 => SovaTxType::Eip7702,
+            TxType::Legacy => SovaTxType::Legacy,
         }
     }
 
     #[doc(alias = "output_transaction_type_checked")]
-    fn output_tx_type_checked(&self) -> Option<OpTxType> {
+    fn output_tx_type_checked(&self) -> Option<SovaTxType> {
         self.as_ref().buildable_type().map(|tx_ty| match tx_ty {
-            TxType::Eip1559 | TxType::Eip4844 => OpTxType::Eip1559,
-            TxType::Eip2930 => OpTxType::Eip2930,
-            TxType::Eip7702 => OpTxType::Eip7702,
-            TxType::Legacy => OpTxType::Legacy,
+            TxType::Eip1559 | TxType::Eip4844 => SovaTxType::Eip1559,
+            TxType::Eip2930 => SovaTxType::Eip2930,
+            TxType::Eip7702 => SovaTxType::Eip7702,
+            TxType::Legacy => SovaTxType::Legacy,
         })
     }
 
@@ -168,9 +173,9 @@ impl TransactionBuilder<Sova> for SovaTransactionRequest {
         self.as_mut().prep_for_submission();
     }
 
-    fn build_unsigned(self) -> BuildResult<OpTypedTransaction, Optimism> {
+    fn build_unsigned(self) -> BuildResult<SovaTypedTransaction, Sova> {
         if let Err((tx_type, missing)) = self.as_ref().missing_keys() {
-            let tx_type = OpTxType::try_from(tx_type as u8).unwrap();
+            let tx_type = SovaTxType::try_from(tx_type as u8).unwrap();
             return Err(
                 TransactionBuilderError::InvalidTransactionRequest(tx_type, missing)
                     .into_unbuilt(self),
@@ -179,15 +184,15 @@ impl TransactionBuilder<Sova> for SovaTransactionRequest {
         Ok(self.build_typed_tx().expect("checked by missing_keys"))
     }
 
-    async fn build<W: NetworkWallet<Optimism>>(
+    async fn build<W: NetworkWallet<Sova>>(
         self,
         wallet: &W,
-    ) -> Result<<Optimism as Network>::TxEnvelope, TransactionBuilderError<Optimism>> {
+    ) -> Result<<Sova as Network>::TxEnvelope, TransactionBuilderError<Sova>> {
         Ok(wallet.sign_request(self).await?)
     }
 }
 
-impl NetworkWallet<Optimism> for EthereumWallet {
+impl NetworkWallet<Sova> for EthereumWallet {
     fn default_signer_address(&self) -> Address {
         NetworkWallet::<Ethereum>::default_signer_address(self)
     }
@@ -203,24 +208,25 @@ impl NetworkWallet<Optimism> for EthereumWallet {
     async fn sign_transaction_from(
         &self,
         sender: Address,
-        tx: OpTypedTransaction,
-    ) -> alloy_signer::Result<OpTxEnvelope> {
+        tx: SovaTypedTransaction,
+    ) -> alloy_signer::Result<SovaTxEnvelope> {
         let tx = match tx {
-            OpTypedTransaction::Legacy(tx) => TypedTransaction::Legacy(tx),
-            OpTypedTransaction::Eip2930(tx) => TypedTransaction::Eip2930(tx),
-            OpTypedTransaction::Eip1559(tx) => TypedTransaction::Eip1559(tx),
-            OpTypedTransaction::Eip7702(tx) => TypedTransaction::Eip7702(tx),
-            OpTypedTransaction::Deposit(_) => {
+            SovaTypedTransaction::Legacy(tx) => TypedTransaction::Legacy(tx),
+            SovaTypedTransaction::Eip2930(tx) => TypedTransaction::Eip2930(tx),
+            SovaTypedTransaction::Eip1559(tx) => TypedTransaction::Eip1559(tx),
+            SovaTypedTransaction::Eip7702(tx) => TypedTransaction::Eip7702(tx),
+            SovaTypedTransaction::L1Block(_) => {
                 return Err(alloy_signer::Error::other("not implemented for deposit tx"));
             }
+            _ => unreachable!(),
         };
         let tx = NetworkWallet::<Ethereum>::sign_transaction_from(self, sender, tx).await?;
 
         Ok(match tx {
-            TxEnvelope::Eip1559(tx) => OpTxEnvelope::Eip1559(tx),
-            TxEnvelope::Eip2930(tx) => OpTxEnvelope::Eip2930(tx),
-            TxEnvelope::Eip7702(tx) => OpTxEnvelope::Eip7702(tx),
-            TxEnvelope::Legacy(tx) => OpTxEnvelope::Legacy(tx),
+            TxEnvelope::Eip1559(tx) => SovaTxEnvelope::Eip1559(tx),
+            TxEnvelope::Eip2930(tx) => SovaTxEnvelope::Eip2930(tx),
+            TxEnvelope::Eip7702(tx) => SovaTxEnvelope::Eip7702(tx),
+            TxEnvelope::Legacy(tx) => SovaTxEnvelope::Legacy(tx),
             _ => unreachable!(),
         })
     }

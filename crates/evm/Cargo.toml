@@ -46,3 +46,4 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tonic.workspace = true
+thiserror.workspace = true

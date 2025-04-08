@@ -9,10 +9,12 @@ keywords.workspace = true
 
 [dependencies]
 sova-cli.workspace = true
+sova-engine-primitives.workspace = true
 sova-evm.workspace = true
 sova-payload.workspace = true
 sova-primitives.workspace = true
-sova-engine-primitives.workspace = true
+sova-rpc.workspace = true
+sova-transaction-pool.workspace = true
 
 reth-basic-payload-builder.workspace = true
 reth-chainspec.workspace = true

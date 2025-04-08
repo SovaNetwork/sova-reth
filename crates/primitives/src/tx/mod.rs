@@ -3,6 +3,7 @@
 pub mod envelope;
 pub mod l1_block;
 pub mod pooled;
+pub mod request;
 pub mod signed;
 pub mod tx_type;
 pub mod typed;

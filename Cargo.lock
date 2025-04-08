@@ -2616,7 +2616,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
- "unicode-xid",
 ]
 
 [[package]]
@@ -8701,28 +8700,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afab94fb28594581f62d981211a9a4d53cc8130bbcbbb89a0440d9b8e81a7746"
 
 [[package]]
-name = "rpc"
-version = "0.0.2"
-dependencies = [
- "alloy-consensus",
- "alloy-network",
- "alloy-primitives",
- "alloy-rpc-types-eth",
- "parking_lot",
- "reth-chain-state",
- "reth-chainspec",
- "reth-network-api",
- "reth-node-builder",
- "reth-rpc",
- "reth-rpc-eth-api",
- "reth-rpc-eth-types",
- "reth-storage-api",
- "reth-tasks",
- "reth-transaction-pool",
- "sova-primitives",
-]
-
-[[package]]
 name = "ruint"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9488,6 +9465,7 @@ dependencies = [
  "sova-primitives",
  "sova-sentinel-client",
  "sova-sentinel-proto",
+ "thiserror 2.0.11",
  "tokio",
  "tonic",
 ]
@@ -9528,6 +9506,8 @@ dependencies = [
  "sova-evm",
  "sova-payload",
  "sova-primitives",
+ "sova-rpc",
+ "sova-transaction-pool",
 ]
 
 [[package]]
@@ -9574,11 +9554,13 @@ dependencies = [
  "alloy-consensus",
  "alloy-eips",
  "alloy-evm",
+ "alloy-network-primitives",
  "alloy-primitives",
  "alloy-rlp",
+ "alloy-rpc-types-eth",
  "auto_impl",
  "bytes",
- "derive_more 1.0.0",
+ "derive_more 2.0.1",
  "reth-codecs",
  "reth-ethereum-primitives",
  "reth-primitives-traits",
@@ -9603,6 +9585,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "sova-rpc"
+version = "0.0.2"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-network",
+ "alloy-network-primitives",
+ "alloy-primitives",
+ "alloy-rpc-types-eth",
+ "alloy-serde",
+ "alloy-signer",
+ "derive_more 2.0.1",
+ "jsonrpsee-types",
+ "parking_lot",
+ "reth-chain-state",
+ "reth-chainspec",
+ "reth-network-api",
+ "reth-node-builder",
+ "reth-rpc",
+ "reth-rpc-eth-api",
+ "reth-rpc-eth-types",
+ "reth-rpc-server-types",
+ "reth-storage-api",
+ "reth-tasks",
+ "reth-transaction-pool",
+ "revm",
+ "serde",
+ "serde_json",
+ "similar-asserts",
+ "sova-evm",
+ "sova-primitives",
+ "thiserror 2.0.11",
+]
+
+[[package]]
 name = "sova-sentinel-client"
 version = "0.1.0"
 source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=84cb0d1371a7ce8a06cc5cc61c09cc2178a27d1e#84cb0d1371a7ce8a06cc5cc61c09cc2178a27d1e"
@@ -9622,6 +9639,19 @@ dependencies = [
  "prost",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "sova-transaction-pool"
+version = "0.0.2"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-primitives",
+ "reth-ethereum-primitives",
+ "reth-primitives-traits",
+ "reth-transaction-pool",
+ "sova-primitives",
 ]
 
 [[package]]

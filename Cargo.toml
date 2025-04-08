@@ -7,7 +7,9 @@ members = [
     "crates/evm",
     "crates/node",
     "crates/payload",
-    "crates/primitives", "crates/rpc",
+    "crates/primitives",
+    "crates/rpc",
+    "crates/transaction-pool",
 ]
 default-members = ["bin/sova/"]
 resolver = "2"
@@ -29,6 +31,8 @@ sova-evm = { path = "crates/evm" }
 sova-node = { path = "crates/node" }
 sova-payload = { path = "crates/payload" }
 sova-primitives = { path = "crates/primitives" }
+sova-rpc = { path = "crates/rpc" }
+sova-transaction-pool = { path = "crates/transaction-pool" }
 
 # sova external
 sova-sentinel-client = { git = "https://github.com/SovaNetwork/sova-sentinel.git", rev = "84cb0d1371a7ce8a06cc5cc61c09cc2178a27d1e" }
@@ -68,6 +72,7 @@ reth-rpc-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2ea
 reth-rpc-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-rpc-eth-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-rpc-eth-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
+reth-rpc-server-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-storage-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-tasks = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "f11e2eafad7a0fc98ed0a6ca447f728a3c1f2a9d" }
@@ -90,6 +95,8 @@ alloy-primitives = { version = "0.8.25", default-features = false, features = ["
 alloy-rlp = { version = "0.3", default-features = false }
 alloy-rpc-types-engine = { version = "0.13.0", default-features = false }
 alloy-rpc-types-eth = { version = "0.13.0", default-features = false }
+alloy-serde = { version = "0.13.0", default-features = false }
+alloy-signer = { version = "0.13.0", default-features = false }
 alloy-sol-macro = "0.8.9"
 alloy-sol-types = { version = "0.8.25", default-features = false }
 
@@ -100,13 +107,16 @@ bitcoincore-rpc = "0.18.0"
 # misc
 auto_impl = "1.2.0"
 bytes = { version = "1.5", default-features = false }
-derive_more = { version = "1.0", default-features = false }
+derive_more = { version = "2", default-features = false, features = ["full"] }
 eyre = "0.6.12"
+jsonrpsee-types = "0.24.9"
 tokio = { version = "1.39", default-features = false }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.94"
 serde_with = { version = "3", default-features = false, features = ["macros"] }
+similar-asserts = { version = "1.5.0", features = ["serde"] }
 toml = "0.8.10"
+thiserror = { version = "2.0.0", default-features = false }
 parking_lot = "0.12.3"
 clap = { version = "4.4.18", features = ["derive"] } 
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }

@@ -32,6 +32,8 @@ use reth_tasks::{
 use reth_transaction_pool::TransactionPool;
 use sova_primitives::SovaPrimitives;
 
+use crate::error::SovaEthApiError;
+
 /// Adapter for [`EthApiInner`], which holds all the data required to serve core `eth_` API.
 pub type EthApiNodeBackend<N> = EthApiInner<
     <N as RpcNodeCore>::Provider,
@@ -57,7 +59,7 @@ impl<T> SovaNodeCore for T where T: RpcNodeCore<Provider: BlockReader> {}
 #[derive(Clone)]
 pub struct SovaEthApi<N: SovaNodeCore> {
     /// Gateway to node's core components.
-    inner: Arc<SovaEthApiInner<N>>,
+    pub inner: Arc<SovaEthApiInner<N>>,
 }
 
 impl<N> SovaEthApi<N>
@@ -86,9 +88,8 @@ where
     Self: Send + Sync,
     N: SovaNodeCore,
 {
-    type Error = OpEthApiError;
+    type Error = SovaEthApiError;
     type NetworkTypes = Sova;
-
     type TransactionCompat = Self;
 
     fn tx_resp_builder(&self) -> &Self::TransactionCompat {
@@ -265,9 +266,9 @@ impl<N: SovaNodeCore> fmt::Debug for SovaEthApi<N> {
 
 /// Container type `SovaEthApi`
 #[allow(missing_debug_implementations)]
-struct SovaEthApiInner<N: SovaNodeCore> {
+pub struct SovaEthApiInner<N: SovaNodeCore> {
     /// Gateway to node's core components.
-    eth_api: EthApiNodeBackend<N>,
+    pub eth_api: EthApiNodeBackend<N>,
 }
 
 impl<N: SovaNodeCore> SovaEthApiInner<N> {

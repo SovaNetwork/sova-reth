@@ -23,9 +23,7 @@ pub struct SovaEngineValidator {
 impl SovaEngineValidator {
     /// Instantiates a new validator.
     pub const fn new(chain_spec: Arc<ChainSpec>) -> Self {
-        Self {
-            inner: EthereumExecutionPayloadValidator::new(chain_spec),
-        }
+        Self { inner: EthereumExecutionPayloadValidator::new(chain_spec)}
     }
 
     /// Returns the chain spec used by the validator.

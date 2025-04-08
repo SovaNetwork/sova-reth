@@ -4,9 +4,9 @@ use reth_basic_payload_builder::{BasicPayloadJobGenerator, BasicPayloadJobGenera
 use reth_chainspec::ChainSpec;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor, NextBlockEnvAttributes};
-use reth_node_api::{FullNodeComponents, NodeAddOns, NodeTypes};
+use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes};
 use reth_node_builder::{
-    components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder},
+    components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder, PoolBuilder},
     node::FullNodeTypes,
     rpc::{
         BasicEngineApiBuilder, EngineValidatorBuilder, EthApiBuilder,
@@ -20,18 +20,20 @@ use reth_node_ethereum::node::{
 use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
 use reth_primitives::TransactionSigned;
 use reth_provider::{CanonStateSubscriptions, EthStorage};
-use reth_rpc::{eth::core::EthApiFor, ValidationApi};
+use reth_rpc::{ValidationApi};
 use reth_rpc_api::{eth::FullEthApiServer, servers::BlockSubmissionValidationApiServer};
 use reth_rpc_builder::{config::RethRpcServerConfig, RethRpcModule};
 use reth_rpc_eth_types::error::FromEvmError;
-use reth_transaction_pool::{PoolTransaction, TransactionPool};
+use reth_transaction_pool::{blobstore::DiskFileBlobStore, EthPoolTransaction, PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
 use revm::context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_engine_primitives::SovaEngineTypes;
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
-use sova_primitives::{tx::SovaTransaction, SovaPrimitives};
+use sova_primitives::{tx::SovaTransaction, SovaPrimitives, SovaTransactionSigned};
+use sova_rpc::{SovaEthApi, SovaEthApiInner, SovaEthApiError};
+use sova_transaction_pool::SovaTransactionPool;
 
 use crate::{engine::SovaEngineValidator, SovaArgs};
 
@@ -155,6 +157,7 @@ where
 pub struct SovaAddOns<N>
 where
     N: FullNodeComponents,
+    SovaEthApiBuilder: EthApiBuilder<N>,
 {
     inner: RpcAddOns<
         N,
@@ -164,7 +167,7 @@ where
     >,
 }
 
-impl<N: FullNodeComponents> Default for SovaAddOns<N>
+impl<N> Default for SovaAddOns<N>
 where
     N: FullNodeComponents<Types: NodeTypes<Primitives = SovaPrimitives>>,
     SovaEthApiBuilder: EthApiBuilder<N>,
@@ -188,8 +191,8 @@ where
         Evm: ConfigureEvm<NextBlockEnvCtx = NextBlockEnvAttributes>,
     >,
     SovaEthApiError: FromEvmError<N::Evm>,
-    <N::Pool as TransactionPool>::Transaction: SovaPooledTx,
-    EvmFactoryFor<N::Evm>: EvmFactory<Tx = TxEnv>,
+    <N::Pool as TransactionPool>::Transaction: EthPoolTransaction<Consensus = SovaTransactionSigned>,
+    EvmFactoryFor<N::Evm>: EvmFactory<Tx = SovaTransaction<TxEnv>>,
 {
     type Handle = RpcHandle<N, SovaEthApi<N>>;
 
@@ -231,13 +234,13 @@ where
         Evm: ConfigureEvm<NextBlockEnvCtx = NextBlockEnvAttributes>,
     >,
     SovaEthApiError: FromEvmError<N::Evm>,
-    <<N as FullNodeComponents>::Pool as TransactionPool>::Transaction: SovaPooledTx,
+    <<N as FullNodeComponents>::Pool as TransactionPool>::Transaction: EthPoolTransaction<Consensus = SovaTransactionSigned>,
     EvmFactoryFor<N::Evm>: EvmFactory<Tx = SovaTransaction<TxEnv>>,
 {
     type EthApi = SovaEthApi<N>;
 
     fn hooks_mut(&mut self) -> &mut reth_node_builder::rpc::RpcHooks<N, Self::EthApi> {
-        self.rpc_add_ons.hooks_mut()
+        self.inner.hooks_mut()
     }
 }
 
@@ -247,12 +250,12 @@ pub struct SovaEthApiBuilder;
 impl<N> EthApiBuilder<N> for SovaEthApiBuilder
 where
     N: FullNodeComponents,
-    EthApiFor<N>: FullEthApiServer<Provider = N::Provider, Pool = N::Pool>,
+    SovaEthApi<N>: FullEthApiServer<Provider = N::Provider, Pool = N::Pool>,
 {
-    type EthApi = EthApiFor<N>;
+    type EthApi = SovaEthApi<N>;
 
     fn build_eth_api(self, ctx: EthApiCtx<'_, N>) -> Self::EthApi {
-        reth_rpc::EthApiBuilder::new(
+        let eth_api = reth_rpc::EthApiBuilder::new(
             ctx.components.provider().clone(),
             ctx.components.pool().clone(),
             ctx.components.network().clone(),
@@ -265,7 +268,9 @@ where
         .eth_proof_window(ctx.config.eth_proof_window)
         .fee_history_cache_config(ctx.config.fee_history_cache)
         .proof_permits(ctx.config.proof_permits)
-        .build()
+        .build_inner();
+
+        SovaEthApi { inner: Arc::new(SovaEthApiInner {eth_api}) }
     }
 }
 
@@ -274,15 +279,111 @@ where
 #[non_exhaustive]
 pub struct SovaEngineValidatorBuilder;
 
-impl<Node, Types> EngineValidatorBuilder<Node> for SovaEngineValidatorBuilder
+impl<N> EngineValidatorBuilder<N> for SovaEngineValidatorBuilder
 where
-    Types: NodeTypes<ChainSpec = ChainSpec, Payload = SovaEngineTypes, Primitives = SovaPrimitives>,
-    Node: FullNodeComponents<Types = Types>,
+    N: FullNodeComponents<
+        Types: NodeTypes<
+            Payload = SovaEngineTypes,
+            ChainSpec = ChainSpec,
+            Primitives = SovaPrimitives,
+        >,
+    >,
 {
     type Validator = SovaEngineValidator;
 
-    async fn build(self, ctx: &AddOnsContext<'_, Node>) -> eyre::Result<Self::Validator> {
+    async fn build(self, ctx: &AddOnsContext<'_, N>) -> eyre::Result<Self::Validator> {
         Ok(SovaEngineValidator::new(ctx.config.chain.clone()))
+    }
+}
+
+/// A basic ethereum transaction pool.
+///
+/// This contains various settings that can be configured and take precedence over the node's
+/// config.
+#[derive(Debug, Default, Clone, Copy)]
+#[non_exhaustive]
+pub struct SovaPoolBuilder;
+
+impl<Types, Node> PoolBuilder<Node> for SovaPoolBuilder
+where
+    Types: NodeTypes<ChainSpec = ChainSpec, Primitives = SovaPrimitives>,
+    Node: FullNodeTypes<Types = Types>,
+{
+    type Pool = SovaTransactionPool<Node::Provider, DiskFileBlobStore>;
+
+    async fn build_pool(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::Pool> {
+        let data_dir = ctx.config().datadir();
+        let pool_config = ctx.pool_config();
+
+        let blob_cache_size = if let Some(blob_cache_size) = pool_config.blob_cache_size {
+            blob_cache_size
+        } else {
+            // get the current blob params for the current timestamp
+            let current_timestamp =
+                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
+            let blob_params = ctx
+                .chain_spec()
+                .blob_params_at_timestamp(current_timestamp)
+                .unwrap_or(ctx.chain_spec().blob_params.cancun);
+
+            // Derive the blob cache size from the target blob count, to auto scale it by
+            // multiplying it with the slot count for 2 epochs: 384 for pectra
+            (blob_params.target_blob_count * EPOCH_SLOTS * 2) as u32
+        };
+
+        let custom_config =
+            DiskFileBlobStoreConfig::default().with_max_cached_entries(blob_cache_size);
+
+        let blob_store = DiskFileBlobStore::open(data_dir.blobstore(), custom_config)?;
+        let validator = TransactionValidationTaskExecutor::eth_builder(ctx.provider().clone())
+            .with_head_timestamp(ctx.head().timestamp)
+            .kzg_settings(ctx.kzg_settings()?)
+            .with_local_transactions_config(pool_config.local_transactions_config.clone())
+            .with_additional_tasks(ctx.config().txpool.additional_validation_tasks)
+            .build_with_tasks(ctx.task_executor().clone(), blob_store.clone());
+
+        let transaction_pool =
+            reth_transaction_pool::Pool::eth_pool(validator, blob_store, pool_config);
+        info!(target: "reth::cli", "Transaction pool initialized");
+        let transactions_path = data_dir.txpool_transactions();
+
+        // spawn txpool maintenance task
+        {
+            let pool = transaction_pool.clone();
+            let chain_events = ctx.provider().canonical_state_stream();
+            let client = ctx.provider().clone();
+            let transactions_backup_config =
+                reth_transaction_pool::maintain::LocalTransactionBackupConfig::with_local_txs_backup(transactions_path);
+
+            ctx.task_executor().spawn_critical_with_graceful_shutdown_signal(
+                "local transactions backup task",
+                |shutdown| {
+                    reth_transaction_pool::maintain::backup_local_transactions_task(
+                        shutdown,
+                        pool.clone(),
+                        transactions_backup_config,
+                    )
+                },
+            );
+
+            // spawn the maintenance task
+            ctx.task_executor().spawn_critical(
+                "txpool maintenance task",
+                reth_transaction_pool::maintain::maintain_transaction_pool_future(
+                    client,
+                    pool,
+                    chain_events,
+                    ctx.task_executor().clone(),
+                    reth_transaction_pool::maintain::MaintainPoolConfig {
+                        max_tx_lifetime: transaction_pool.config().max_queued_lifetime,
+                        ..Default::default()
+                    },
+                ),
+            );
+            debug!(target: "reth::cli", "Spawned txpool maintenance task");
+        }
+
+        Ok(transaction_pool)
     }
 }
 
@@ -377,10 +478,9 @@ impl MyExecutorBuilder {
     }
 }
 
-impl<Types, Node> ExecutorBuilder<Node> for MyExecutorBuilder
+impl<Node> ExecutorBuilder<Node> for MyExecutorBuilder
 where
-    Types: NodeTypes<ChainSpec = ChainSpec, Primitives = SovaPrimitives>,
-    Node: FullNodeTypes<Types = Types>,
+    Node: FullNodeTypes<Types: NodeTypes<ChainSpec = ChainSpec, Primitives = SovaPrimitives>>,
 {
     type EVM = MyEvmConfig;
     type Executor = SovaBlockExecutorProvider<MyEvmConfig>;

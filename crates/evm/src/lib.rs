@@ -1,9 +1,11 @@
 mod constants;
+mod error;
 mod execute;
 mod inspector;
 mod precompiles;
 
 use constants::BTC_PRECOMPILE_ADDRESS;
+pub use error::SovaBlockExecutionError;
 pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
