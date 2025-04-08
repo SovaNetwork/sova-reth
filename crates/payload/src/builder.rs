@@ -2,13 +2,9 @@ use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
 use alloy_primitives::{
-    address,
     map::foldhash::{HashMap, HashMapExt},
-    Address, FixedBytes, TxKind, U256,
+    Address, U256,
 };
-use alloy_rlp::Encodable;
-use alloy_sol_macro::sol;
-use alloy_sol_types::SolCall;
 use reth_basic_payload_builder::{
     is_better_payload, BuildArguments, BuildOutcome, MissingPayloadBehaviour, PayloadBuilder,
     PayloadConfig,
@@ -24,7 +20,7 @@ use reth_payload_builder::{EthBuiltPayload, EthPayloadBuilderAttributes};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{
-    EthPrimitives, EthereumHardforks, InvalidTransactionError, Recovered, TransactionSigned,
+    EthPrimitives, EthereumHardforks, InvalidTransactionError, TransactionSigned,
 };
 use reth_primitives_traits::SignedTransaction;
 use reth_provider::StateProviderFactory;
@@ -133,54 +129,6 @@ where
     }
 }
 
-/// This acts as the container for executed transactions and its byproducts (receipts, gas used)
-#[derive(Default, Debug)]
-pub struct ExecutionInfo {
-    /// All gas used so far
-    pub cumulative_gas_used: u64,
-    /// Estimated DA size
-    pub cumulative_da_bytes_used: u64,
-    /// Tracks fees from executed mempool transactions
-    pub total_fees: U256,
-}
-
-impl ExecutionInfo {
-    /// Create a new instance with allocated slots.
-    pub fn new() -> Self {
-        Self {
-            cumulative_gas_used: 0,
-            cumulative_da_bytes_used: 0,
-            total_fees: U256::ZERO,
-        }
-    }
-
-    /// Returns true if the transaction would exceed the block limits:
-    /// - block gas limit: ensures the transaction still fits into the block.
-    /// - tx DA limit: if configured, ensures the tx does not exceed the maximum allowed DA limit
-    ///   per tx.
-    /// - block DA limit: if configured, ensures the transaction's DA size does not exceed the
-    ///   maximum allowed DA limit per block.
-    pub fn is_tx_over_limits(
-        &self,
-        tx: &(impl Encodable + Transaction),
-        block_gas_limit: u64,
-        tx_data_limit: Option<u64>,
-        block_data_limit: Option<u64>,
-    ) -> bool {
-        if tx_data_limit.is_some_and(|da_limit| tx.length() as u64 > da_limit) {
-            return true;
-        }
-
-        if block_data_limit
-            .is_some_and(|da_limit| self.cumulative_da_bytes_used + (tx.length() as u64) > da_limit)
-        {
-            return true;
-        }
-
-        self.cumulative_gas_used + tx.gas_limit() > block_gas_limit
-    }
-}
-
 /// Constructs a Sova transaction payload using the best transactions from the pool.
 ///
 /// Given build arguments including an Sova client, transaction pool,
@@ -243,11 +191,6 @@ where
     // Get inspector
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
-
-    let btc_block_num = inspector.btc_client.get_block_height().map_err(|err| {
-        warn!(target: "payload_builder", %err, "failed to get block height");
-        PayloadBuilderError::other(err)
-    })?;
 
     // Create EVM with inspector
     let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
@@ -359,12 +302,6 @@ where
         warn!(target: "payload_builder", %err, "failed to apply pre-execution changes");
         PayloadBuilderError::Internal(err.into())
     })?;
-
-    // *** APPLY BITCOIN CONTEXT TXS ***
-    // execute_l1_block_txs(&mut builder, btc_block_num).map_err(|err| {
-    //     warn!(target: "payload_builder", %err, "failed to execute L1 block transactions");
-    //     err
-    // })?;
 
     let mut block_blob_count = 0;
     let blob_params = chain_spec.blob_params_at_timestamp(attributes.timestamp);
@@ -539,63 +476,3 @@ where
         cached_reads,
     })
 }
-
-sol! {
-    function setBitcoinBlockData(
-        uint64 _blockHeight,
-        uint256 _blockTimestamp,
-        uint256 _networkDifficulty,
-        bytes32 _blockHash,
-        uint64 _sequenceNumber
-    );
-}
-
-// pub fn execute_l1_block_txs(
-//     builder: &mut impl BlockBuilder<Primitives = EthPrimitives>,
-//     btc_block_num: u64,
-// ) -> Result<ExecutionInfo, PayloadBuilderError> {
-//     let mut info = ExecutionInfo::new();
-
-//     // TODO: rm hardcoded parts
-//     let signer_addr = address!("0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001");
-
-//     let tx_l1_block = TransactionSigned::new_unhashed(
-//         SovaTypedTransaction::L1Block(TxL1Block {
-//             from: signer_addr,
-//             to: TxKind::Call(address!("0x2100000000000000000000000000000000000015")),
-//             gas_limit: 21_000u64,
-//             input: setBitcoinBlockDataCall {
-//                 _blockHeight: btc_block_num,
-//                 _blockTimestamp: U256::ZERO,
-//                 _networkDifficulty: U256::ZERO,
-//                 _blockHash: FixedBytes::new([0; 32]),
-//                 _sequenceNumber: 0,
-//             }
-//             .abi_encode().into(),
-//             ..Default::default()
-//         }),
-//         TxL1Block::signature(),
-//     );
-
-//     let tx = Recovered::new_unchecked(tx_l1_block, signer_addr);
-
-//     let gas_used = match builder.execute_transaction(tx.clone()) {
-//         Ok(gas_used) => gas_used,
-//         Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
-//             error,
-//             ..
-//         })) => {
-//             warn!(target: "payload_builder", %error, ?tx, "Error in L1Block transaction.");
-//             return Err(PayloadBuilderError::Internal(RethError::msg(error.to_string())));
-//         }
-//         Err(err) => {
-//             // this is an error that we should treat as fatal for this attempt
-//             return Err(PayloadBuilderError::EvmExecutionError(Box::new(err)))
-//         }
-//     };
-
-//     // add gas used by the transaction to cumulative gas used, before creating the receipt
-//     info.cumulative_gas_used += gas_used;
-
-//     Ok(info)
-// }

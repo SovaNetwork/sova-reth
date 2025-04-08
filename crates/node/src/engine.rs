@@ -1,10 +1,7 @@
 //! Validates execution payload wrt Ethereum Execution Engine API version.
 
 use alloy_rpc_types_engine::ExecutionData;
-pub use alloy_rpc_types_engine::{
-    ExecutionPayloadEnvelopeV2, ExecutionPayloadEnvelopeV3, ExecutionPayloadEnvelopeV4,
-    ExecutionPayloadV1, PayloadAttributes as EthPayloadAttributes,
-};
+pub use alloy_rpc_types_engine::PayloadAttributes as EthPayloadAttributes;
 use reth_chainspec::ChainSpec;
 use reth_engine_primitives::{EngineValidator, PayloadValidator};
 use reth_ethereum_payload_builder::EthereumExecutionPayloadValidator;
