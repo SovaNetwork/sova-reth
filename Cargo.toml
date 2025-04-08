@@ -71,6 +71,7 @@ alloy-eips = { version = "0.13.0", default-features = false }
 alloy-evm = { version = "0.2.0", default-features = false }
 alloy-genesis = { version = "0.13.0", default-features = false }
 alloy-primitives = { version = "0.8.25", default-features = false, features = ["map-foldhash"] }
+alloy-sol-macro = "0.8.9"
 alloy-sol-types = { version = "0.8.25", default-features = false }
 
 # bitcoin

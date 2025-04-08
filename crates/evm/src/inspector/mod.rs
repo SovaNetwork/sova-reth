@@ -5,6 +5,7 @@ mod storage_cache;
 use error::SlotProviderError;
 use provider::StorageSlotProvider;
 use reth_tasks::TaskExecutor;
+use sova_chainspec::L1_BLOCK_CONTRACT_ADDRESS;
 use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
 
 pub use provider::SlotProvider;
@@ -24,9 +25,9 @@ use reth_revm::{
     interpreter::{
         CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    Inspector, JournalEntry,
+    Database, Inspector, JournalEntry,
 };
-use reth_tracing::tracing::{debug, warn};
+use reth_tracing::tracing::{debug, info, warn};
 
 use crate::{precompiles::BitcoinMethod, BitcoinClient};
 
@@ -49,7 +50,7 @@ pub struct SovaInspector {
     /// client for calling lock storage service
     pub storage_slot_provider: Arc<StorageSlotProvider>,
     /// btc client
-    btc_client: Arc<BitcoinClient>,
+    pub btc_client: Arc<BitcoinClient>,
     /// transition state for applying slot reverts
     pub slot_revert_cache: Vec<(Address, TransitionAccount)>,
     /// Journal checkpoint for the current transaction
@@ -200,13 +201,42 @@ impl SovaInspector {
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Option<CallOutcome> {
-        // get current btc block height
-        let current_btc_block_height = match self.btc_client.get_block_height() {
-            Ok(height) => height,
-            Err(err) => {
-                warn!("ERROR: Failed to get current btc block height: {}", err);
+        // Try to directly get the block height from state
+        let addy = Address::from_str(L1_BLOCK_CONTRACT_ADDRESS).unwrap();
+        let slot_num = U256::from(0); // blockHeight storage slot
+
+        let btc_block_height = match context.db().basic(addy) {
+            Ok(Some(_)) => {
+                // Account exists, now try to get the storage at slot 0
+                match context.db().storage(addy, slot_num) {
+                    Ok(value) => {
+                        info!("BTC block number in contract: {:?}", value);
+                        // Convert the value to u64 (assuming it's a block height)
+                        let height = value.as_limbs()[0];
+                        height
+                    }
+                    Err(err) => {
+                        warn!("ERROR: Failed to load storage: {}", err);
+                        return Some(Self::create_revert_outcome(
+                            format!("Failed to load storage: {}", err),
+                            inputs.gas_limit,
+                            inputs.return_memory_offset.clone(),
+                        ));
+                    }
+                }
+            }
+            Ok(None) => {
+                warn!("ERROR: L1Block contract account does not exist");
                 return Some(Self::create_revert_outcome(
-                    format!("Failed to get current btc block height: {}", err),
+                    "L1Block contract account does not exist".to_string(),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ));
+            }
+            Err(err) => {
+                warn!("ERROR: Failed to load account: {}", err);
+                return Some(Self::create_revert_outcome(
+                    format!("Failed to load account: {}", err),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
@@ -217,7 +247,7 @@ impl SovaInspector {
         match self.storage_slot_provider.batch_get_locked_status(
             &self.cache.broadcast_accessed_storage,
             context.block().number(),
-            current_btc_block_height,
+            btc_block_height,
         ) {
             Ok(batch_response) => {
                 for response in batch_response.slots {

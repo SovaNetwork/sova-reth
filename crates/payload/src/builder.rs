@@ -1,11 +1,14 @@
-use std::sync::Arc;
+use std::{fmt::Display, str::FromStr, sync::Arc};
 
-use alloy_consensus::{Transaction, Typed2718};
+use alloy_consensus::{Transaction, TxType, Typed2718};
 use alloy_primitives::{
+    address,
     map::foldhash::{HashMap, HashMapExt},
-    Address, U256,
+    Address, FixedBytes, U256,
 };
 
+use alloy_sol_macro::sol;
+use alloy_sol_types::SolCall;
 use reth_basic_payload_builder::{
     is_better_payload, BuildArguments, BuildOutcome, MissingPayloadBehaviour, PayloadBuilder,
     PayloadConfig,
@@ -14,6 +17,7 @@ use reth_chainspec::{ChainSpec, ChainSpecProvider, EthChainSpec};
 use reth_errors::{BlockExecutionError, BlockValidationError, RethError};
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
+    block::InternalBlockExecutionError,
     execute::{BlockBuilder, BlockBuilderOutcome},
     ConfigureEvm, Evm, NextBlockEnvAttributes,
 };
@@ -21,7 +25,7 @@ use reth_payload_builder::{EthBuiltPayload, EthPayloadBuilderAttributes};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_primitives::{
-    EthPrimitives, EthereumHardforks, InvalidTransactionError, TransactionSigned,
+    EthPrimitives, EthereumHardforks, InvalidTransactionError, Receipt, TransactionSigned
 };
 use reth_primitives_traits::SignedTransaction;
 use reth_provider::StateProviderFactory;
@@ -30,15 +34,16 @@ use reth_revm::{
     db::{State, TransitionAccount},
     DatabaseCommit,
 };
-use reth_tracing::tracing::{debug, trace, warn};
+use reth_tracing::tracing::{debug, info, trace, warn};
 use reth_transaction_pool::{
     error::{Eip4844PoolTransactionError, InvalidPoolTransactionError},
     BestTransactions, BestTransactionsAttributes, PoolTransaction, TransactionPool,
     ValidPoolTransaction,
 };
 
-use revm::{context_interface::Block as _, state::Account};
+use revm::{context::result::ResultAndState, context_interface::Block as _, interpreter::Gas, state::Account};
 
+use sova_chainspec::L1_BLOCK_CONTRACT_ADDRESS;
 use sova_evm::{MyEvmConfig, WithInspector};
 
 type BestTransactionsIter<Pool> = Box<
@@ -193,6 +198,11 @@ where
     let inspector_lock = evm_config.with_inspector();
     let mut inspector = inspector_lock.write();
 
+    let btc_block_num = inspector.btc_client.get_block_height().map_err(|err| {
+        warn!(target: "payload_builder", %err, "failed to get block height");
+        PayloadBuilderError::other(err)
+    })?;
+
     // Create EVM with inspector
     let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
@@ -302,6 +312,14 @@ where
     builder.apply_pre_execution_changes().map_err(|err| {
         warn!(target: "payload_builder", %err, "failed to apply pre-execution changes");
         PayloadBuilderError::Internal(err.into())
+    })?;
+
+    // *** APPLY BITCOIN CONTEXT TXS ***
+    // NOTE(powvt): This does not work because it is not in the context of the block builder itself.
+    // you need to actually use `builder.execute_transaction(tx)`
+    let l1_block_res_state = execute_l1_block_tx(U256::from(btc_block_num), builder.evm_mut()).map_err(|err| {
+        warn!(target: "payload_builder", %err, "failed to execute L1 block transactions");
+        err
     })?;
 
     let mut block_blob_count = 0;
@@ -415,10 +433,29 @@ where
     }
 
     let BlockBuilderOutcome {
-        execution_result,
+        mut execution_result,
         block,
         ..
     } = builder.finish(&state_provider)?;
+
+    // Create a receipt for the L1 block transaction
+    info!("was tx successful: {:?}", l1_block_res_state.result.is_success());
+    let l1_receipt = Receipt {
+        tx_type: TxType::Legacy,
+        success: l1_block_res_state.result.is_success(),
+        cumulative_gas_used: 0,
+        logs: Vec::new(), // Assuming logs are in result_and_state
+        // Fill in other required fields...
+    };
+
+    block.body().transactions().enumerate().for_each(|(i, tx)| {
+        // Set the transaction index in the block
+        info!("Setting transaction index for tx: {:?}", tx);
+    });
+
+    // Add the L1 block transaction receipt to the beginning of the receipts
+    execution_result.receipts.insert(0, l1_receipt);
+
 
     // Release inspector
     drop(inspector);
@@ -476,4 +513,53 @@ where
         payload,
         cached_reads,
     })
+}
+
+sol! {
+    function setBitcoinBlockData(
+        uint256 _blockHeight,
+        uint256 _blockTimestamp,
+        uint256 _networkDifficulty,
+        bytes32 _blockHash,
+        uint64 _sequenceNumber
+    );
+}
+
+pub const SYSTEM_ADDRESS: Address = address!("0xfffffffffffffffffffffffffffffffffffffffe");
+
+pub fn execute_l1_block_tx<H>(
+    btc_block_num: U256,
+    evm: &mut impl Evm<Error: Display, DB: DatabaseCommit, HaltReason = H>,
+) -> Result<ResultAndState<H>, BlockExecutionError> {
+    info!("setting bitcoin block height to {}", btc_block_num);
+    let mut result_and_state: ResultAndState<H> = match evm.transact_system_call(
+        SYSTEM_ADDRESS,
+        Address::from_str(L1_BLOCK_CONTRACT_ADDRESS).unwrap(),
+        setBitcoinBlockDataCall {
+            _blockHeight: btc_block_num,
+            _blockTimestamp: U256::ZERO,
+            _networkDifficulty: U256::ZERO,
+            _blockHash: FixedBytes::new([0; 32]),
+            _sequenceNumber: 0,
+        }
+        .abi_encode().into(),
+    ) {
+        Ok(res) => res,
+        Err(e) => {
+            warn!(target: "payload_builder", %e, "failed to execute L1 block transactions");
+            return Err(BlockExecutionError::Internal(
+                InternalBlockExecutionError::Other(
+                    format!("L1 Block contract system call revert: {}", e).into(),
+                ),
+            ));
+        }
+    };
+
+    // Clean-up post system tx context
+    result_and_state.state.remove(&SYSTEM_ADDRESS);
+    result_and_state.state.remove(&evm.block().beneficiary);
+
+    evm.db_mut().commit(result_and_state.state.clone());
+
+    Ok(result_and_state)
 }

@@ -8,7 +8,10 @@ use alloy_primitives::{address, b256, Address, Bytes, U256};
 
 use reth_chainspec::{Chain, ChainSpec, ChainSpecBuilder, DepositContract};
 
-use crate::constants::{deposit_contract_storage, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE};
+use crate::constants::{
+    deposit_contract_storage, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE,
+    L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CODE,
+};
 
 /// Sova main chain specification.
 pub static SOVA: LazyLock<Arc<ChainSpec>> = LazyLock::new(|| {
@@ -31,6 +34,13 @@ pub static SOVA: LazyLock<Arc<ChainSpec>> = LazyLock::new(|| {
                 GenesisAccount::default()
                     .with_code(Some(Bytes::from_str(DEPOSIT_CONTRACT_CODE).unwrap()))
                     .with_storage(Some(deposit_contract_storage))
+                    .with_balance(U256::from(0)),
+            ),
+            // Bitcoin L1Block contract
+            (
+                Address::from_str(L1_BLOCK_CONTRACT_ADDRESS).unwrap(),
+                GenesisAccount::default()
+                    .with_code(Some(Bytes::from_str(L1_BLOCK_CONTRACT_CODE).unwrap()))
                     .with_balance(U256::from(0)),
             ),
         ]);
