@@ -9,13 +9,13 @@ use reth_node_builder::{
     components::{ComponentsBuilder, ExecutorBuilder, PayloadServiceBuilder},
     node::FullNodeTypes,
     rpc::{
-        BasicEngineApiBuilder, EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder,
+        BasicEngineApiBuilder, EngineValidatorBuilder, EthApiBuilder,
         EthApiCtx, RethRpcAddOns, RpcAddOns, RpcHandle,
     },
     BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
 };
 use reth_node_ethereum::node::{
-    EthereumAddOns, EthereumConsensusBuilder, EthereumNetworkBuilder, EthereumPoolBuilder,
+    EthereumConsensusBuilder, EthereumNetworkBuilder, EthereumPoolBuilder,
 };
 use reth_payload_builder::{PayloadBuilderHandle, PayloadBuilderService};
 use reth_primitives::TransactionSigned;
@@ -23,7 +23,7 @@ use reth_provider::{CanonStateSubscriptions, EthStorage};
 use reth_rpc::{eth::core::EthApiFor, ValidationApi};
 use reth_rpc_api::{eth::FullEthApiServer, servers::BlockSubmissionValidationApiServer};
 use reth_rpc_builder::{config::RethRpcServerConfig, RethRpcModule};
-use reth_rpc_eth_types::{error::FromEvmError, EthApiError};
+use reth_rpc_eth_types::error::FromEvmError;
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
