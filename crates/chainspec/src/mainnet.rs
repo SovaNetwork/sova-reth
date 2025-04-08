@@ -38,7 +38,7 @@ pub static SOVA: LazyLock<Arc<ChainSpec>> = LazyLock::new(|| {
     let mut spec: ChainSpec = ChainSpecBuilder::default()
         .chain(Chain::from_id(120893))
         .genesis(genesis)
-        .cancun_activated()
+        .prague_activated()
         .build();
 
     spec.deposit_contract = Some(DepositContract::new(
