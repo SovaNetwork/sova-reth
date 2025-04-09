@@ -7,21 +7,23 @@ use alloc::{boxed::Box, vec::Vec};
 use alloy_consensus::BlockHeader;
 use alloy_evm::block::ExecutableTx;
 
+use alloy_op_evm::OpBlockExecutor;
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
     Address,
 };
-use reth_chainspec::ChainSpec;
+use op_revm::OpTransaction;
 use reth_errors::RethError;
 use reth_evm::{
     block::{BlockExecutor, InternalBlockExecutionError},
-    eth::EthBlockExecutor,
     execute::{BlockExecutionError, BlockExecutorProvider, Executor},
     ConfigureEvm, Database, Evm, EvmFactory, OnStateHook,
 };
-use reth_evm_ethereum::RethReceiptBuilder;
 use reth_node_api::NodePrimitives;
-use reth_primitives::{Receipt, RecoveredBlock, TransactionSigned};
+use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_evm::OpRethReceiptBuilder;
+use reth_optimism_primitives::{OpReceipt, OpTransactionSigned};
+use reth_primitives::RecoveredBlock;
 use reth_provider::BlockExecutionResult;
 use reth_revm::{
     context::{result::ExecutionResult, TxEnv},
@@ -378,20 +380,18 @@ where
 }
 
 /// Block executor for Sova.
-/// NOTE: There is a lot of duplicate code in the impl since the `EthBlockExecutor` params are private
-#[derive(Debug)]
-pub struct MyBlockExecutor<'a, Evm> {
-    /// Inner Ethereum execution strategy.
-    pub inner: EthBlockExecutor<'a, Evm, &'a Arc<ChainSpec>, &'a RethReceiptBuilder>,
+pub struct MyBlockExecutor<Evm> {
+    /// Inner Optimsim execution strategy
+    pub inner: OpBlockExecutor<Evm, OpRethReceiptBuilder, Arc<OpChainSpec>>,
 }
 
-impl<'db, DB, E> BlockExecutor for MyBlockExecutor<'_, E>
+impl<'db, DB, E> BlockExecutor for MyBlockExecutor<E>
 where
     DB: Database + 'db,
-    E: Evm<DB = &'db mut State<DB>, Tx = TxEnv>,
+    E: Evm<DB = &'db mut State<DB>, Tx = OpTransaction<TxEnv>>,
 {
-    type Transaction = TransactionSigned;
-    type Receipt = Receipt;
+    type Transaction = OpTransactionSigned;
+    type Receipt = OpReceipt;
     type Evm = E;
 
     fn apply_pre_execution_changes(&mut self) -> Result<(), BlockExecutionError> {

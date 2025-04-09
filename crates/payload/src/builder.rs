@@ -1,69 +1,83 @@
 use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
-use alloy_primitives::{
-    map::foldhash::{HashMap, HashMapExt},
-    Address, U256,
-};
+use alloy_primitives::{Bytes, U256};
+use alloy_rlp::Encodable;
+use alloy_rpc_types_debug::ExecutionWitness;
+use alloy_rpc_types_engine::PayloadId;
 
 use reth_basic_payload_builder::{
-    is_better_payload, BuildArguments, BuildOutcome, MissingPayloadBehaviour, PayloadBuilder,
-    PayloadConfig,
+    is_better_payload, BuildArguments, BuildOutcome, BuildOutcomeKind, MissingPayloadBehaviour,
+    PayloadBuilder, PayloadConfig,
 };
-use reth_chainspec::{ChainSpec, ChainSpecProvider, EthChainSpec};
+use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates};
+use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_errors::{BlockExecutionError, BlockValidationError, RethError};
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
     execute::{BlockBuilder, BlockBuilderOutcome},
-    ConfigureEvm, Evm, NextBlockEnvAttributes,
+    ConfigureEvm, Database, Evm,
 };
-use reth_payload_builder::{EthBuiltPayload, EthPayloadBuilderAttributes};
+use reth_execution_types::ExecutionOutcome;
+use reth_optimism_evm::OpNextBlockEnvAttributes;
+use reth_optimism_forks::OpHardforks;
+use reth_optimism_node::{txpool::OpPooledTx, OpBuiltPayload, OpPayloadBuilderAttributes};
+use reth_optimism_payload_builder::{
+    builder::{ExecutionInfo, OpPayloadTransactions},
+    config::{OpBuilderConfig, OpDAConfig},
+    error::OpPayloadBuilderError,
+    OpPayloadPrimitives,
+};
+use reth_optimism_primitives::transaction::OpTransaction;
+use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
-use reth_primitives::{
-    EthPrimitives, EthereumHardforks, InvalidTransactionError, TransactionSigned,
-};
-use reth_primitives_traits::SignedTransaction;
-use reth_provider::StateProviderFactory;
+use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
+use reth_primitives_traits::{NodePrimitives, SealedHeader, SignedTransaction, TxTy};
+use reth_provider::{StateProvider, StateProviderFactory};
 use reth_revm::{
-    database::StateProviderDatabase,
-    db::{State, TransitionAccount},
-    DatabaseCommit,
+    cancelled::CancelOnDrop, database::StateProviderDatabase, db::State,
+    witness::ExecutionWitnessRecord,
 };
+use reth_storage_api::errors::ProviderError;
 use reth_tracing::tracing::{debug, trace, warn};
-use reth_transaction_pool::{
-    error::{Eip4844PoolTransactionError, InvalidPoolTransactionError},
-    BestTransactions, BestTransactionsAttributes, PoolTransaction, TransactionPool,
-    ValidPoolTransaction,
-};
+use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
 
-use revm::{context_interface::Block as _, state::Account};
+use revm::context::{Block, BlockEnv};
 
-use sova_evm::{MyEvmConfig, WithInspector};
+use sova_cli::SovaConfig;
+use sova_evm::{BitcoinClient, WithInspector};
 
-type BestTransactionsIter<Pool> = Box<
-    dyn BestTransactions<Item = Arc<ValidPoolTransaction<<Pool as TransactionPool>::Transaction>>>,
->;
-
-/// Sova payload builder
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MyPayloadBuilder<Pool, Client, EvmConfig = MyEvmConfig> {
-    /// Client providing access to node state.
-    client: Client,
-    /// Transaction pool.
-    pool: Pool,
+/// Sova payload builder that extends the Optimism payload builder with Bitcoin integration
+#[derive(Debug, Clone)]
+pub struct MyPayloadBuilder<Pool, Client, Evm, Txs = ()> {
+    /// The rollup's compute pending block configuration option.
+    pub compute_pending_block: bool,
     /// The type responsible for creating the evm.
-    evm_config: EvmConfig,
-    /// Payload builder configuration.
-    builder_config: EthereumBuilderConfig,
+    pub evm_config: Evm,
+    /// Transaction pool.
+    pub pool: Pool,
+    /// Node client.
+    pub client: Client,
+    /// Ethereum builder configuration.
+    pub builder_config: EthereumBuilderConfig,
+    /// Settings for the builder, e.g. DA settings.
+    pub config: OpBuilderConfig,
+    /// The type responsible for yielding the best transactions for the payload if mempool
+    /// transactions are allowed.
+    pub best_transactions: Txs,
+    /// Sova configuration for Bitcoin integration
+    pub sova_config: SovaConfig,
+    /// Bitcoin client for BTC-related operations
+    pub bitcoin_client: Arc<BitcoinClient>,
 }
 
-impl<Pool, Client, EvmConfig> MyPayloadBuilder<Pool, Client, EvmConfig> {
-    /// `MyPayloadBuilder` constructor.
-    pub const fn new(
+impl<Pool, Client, Evm> MyPayloadBuilder<Pool, Client, Evm> {
+    /// `MyPayloadBuilder` constructor with Sova and Bitcoin integration.
+    pub fn new(
         client: Client,
         pool: Pool,
-        evm_config: EvmConfig,
+        evm_config: Evm,
         builder_config: EthereumBuilderConfig,
     ) -> Self {
         Self {
@@ -71,409 +85,673 @@ impl<Pool, Client, EvmConfig> MyPayloadBuilder<Pool, Client, EvmConfig> {
             pool,
             evm_config,
             builder_config,
+            compute_pending_block: true,
+            config: OpBuilderConfig::default(),
+            best_transactions: (),
+            sova_config: SovaConfig::default(),
+            bitcoin_client: Arc::new(BitcoinClient::default()),
+        }
+    }
+
+    /// Configures the builder with the given [`OpBuilderConfig`].
+    pub fn with_builder_config(
+        client: Client,
+        pool: Pool,
+        evm_config: Evm,
+        builder_config: EthereumBuilderConfig,
+        config: OpBuilderConfig,
+    ) -> Self {
+        Self {
+            client,
+            pool,
+            evm_config,
+            builder_config,
+            compute_pending_block: true,
+            config,
+            best_transactions: (),
+            sova_config: SovaConfig::default(),
+            bitcoin_client: Arc::new(BitcoinClient::default()),
+        }
+    }
+
+    /// Configures the builder with Sova and Bitcoin integration.
+    pub fn with_sova_integration(
+        mut self,
+        sova_config: SovaConfig,
+        bitcoin_client: Arc<BitcoinClient>,
+    ) -> Self {
+        self.sova_config = sova_config;
+        self.bitcoin_client = bitcoin_client;
+        self
+    }
+
+    /// Configure the data availability configuration for the OP builder.
+    pub fn with_da_config(mut self, da_config: OpDAConfig) -> Self {
+        self.config.da_config = da_config;
+        self
+    }
+}
+
+impl<Pool, Client, Evm, Txs> MyPayloadBuilder<Pool, Client, Evm, Txs> {
+    /// Sets the rollup's compute pending block configuration option.
+    pub const fn set_compute_pending_block(mut self, compute_pending_block: bool) -> Self {
+        self.compute_pending_block = compute_pending_block;
+        self
+    }
+
+    /// Enables the rollup's compute pending block configuration option.
+    pub const fn compute_pending_block(self) -> Self {
+        self.set_compute_pending_block(true)
+    }
+
+    /// Returns the rollup's compute pending block configuration option.
+    pub const fn is_compute_pending_block(&self) -> bool {
+        self.compute_pending_block
+    }
+
+    /// Configures the type responsible for yielding the transactions that should be included in the
+    /// payload.
+    pub fn with_transactions<T>(
+        self,
+        best_transactions: T,
+    ) -> MyPayloadBuilder<Pool, Client, Evm, T> {
+        let Self {
+            pool,
+            client,
+            evm_config,
+            builder_config,
+            compute_pending_block,
+            config,
+            sova_config,
+            bitcoin_client,
+            ..
+        } = self;
+        MyPayloadBuilder {
+            pool,
+            client,
+            evm_config,
+            builder_config,
+            compute_pending_block,
+            config,
+            best_transactions,
+            sova_config,
+            bitcoin_client,
         }
     }
 }
 
-// Default implementation of [PayloadBuilder] for unit type
-impl<Pool, Client, EvmConfig> PayloadBuilder for MyPayloadBuilder<Pool, Client, EvmConfig>
+impl<Pool, Client, Evm, N, Txs> MyPayloadBuilder<Pool, Client, Evm, Txs>
 where
-    EvmConfig: ConfigureEvm<Primitives = EthPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>
-        + WithInspector,
-    Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec> + Clone,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
+    Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
+    Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
+    N: OpPayloadPrimitives,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
+    Txs: OpPayloadTransactions<Pool::Transaction>,
 {
-    type Attributes = EthPayloadBuilderAttributes;
-    type BuiltPayload = EthBuiltPayload;
+    /// Builds the payload on top of the state.
+    fn build_payload<'a, T>(
+        &self,
+        args: BuildArguments<OpPayloadBuilderAttributes<N::SignedTx>, OpBuiltPayload<N>>,
+        best: impl FnOnce(BestTransactionsAttributes) -> T + Send + Sync + 'a,
+    ) -> Result<BuildOutcome<OpBuiltPayload<N>>, PayloadBuilderError>
+    where
+        T: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
+        >,
+    {
+        let BuildArguments {
+            mut cached_reads,
+            config,
+            cancel,
+            best_payload,
+        } = args;
+
+        let ctx = MyPayloadBuilderCtx {
+            evm_config: self.evm_config.clone(),
+            da_config: self.config.da_config.clone(),
+            chain_spec: self.client.chain_spec(),
+            config,
+            cancel,
+            best_payload,
+            sova_config: self.sova_config.clone(),
+            bitcoin_client: self.bitcoin_client.clone(),
+        };
+
+        let builder = MyBuilder::new(best, self.evm_config.clone());
+
+        let state_provider = self.client.state_by_block_hash(ctx.parent().hash())?;
+        let state = StateProviderDatabase::new(&state_provider);
+
+        if ctx.attributes().no_tx_pool {
+            builder.build(state, &state_provider, ctx)
+        } else {
+            // sequencer mode we can reuse cachedreads from previous runs
+            builder.build(cached_reads.as_db_mut(state), &state_provider, ctx)
+        }
+        .map(|out| out.with_cached_reads(cached_reads))
+    }
+
+    /// Computes the witness for the payload.
+    pub fn payload_witness(
+        &self,
+        parent: SealedHeader,
+        attributes: impl Into<OpPayloadBuilderAttributes<N::SignedTx>>,
+    ) -> Result<ExecutionWitness, PayloadBuilderError> {
+        let attributes = attributes.into();
+        let config = PayloadConfig {
+            parent_header: Arc::new(parent),
+            attributes,
+        };
+        let ctx = MyPayloadBuilderCtx {
+            evm_config: self.evm_config.clone(),
+            da_config: self.config.da_config.clone(),
+            chain_spec: self.client.chain_spec(),
+            config,
+            cancel: Default::default(),
+            best_payload: Default::default(),
+            sova_config: self.sova_config.clone(),
+            bitcoin_client: self.bitcoin_client.clone(),
+        };
+
+        let state_provider = self.client.state_by_block_hash(ctx.parent().hash())?;
+
+        let builder = MyBuilder::new(
+            |_| NoopPayloadTransactions::<Pool::Transaction>::default(),
+            self.evm_config.clone(),
+        );
+        builder.witness(state_provider, &ctx)
+    }
+}
+
+// Implementation of the PayloadBuilder trait for MyPayloadBuilder
+impl<Pool, Client, Evm, N, Txs> PayloadBuilder for MyPayloadBuilder<Pool, Client, Evm, Txs>
+where
+    Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
+    N: OpPayloadPrimitives,
+    Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
+    Txs: OpPayloadTransactions<Pool::Transaction>,
+{
+    type Attributes = OpPayloadBuilderAttributes<N::SignedTx>;
+    type BuiltPayload = OpBuiltPayload<N>;
 
     fn try_build(
         &self,
-        args: BuildArguments<EthPayloadBuilderAttributes, EthBuiltPayload>,
-    ) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError> {
-        default_sova_payload(
-            self.evm_config.clone(),
-            self.client.clone(),
-            self.pool.clone(),
-            self.builder_config.clone(),
-            args,
-            |attributes| self.pool.best_transactions_with_attributes(attributes),
-        )
+        args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
+    ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
+        let pool = self.pool.clone();
+        self.build_payload(args, |attrs| {
+            self.best_transactions.best_transactions(pool, attrs)
+        })
     }
 
     fn on_missing_payload(
         &self,
         _args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
     ) -> MissingPayloadBehaviour<Self::BuiltPayload> {
-        if self.builder_config.await_payload_on_missing {
-            MissingPayloadBehaviour::AwaitInProgress
-        } else {
-            MissingPayloadBehaviour::RaceEmptyPayload
-        }
+        // we want to await the job that's already in progress because that should be returned as
+        // is, there's no benefit in racing another job
+        MissingPayloadBehaviour::AwaitInProgress
     }
 
     fn build_empty_payload(
         &self,
         config: PayloadConfig<Self::Attributes>,
-    ) -> Result<EthBuiltPayload, PayloadBuilderError> {
-        let args = BuildArguments::new(Default::default(), config, Default::default(), None);
-
-        default_sova_payload(
-            self.evm_config.clone(),
-            self.client.clone(),
-            self.pool.clone(),
-            self.builder_config.clone(),
-            args,
-            |attributes| self.pool.best_transactions_with_attributes(attributes),
-        )?
+    ) -> Result<Self::BuiltPayload, PayloadBuilderError> {
+        let args = BuildArguments {
+            config,
+            cached_reads: Default::default(),
+            cancel: Default::default(),
+            best_payload: None,
+        };
+        self.build_payload(args, |_| {
+            NoopPayloadTransactions::<Pool::Transaction>::default()
+        })?
         .into_payload()
         .ok_or_else(|| PayloadBuilderError::MissingPayload)
     }
 }
 
-/// Constructs a Sova transaction payload using the best transactions from the pool.
+/// The type that builds the payload.
 ///
-/// Given build arguments including an Sova client, transaction pool,
-/// and configuration, this function creates a transaction payload. Returns
-/// a result indicating success with the payload or an error in case of failure.
-///
-/// Similar to the execution flow all payloads are executed in two phases:
-/// 1. Simulation phase: Transactions are simulated to surface reverts. Reverts are stored in the inspector's revert cache and applied to state prior to execution.
-/// 2. Execution phase: The best transactions are executed. During the payload building process, if a better block is found, the payload is updated.
-#[inline]
-pub fn default_sova_payload<EvmConfig, Pool, Client, F>(
-    evm_config: EvmConfig,
-    client: Client,
-    pool: Pool,
-    builder_config: EthereumBuilderConfig,
-    args: BuildArguments<EthPayloadBuilderAttributes, EthBuiltPayload>,
-    best_txs: F,
-) -> Result<BuildOutcome<EthBuiltPayload>, PayloadBuilderError>
+/// Payload building for sova is composed of several steps:
+/// 1. Prepare Bitcoin context
+/// 2. Apply pre-execution changes
+/// 3. Execute sequencer transactions
+/// 4. Include additional transactions if allowed
+/// 5. Finalize Bitcoin operations
+/// 6. Build the block: compute all roots (txs, state)
+#[derive(derive_more::Debug)]
+pub struct MyBuilder<'a, Txs, Evm> {
+    /// Yields the best transaction to include if transactions from the mempool are allowed.
+    #[debug(skip)]
+    best: Box<dyn FnOnce(BestTransactionsAttributes) -> Txs + 'a>,
+    /// The type responsible for creating the evm.
+    #[debug(skip)]
+    evm_config: Evm,
+}
+
+impl<'a, Txs, Evm> MyBuilder<'a, Txs, Evm> {
+    /// Creates a new [`MyBuilder`].
+    pub fn new(
+        best: impl FnOnce(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
+        evm_config: Evm,
+    ) -> Self {
+        Self {
+            best: Box::new(best),
+            evm_config,
+        }
+    }
+}
+
+impl<'a, Txs, Evm, N> MyBuilder<'a, Txs, Evm>
 where
-    EvmConfig: ConfigureEvm<Primitives = EthPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>
-        + WithInspector,
-    Client: StateProviderFactory + ChainSpecProvider<ChainSpec = ChainSpec>,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
-    F: FnOnce(BestTransactionsAttributes) -> BestTransactionsIter<Pool>,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
+    N: OpPayloadPrimitives,
 {
-    let BuildArguments {
-        mut cached_reads,
-        config,
-        cancel,
-        best_payload,
-    } = args;
-    let PayloadConfig {
-        parent_header,
-        attributes,
-    } = config;
+    /// Builds the payload on top of the state.
+    pub fn build<ChainSpec>(
+        self,
+        db: impl Database<Error = ProviderError>,
+        state_provider: impl StateProvider,
+        ctx: MyPayloadBuilderCtx<Evm, N, ChainSpec>,
+    ) -> Result<BuildOutcomeKind<OpBuiltPayload<N>>, PayloadBuilderError>
+    where
+        ChainSpec: EthChainSpec + OpHardforks,
+        Txs: PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
+        >,
+    {
+        let Self { best, evm_config } = self;
+        debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number, "building new payload with Sova integration");
 
-    let chain_spec = client.chain_spec();
+        // Prepare Bitcoin context before block execution?
 
-    let state_provider = client.state_by_block_hash(parent_header.hash())?;
-    let state = StateProviderDatabase::new(&state_provider);
-    let mut db = State::builder()
-        .with_database(cached_reads.as_db_mut(state))
-        .with_bundle_update()
-        .build();
+        let mut db = State::builder()
+            .with_database(db)
+            .with_bundle_update()
+            .build();
+        let mut builder = ctx.block_builder(&mut db)?;
 
-    let next_block_attributes = NextBlockEnvAttributes {
-        timestamp: attributes.timestamp(),
-        suggested_fee_recipient: attributes.suggested_fee_recipient(),
-        prev_randao: attributes.prev_randao(),
-        gas_limit: builder_config.gas_limit(parent_header.gas_limit),
-        parent_beacon_block_root: attributes.parent_beacon_block_root(),
-        withdrawals: Some(attributes.withdrawals().clone()),
-    };
+        // 1. apply pre-execution changes
+        builder.apply_pre_execution_changes().map_err(|err| {
+            warn!(target: "payload_builder", %err, "failed to apply pre-execution changes");
+            PayloadBuilderError::Internal(err.into())
+        })?;
 
-    // Get evm_env for the next block
-    let evm_env = evm_config
-        .next_evm_env(&parent_header, &next_block_attributes)
-        .map_err(RethError::other)?;
+        // 2. execute sequencer transactions
+        let mut info = ctx.execute_sequencer_transactions(&mut builder)?;
 
-    // Get inspector
-    let inspector_lock = evm_config.with_inspector();
-    let mut inspector = inspector_lock.write();
-
-    // Create EVM with inspector
-    let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
-
-    debug!(target: "payload_builder", id=%attributes.id, parent_header = ?parent_header.hash(), parent_number = parent_header.number, "building new payload");
-    let base_fee = evm_env.block_env().basefee;
-
-    // *** SIMULATION PHASE ***
-
-    // Get simulation transaction iterator
-    let best_txs_sim = best_txs(BestTransactionsAttributes::new(
-        base_fee,
-        evm_env
-            .block_env
-            .blob_gasprice()
-            .map(|gasprice| gasprice as u64),
-    ));
-
-    // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-    for pool_tx in best_txs_sim {
-        let tx = pool_tx.to_consensus();
-
-        match evm.transact(tx) {
-            Ok(_result) => {
-                // Explicitly NOT committing state changes here
-                // We're only using this simulation to capture reverts in the inspector
+        // 3. if mem pool transactions are requested we execute them
+        if !ctx.attributes().no_tx_pool {
+            let best_txs = best(ctx.best_transaction_attributes(builder.evm_mut().block()));
+            if ctx
+                .execute_best_transactions(&mut info, &mut builder, best_txs)?
+                .is_some()
+            {
+                return Ok(BuildOutcomeKind::Cancelled);
             }
-            Err(_err) => {
-                // we dont really care about the error here, we just want to capture the revert
+
+            // check if the new payload is even more valuable
+            if !ctx.is_better_payload(info.total_fees) {
+                // can skip building the block
+                return Ok(BuildOutcomeKind::Aborted {
+                    fees: info.total_fees,
+                });
             }
+        }
+
+        let BlockBuilderOutcome {
+            execution_result,
+            hashed_state,
+            trie_updates,
+            block,
+        } = builder.finish(state_provider)?;
+
+        let sealed_block = Arc::new(block.sealed_block().clone());
+        debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");
+
+        let execution_outcome = ExecutionOutcome::new(
+            db.take_bundle(),
+            vec![execution_result.receipts],
+            block.number,
+            Vec::new(),
+        );
+
+        // create the executed block data
+        let executed: ExecutedBlockWithTrieUpdates<N> = ExecutedBlockWithTrieUpdates {
+            block: ExecutedBlock {
+                recovered_block: Arc::new(block.clone()),
+                execution_output: Arc::new(execution_outcome),
+                hashed_state: Arc::new(hashed_state),
+            },
+            trie: Arc::new(trie_updates),
         };
+
+        // Finalize Bitcoin operations after block execution?
+        {
+            let inspector_lock = evm_config.with_inspector();
+            let mut inspector = inspector_lock.write();
+
+            // Update sentinel locks for Bitcoin broadcasts in this block
+            // locks are to be applied to the next block
+            let locked_block_num: u64 = block.number + 1;
+            inspector
+                .update_sentinel_locks(locked_block_num)
+                .map_err(|err| {
+                    PayloadBuilderError::Internal(RethError::msg(format!(
+                        "Payload building error: Failed to update sentinel locks: {}",
+                        err
+                    )))
+                })?;
+        }
+
+        let no_tx_pool = ctx.attributes().no_tx_pool;
+
+        let payload = OpBuiltPayload::new(
+            ctx.payload_id(),
+            sealed_block,
+            info.total_fees,
+            Some(executed),
+        );
+
+        if no_tx_pool {
+            // if `no_tx_pool` is set only transactions from the payload attributes will be included
+            // in the payload. In other words, the payload is deterministic and we can
+            // freeze it once we've successfully built it.
+            Ok(BuildOutcomeKind::Freeze(payload))
+        } else {
+            Ok(BuildOutcomeKind::Better { payload })
+        }
     }
 
-    drop(evm);
+    /// Builds the payload and returns its [`ExecutionWitness`] based on the state after execution.
+    pub fn witness<ChainSpec>(
+        self,
+        state_provider: impl StateProvider,
+        ctx: &MyPayloadBuilderCtx<Evm, N, ChainSpec>,
+    ) -> Result<ExecutionWitness, PayloadBuilderError>
+    where
+        ChainSpec: EthChainSpec + OpHardforks,
+        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
+    {
+        // Prepare Bitcoin context?
 
-    let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
+        let mut db = State::builder()
+            .with_database(StateProviderDatabase::new(&state_provider))
+            .with_bundle_update()
+            .build();
+        {
+            let mut builder = ctx.block_builder(&mut db)?;
+            builder.apply_pre_execution_changes()?;
+            ctx.execute_sequencer_transactions(&mut builder)?;
+            // Finalize Bitcoin operations?
+        }
 
-    // apply mask to the database
-    if !revert_cache.is_empty() {
-        for (address, transition) in &revert_cache {
-            for (slot, slot_data) in &transition.storage {
-                let prev_value = slot_data.previous_or_original_value;
+        let ExecutionWitnessRecord {
+            hashed_state,
+            codes,
+            keys,
+        } = ExecutionWitnessRecord::from_executed_state(&db);
+        let state = state_provider.witness(Default::default(), hashed_state)?;
+        Ok(ExecutionWitness {
+            state: state.into_iter().collect(),
+            codes,
+            keys,
+        })
+    }
+}
 
-                // Load account from state
-                let acc = db.load_cache_account(*address).map_err(|err| {
-                    warn!(target: "payload_builder",
-                        parent_hash=%parent_header.hash(),
-                        %err,
-                        "failed to load account for payload"
-                    );
-                    PayloadBuilderError::Internal(err.into())
+/// Container type that holds all necessities to build a new payload.
+#[derive(derive_more::Debug)]
+pub struct MyPayloadBuilderCtx<Evm: ConfigureEvm, N: NodePrimitives, ChainSpec> {
+    /// The type that knows how to perform system calls and configure the evm.
+    pub evm_config: Evm,
+    /// The DA config for the payload builder
+    pub da_config: OpDAConfig,
+    /// The chainspec
+    pub chain_spec: Arc<ChainSpec>,
+    /// How to build the payload.
+    pub config: PayloadConfig<OpPayloadBuilderAttributes<TxTy<Evm::Primitives>>>,
+    /// Marker to check whether the job has been cancelled.
+    pub cancel: CancelOnDrop,
+    /// The currently best payload.
+    pub best_payload: Option<OpBuiltPayload<N>>,
+    /// Sova configuration
+    pub sova_config: SovaConfig,
+    /// Bitcoin client
+    pub bitcoin_client: Arc<BitcoinClient>,
+}
+
+impl<Evm, N, ChainSpec> MyPayloadBuilderCtx<Evm, N, ChainSpec>
+where
+    Evm: ConfigureEvm<Primitives: OpPayloadPrimitives, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
+    N: OpPayloadPrimitives,
+    ChainSpec: EthChainSpec + OpHardforks,
+{
+    /// Returns the parent block the payload will be build on.
+    pub fn parent(&self) -> &SealedHeader {
+        &self.config.parent_header
+    }
+
+    /// Returns the builder attributes.
+    pub const fn attributes(&self) -> &OpPayloadBuilderAttributes<TxTy<Evm::Primitives>> {
+        &self.config.attributes
+    }
+
+    /// Returns the extra data for the block.
+    ///
+    /// After holocene this extracts the extra data from the payload
+    pub fn extra_data(&self) -> Result<Bytes, PayloadBuilderError> {
+        if self.is_holocene_active() {
+            self.attributes()
+                .get_holocene_extra_data(
+                    self.chain_spec.base_fee_params_at_timestamp(
+                        self.attributes().payload_attributes.timestamp,
+                    ),
+                )
+                .map_err(PayloadBuilderError::other)
+        } else {
+            Ok(Default::default())
+        }
+    }
+
+    /// Returns the current fee settings for transactions from the mempool
+    pub fn best_transaction_attributes(&self, block_env: &BlockEnv) -> BestTransactionsAttributes {
+        BestTransactionsAttributes::new(
+            block_env.basefee,
+            block_env.blob_gasprice().map(|p| p as u64),
+        )
+    }
+
+    /// Returns the unique id for this payload job.
+    pub fn payload_id(&self) -> PayloadId {
+        self.attributes().payload_id()
+    }
+
+    /// Returns true if holocene is active for the payload.
+    pub fn is_holocene_active(&self) -> bool {
+        self.chain_spec
+            .is_holocene_active_at_timestamp(self.attributes().timestamp())
+    }
+
+    /// Returns true if the fees are higher than the previous payload.
+    pub fn is_better_payload(&self, total_fees: U256) -> bool {
+        is_better_payload(self.best_payload.as_ref(), total_fees)
+    }
+
+    /// Prepares a [`BlockBuilder`] for the next block.
+    pub fn block_builder<'a, DB: Database>(
+        &'a self,
+        db: &'a mut State<DB>,
+    ) -> Result<impl BlockBuilder<Primitives = Evm::Primitives> + 'a, PayloadBuilderError> {
+        self.evm_config
+            .builder_for_next_block(
+                db,
+                self.parent(),
+                OpNextBlockEnvAttributes {
+                    timestamp: self.attributes().timestamp(),
+                    suggested_fee_recipient: self.attributes().suggested_fee_recipient(),
+                    prev_randao: self.attributes().prev_randao(),
+                    gas_limit: self
+                        .attributes()
+                        .gas_limit
+                        .unwrap_or(self.parent().gas_limit),
+                    parent_beacon_block_root: self.attributes().parent_beacon_block_root(),
+                    extra_data: self.extra_data()?,
+                },
+            )
+            .map_err(PayloadBuilderError::other)
+    }
+
+    /// Executes all sequencer transactions that are included in the payload attributes.
+    pub fn execute_sequencer_transactions(
+        &self,
+        builder: &mut impl BlockBuilder<Primitives = Evm::Primitives>,
+    ) -> Result<ExecutionInfo, PayloadBuilderError> {
+        let mut info = ExecutionInfo::new();
+
+        for sequencer_tx in &self.attributes().transactions {
+            // A sequencer's block should never contain blob transactions.
+            if sequencer_tx.value().is_eip4844() {
+                return Err(PayloadBuilderError::other(
+                    OpPayloadBuilderError::BlobTransactionRejected,
+                ));
+            }
+
+            // Convert the transaction to a [RecoveredTx]. This is
+            // purely for the purposes of utilizing the `evm_config.tx_env`` function.
+            // Deposit transactions do not have signatures, so if the tx is a deposit, this
+            // will just pull in its `from` address.
+            let sequencer_tx = sequencer_tx
+                .value()
+                .try_clone_into_recovered()
+                .map_err(|_| {
+                    PayloadBuilderError::other(OpPayloadBuilderError::TransactionEcRecoverFailed)
                 })?;
 
-                // Set slot in account to previous value
-                if let Some(a) = acc.account.as_mut() {
-                    a.storage.insert(*slot, prev_value);
+            let gas_used = match builder.execute_transaction(sequencer_tx.clone()) {
+                Ok(gas_used) => gas_used,
+                Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
+                    error,
+                    ..
+                })) => {
+                    trace!(target: "payload_builder", %error, ?sequencer_tx, "Error in sequencer transaction, skipping.");
+                    continue;
                 }
+                Err(err) => {
+                    // this is an error that we should treat as fatal for this attempt
+                    return Err(PayloadBuilderError::EvmExecutionError(Box::new(err)));
+                }
+            };
 
-                // Convert to revm account, mark as modified and commit it to state
-                let mut revm_acc: Account = acc
-                    .account_info()
-                    .ok_or(PayloadBuilderError::Internal(RethError::msg(
-                        "failed to convert account to revm account",
-                    )))?
-                    .into();
-
-                revm_acc.mark_touch();
-
-                let mut changes: HashMap<Address, Account> = HashMap::new();
-                changes.insert(*address, revm_acc);
-
-                // commit to account slot changes to state
-                db.commit(changes);
-            }
+            // add gas used by the transaction to cumulative gas used, before creating the receipt
+            info.cumulative_gas_used += gas_used;
         }
+
+        Ok(info)
     }
 
-    drop(inspector);
+    /// Executes the given best transactions and updates the execution info.
+    ///
+    /// Returns `Ok(Some(())` if the job was cancelled.
+    pub fn execute_best_transactions(
+        &self,
+        info: &mut ExecutionInfo,
+        builder: &mut impl BlockBuilder<Primitives = Evm::Primitives>,
+        mut best_txs: impl PayloadTransactions<
+            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>>
+                             + MaybeInteropTransaction,
+        >,
+    ) -> Result<Option<()>, PayloadBuilderError> {
+        let block_gas_limit = builder.evm_mut().block().gas_limit;
+        let block_da_limit = self.da_config.max_da_block_size();
+        let tx_da_limit = self.da_config.max_da_tx_size();
+        let base_fee = builder.evm_mut().block().basefee;
 
-    // *** EXECUTION PHASE ***
-
-    // Get inspector
-    let inspector_lock = evm_config.with_inspector();
-    let mut inspector = inspector_lock.write();
-
-    // Create EVM with inspector
-    let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
-
-    // Create block builder
-    let ctx = evm_config.context_for_next_block(&parent_header, next_block_attributes);
-    let mut builder = evm_config.create_block_builder(evm, &parent_header, ctx);
-
-    let block_number = builder.evm_mut().block().number;
-    let mut cumulative_gas_used = 0;
-    let block_gas_limit: u64 = builder.evm_mut().block().gas_limit;
-
-    // Create another transaction iterator for actual execution
-    let mut best_txs = pool.best_transactions_with_attributes(BestTransactionsAttributes::new(
-        base_fee,
-        builder
-            .evm_mut()
-            .block()
-            .blob_gasprice()
-            .map(|gasprice| gasprice as u64),
-    ));
-    let mut total_fees = U256::ZERO;
-
-    builder.apply_pre_execution_changes().map_err(|err| {
-        warn!(target: "payload_builder", %err, "failed to apply pre-execution changes");
-        PayloadBuilderError::Internal(err.into())
-    })?;
-
-    let mut block_blob_count = 0;
-    let blob_params = chain_spec.blob_params_at_timestamp(attributes.timestamp);
-    let max_blob_count = blob_params
-        .as_ref()
-        .map(|params| params.max_blob_count)
-        .unwrap_or_default();
-
-    while let Some(pool_tx) = best_txs.next() {
-        // ensure we still have capacity for this transaction
-        if cumulative_gas_used + pool_tx.gas_limit() > block_gas_limit {
-            // we can't fit this transaction into the block, so we need to mark it as invalid
-            // which also removes all dependent transaction from the iterator before we can
-            // continue
-            best_txs.mark_invalid(
-                &pool_tx,
-                InvalidPoolTransactionError::ExceedsGasLimit(pool_tx.gas_limit(), block_gas_limit),
-            );
-            continue;
-        }
-
-        // check if the job was cancelled, if so we can exit early
-        if cancel.is_cancelled() {
-            return Ok(BuildOutcome::Cancelled);
-        }
-
-        // convert tx to a signed transaction
-        let tx = pool_tx.to_consensus();
-
-        // There's only limited amount of blob space available per block, so we need to check if
-        // the EIP-4844 can still fit in the block
-        if let Some(blob_tx) = tx.as_eip4844() {
-            let tx_blob_count = blob_tx.blob_versioned_hashes.len() as u64;
-
-            if block_blob_count + tx_blob_count > max_blob_count {
-                // we can't fit this _blob_ transaction into the block, so we mark it as
-                // invalid, which removes its dependent transactions from
-                // the iterator. This is similar to the gas limit condition
-                // for regular transactions above.
-                trace!(target: "payload_builder", tx=?tx.hash(), ?block_blob_count, "skipping blob transaction because it would exceed the max blob count per block");
-                best_txs.mark_invalid(
-                    &pool_tx,
-                    InvalidPoolTransactionError::Eip4844(
-                        Eip4844PoolTransactionError::TooManyEip4844Blobs {
-                            have: block_blob_count + tx_blob_count,
-                            permitted: max_blob_count,
-                        },
-                    ),
-                );
+        while let Some(tx) = best_txs.next(()) {
+            let interop = tx.interop_deadline();
+            let tx = tx.into_consensus();
+            if info.is_tx_over_limits(tx.inner(), block_gas_limit, tx_da_limit, block_da_limit) {
+                // we can't fit this transaction into the block, so we need to mark it as
+                // invalid which also removes all dependent transaction from
+                // the iterator before we can continue
+                best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
             }
-        }
 
-        let gas_used = match builder.execute_transaction(tx.clone()) {
-            Ok(gas_used) => gas_used,
-            Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
-                error, ..
-            })) => {
-                if error.is_nonce_too_low() {
-                    // if the nonce is too low, we can skip this transaction
-                    trace!(target: "payload_builder", %error, ?tx, "skipping nonce too low transaction");
-                } else {
-                    // if the transaction is invalid, we can skip it and all of its
-                    // descendants
-                    trace!(target: "payload_builder", %error, ?tx, "skipping invalid transaction and its descendants");
-                    best_txs.mark_invalid(
-                        &pool_tx,
-                        InvalidPoolTransactionError::Consensus(
-                            InvalidTransactionError::TxTypeNotSupported,
-                        ),
-                    );
-                }
+            // A sequencer's block should never contain blob or deposit transactions from the pool.
+            if tx.is_eip4844() || tx.is_deposit() {
+                best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
             }
-            // this is an error that we should treat as fatal for this attempt
-            Err(err) => return Err(PayloadBuilderError::evm(err)),
-        };
 
-        // add to the total blob gas used if the transaction successfully executed
-        if let Some(blob_tx) = tx.as_eip4844() {
-            block_blob_count += blob_tx.blob_versioned_hashes.len() as u64;
-
-            // if we've reached the max blob count, we can skip blob txs entirely
-            if block_blob_count == max_blob_count {
-                best_txs.skip_blobs();
+            // We skip invalid cross chain txs, they would be removed on the next block update in
+            // the maintenance job
+            if let Some(interop) = interop {
+                if !is_valid_interop(interop, self.config.attributes.timestamp()) {
+                    best_txs.mark_invalid(tx.signer(), tx.nonce());
+                    continue;
+                }
             }
+            // check if the job was cancelled, if so we can exit early
+            if self.cancel.is_cancelled() {
+                return Ok(Some(()));
+            }
+
+            let gas_used = match builder.execute_transaction(tx.clone()) {
+                Ok(gas_used) => gas_used,
+                Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
+                    error,
+                    ..
+                })) => {
+                    if error.is_nonce_too_low() {
+                        // if the nonce is too low, we can skip this transaction
+                        trace!(target: "payload_builder", %error, ?tx, "skipping nonce too low transaction");
+                    } else {
+                        // if the transaction is invalid, we can skip it and all of its
+                        // descendants
+                        trace!(target: "payload_builder", %error, ?tx, "skipping invalid transaction and its descendants");
+                        best_txs.mark_invalid(tx.signer(), tx.nonce());
+                    }
+                    continue;
+                }
+                Err(err) => {
+                    // this is an error that we should treat as fatal for this attempt
+                    return Err(PayloadBuilderError::EvmExecutionError(Box::new(err)));
+                }
+            };
+
+            // add gas used by the transaction to cumulative gas used, before creating the
+            // receipt
+            info.cumulative_gas_used += gas_used;
+            info.cumulative_da_bytes_used += tx.length() as u64;
+
+            // update add to total fees
+            let miner_fee = tx
+                .effective_tip_per_gas(base_fee)
+                .expect("fee is always valid; execution succeeded");
+            info.total_fees += U256::from(miner_fee) * U256::from(gas_used);
         }
 
-        // update add to total fees
-        let miner_fee = tx
-            .effective_tip_per_gas(base_fee)
-            .expect("fee is always valid; execution succeeded");
-        total_fees += U256::from(miner_fee) * U256::from(gas_used);
-        cumulative_gas_used += gas_used;
+        Ok(None)
     }
-
-    // check if we have a better block
-    if !is_better_payload(best_payload.as_ref(), total_fees) {
-        // Release db
-        drop(builder);
-
-        // Release inspector
-        drop(inspector);
-
-        // can skip building the block
-        return Ok(BuildOutcome::Aborted {
-            fees: total_fees,
-            cached_reads,
-        });
-    }
-
-    let BlockBuilderOutcome {
-        execution_result,
-        block,
-        ..
-    } = builder.finish(&state_provider)?;
-
-    // Release inspector
-    drop(inspector);
-
-    // *** UPDATE SENTINEL LOCKS ***
-    {
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
-
-        // locks are to be applied to the next block
-        let locked_block_num: u64 = block_number + 1;
-
-        // handle locking of storage slots for any btc broadcasts in this block
-        inspector
-            .update_sentinel_locks(locked_block_num)
-            .map_err(|err| {
-                PayloadBuilderError::Internal(RethError::msg(format!(
-                    "Payload building error: Failed to update sentinel locks: {}",
-                    err
-                )))
-            })?;
-    }
-
-    let requests = chain_spec
-        .is_prague_active_at_timestamp(attributes.timestamp)
-        .then_some(execution_result.requests);
-
-    // initialize empty blob sidecars at first. If cancun is active then this will
-    let mut blob_sidecars = Vec::new();
-
-    // only determine cancun fields when active
-    if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp) {
-        // grab the blob sidecars from the executed txs
-        blob_sidecars = pool
-            .get_all_blobs_exact(
-                block
-                    .body()
-                    .transactions()
-                    .filter(|tx| tx.is_eip4844())
-                    .map(|tx| *tx.tx_hash())
-                    .collect(),
-            )
-            .map_err(PayloadBuilderError::other)?;
-    }
-
-    let sealed_block = Arc::new(block.sealed_block().clone());
-    debug!(target: "payload_builder", id=%attributes.id, sealed_block_header = ?sealed_block.sealed_header(), "sealed built block");
-
-    let mut payload = EthBuiltPayload::new(attributes.id, sealed_block, total_fees, requests);
-
-    // extend the payload with the blob sidecars from the executed txs
-    payload.extend_sidecars(blob_sidecars.into_iter().map(Arc::unwrap_or_clone));
-
-    Ok(BuildOutcome::Better {
-        payload,
-        cached_reads,
-    })
 }
+
+// Additional trait definitions to extend the WithInspector trait
+pub trait WithBitcoinInspector {
+    /// Prepare the bitcoin context for the current block
+    fn prepare_bitcoin_context(
+        &mut self,
+        block_number: u64,
+        timestamp: u64,
+    ) -> Result<(), RethError>;
+
+    /// Finalize any pending Bitcoin operations
+    fn finalize_bitcoin_operations(&mut self) -> Result<(), RethError>;
+
+    /// Update sentinel locks for Bitcoin broadcasts
+    fn update_sentinel_locks(&mut self, block_number: u64) -> Result<(), RethError>;
+}
+
+// These would be implemented for the actual inspector in your codebase

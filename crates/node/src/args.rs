@@ -32,6 +32,10 @@ pub struct SovaArgs {
     /// CLI flag to indicate the storage slot provider url
     #[arg(long, default_value = "http://[::1]:50051")]
     pub sentinel_url: String,
+
+    /// Enable transaction conditional support on sequencer
+    #[arg(long = "rollup.enable-tx-conditional", default_value = "false")]
+    pub enable_tx_conditional: bool,
 }
 
 fn parse_network_to_wrapper(s: &str) -> Result<BitcoinNetwork, &'static str> {

@@ -1,24 +1,11 @@
+use reth_optimism_chainspec::OpChainSpec;
 use sova_chainspec::{DEV, SOVA, TESTNET};
 
-use reth_chainspec::ChainSpec;
 use reth_cli::chainspec::{parse_genesis, ChainSpecParser};
 use std::sync::Arc;
 
 /// Chains supported by reth. First value should be used as the default.
 pub const SUPPORTED_CHAINS: &[&str] = &["sova", "testnet", "dev"];
-
-/// Clap value parser for [`ChainSpec`]s.
-///
-/// The value parser matches either a known chain, the path
-/// to a json file, or a json formatted string in-memory. The json needs to be a Genesis struct.
-pub fn chain_value_parser(s: &str) -> eyre::Result<Arc<ChainSpec>, eyre::Error> {
-    Ok(match s {
-        "sova" => SOVA.clone(),
-        "testnet" => TESTNET.clone(),
-        "dev" => DEV.clone(),
-        _ => Arc::new(parse_genesis(s)?.into()),
-    })
-}
 
 /// Sova chain specification parser
 /// Using ChainSpec for inheriting all past and future ethereum forkchoices.
@@ -27,12 +14,17 @@ pub fn chain_value_parser(s: &str) -> eyre::Result<Arc<ChainSpec>, eyre::Error> 
 pub struct SovaChainSpecParser;
 
 impl ChainSpecParser for SovaChainSpecParser {
-    type ChainSpec = ChainSpec;
+    type ChainSpec = OpChainSpec;
 
     const SUPPORTED_CHAINS: &'static [&'static str] = SUPPORTED_CHAINS;
 
-    fn parse(s: &str) -> eyre::Result<Arc<ChainSpec>> {
-        chain_value_parser(s)
+    fn parse(s: &str) -> eyre::Result<Arc<Self::ChainSpec>> {
+        Ok(match s {
+            "sova" => SOVA.clone(),
+            "testnet" => TESTNET.clone(),
+            "dev" => DEV.clone(),
+            _ => Arc::new(parse_genesis(s)?.into()),
+        })
     }
 }
 

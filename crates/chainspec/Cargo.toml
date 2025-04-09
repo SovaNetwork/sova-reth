@@ -10,6 +10,8 @@ keywords.workspace = true
 [dependencies]
 reth-chainspec.workspace = true
 reth-revm.workspace = true
+reth-optimism-chainspec.workspace = true
+reth-optimism-forks.workspace = true
 
 alloy-consensus.workspace = true
 alloy-genesis.workspace = true

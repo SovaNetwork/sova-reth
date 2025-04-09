@@ -6,12 +6,13 @@ use std::{
 use alloy_genesis::{Genesis, GenesisAccount};
 use alloy_primitives::{address, b256, Address, Bytes, U256};
 
-use reth_chainspec::{Chain, ChainSpec, ChainSpecBuilder, DepositContract};
+use reth_chainspec::{Chain, DepositContract};
+use reth_optimism_chainspec::{OpChainSpec, OpChainSpecBuilder};
 
-use crate::constants::{deposit_contract_storage, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE};
+use crate::constants::{deposit_contract_storage, sova_forks, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE};
 
 /// Sova main chain specification.
-pub static TESTNET: LazyLock<Arc<ChainSpec>> = LazyLock::new(|| {
+pub static TESTNET: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
     let deposit_contract_storage = deposit_contract_storage();
 
     let genesis = Genesis::default()
@@ -35,13 +36,13 @@ pub static TESTNET: LazyLock<Arc<ChainSpec>> = LazyLock::new(|| {
             ),
         ]);
 
-    let mut spec: ChainSpec = ChainSpecBuilder::default()
+    let mut spec: OpChainSpec = OpChainSpecBuilder::default()
         .chain(Chain::from_id(120893))
         .genesis(genesis)
-        .prague_activated()
+        .with_forks(sova_forks())
         .build();
 
-    spec.deposit_contract = Some(DepositContract::new(
+    spec.inner.deposit_contract = Some(DepositContract::new(
         Address::from_str(DEPOSIT_CONTRACT_ADDRESS).unwrap(),
         0,
         b256!("649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5"),
