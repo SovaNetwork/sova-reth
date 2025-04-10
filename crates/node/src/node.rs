@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use op_alloy_consensus::OpPooledTransaction;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
-use reth_evm::ConfigureEvm;
 use reth_network::{NetworkHandle, PeersInfo};
-use reth_node_api::{NodeTypes, PrimitivesTy, TxTy};
+use reth_node_api::{NodeTypes, TxTy};
 use reth_node_builder::{
     components::{
-        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder,
-        NetworkBuilder, PayloadBuilderBuilder,
+        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, NetworkBuilder,
+        PayloadBuilderBuilder,
     },
     node::FullNodeTypes,
     BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
@@ -20,7 +19,7 @@ use reth_optimism_node::{
     OpEngineTypes, OpNetworkPrimitives,
 };
 use reth_optimism_payload_builder::builder::OpPayloadTransactions;
-use reth_optimism_primitives::{OpPrimitives};
+use reth_optimism_primitives::OpPrimitives;
 use reth_provider::providers::ProviderFactoryBuilder;
 use reth_tracing::tracing::info;
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
@@ -90,8 +89,8 @@ impl SovaNode {
             >,
         >,
     {
-        let pool_builder = OpPoolBuilder::default()
-            .with_enable_tx_conditional(self.args.enable_tx_conditional);
+        let pool_builder =
+            OpPoolBuilder::default().with_enable_tx_conditional(self.args.enable_tx_conditional);
 
         ComponentsBuilder::default()
             .node_types::<Node>()
@@ -210,7 +209,6 @@ impl<Txs> MyPayloadBuilder<Txs> {
         Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
             + Unpin
             + 'static,
-        Evm: ConfigureEvm<Primitives = PrimitivesTy<Node::Types>>,
         Txs: OpPayloadTransactions<Pool::Transaction>,
     {
         let payload_builder = sova_payload::MyPayloadBuilder::new(

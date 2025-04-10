@@ -42,6 +42,8 @@ alloy-sol-types.workspace = true
 
 alloy-op-evm.workspace = true
 
+op-alloy-consensus.workspace = true
+
 op-revm.workspace = true
 
 revm.workspace = true

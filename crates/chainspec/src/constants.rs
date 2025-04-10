@@ -13,10 +13,19 @@ pub fn sova_forks() -> ChainHardforks {
         (EthereumHardfork::Homestead.boxed(), ForkCondition::Block(0)),
         (EthereumHardfork::Dao.boxed(), ForkCondition::Block(0)),
         (EthereumHardfork::Tangerine.boxed(), ForkCondition::Block(0)),
-        (EthereumHardfork::SpuriousDragon.boxed(), ForkCondition::Block(0)),
+        (
+            EthereumHardfork::SpuriousDragon.boxed(),
+            ForkCondition::Block(0),
+        ),
         (EthereumHardfork::Byzantium.boxed(), ForkCondition::Block(0)),
-        (EthereumHardfork::Constantinople.boxed(), ForkCondition::Block(0)),
-        (EthereumHardfork::Petersburg.boxed(), ForkCondition::Block(0)),
+        (
+            EthereumHardfork::Constantinople.boxed(),
+            ForkCondition::Block(0),
+        ),
+        (
+            EthereumHardfork::Petersburg.boxed(),
+            ForkCondition::Block(0),
+        ),
         (EthereumHardfork::Istanbul.boxed(), ForkCondition::Block(0)),
         (EthereumHardfork::Berlin.boxed(), ForkCondition::Block(0)),
         (EthereumHardfork::London.boxed(), ForkCondition::Block(0)),
@@ -28,15 +37,24 @@ pub fn sova_forks() -> ChainHardforks {
                 activation_block_number: 0,
             },
         ),
-        (EthereumHardfork::Shanghai.boxed(), ForkCondition::Timestamp(0)),
-        (EthereumHardfork::Cancun.boxed(), ForkCondition::Timestamp(0)),
+        (
+            EthereumHardfork::Shanghai.boxed(),
+            ForkCondition::Timestamp(0),
+        ),
+        (
+            EthereumHardfork::Cancun.boxed(),
+            ForkCondition::Timestamp(0),
+        ),
         (OpHardfork::Regolith.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Bedrock.boxed(), ForkCondition::Block(0)),
         (OpHardfork::Ecotone.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Canyon.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Isthmus.boxed(), ForkCondition::Timestamp(0)),
-        (EthereumHardfork::Prague.boxed(), ForkCondition::Timestamp(0)),
+        (
+            EthereumHardfork::Prague.boxed(),
+            ForkCondition::Timestamp(0),
+        ),
     ])
 }
 

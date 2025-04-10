@@ -4,22 +4,13 @@ mod execute;
 mod inspector;
 mod precompiles;
 
-use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
 use constants::BTC_PRECOMPILE_ADDRESS;
 use evm::SovaEvm;
 pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
-use op_revm::{
-    L1BlockInfo, OpContext, OpHaltReason, OpSpecId, OpTransaction,
-    OpTransactionError,
-};
 pub use precompiles::BitcoinClient;
 use precompiles::BitcoinRpcPrecompile;
-use reth_optimism_chainspec::OpChainSpec;
-use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes};
-use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
-use revm::handler::instructions::EthInstructions;
 
 use std::{error::Error, sync::Arc};
 
@@ -30,9 +21,13 @@ use alloy_evm::{
     block::{BlockExecutorFactory, BlockExecutorFor},
     EvmEnv, EvmFactory,
 };
+use alloy_op_evm::OpBlockExecutionCtx;
 use alloy_primitives::{Address, Bytes};
 
 use reth_evm::{ConfigureEvm, InspectorFor};
+use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes};
+use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
 use reth_primitives::{SealedBlock, SealedHeader};
 use reth_revm::{
     context::{Cfg, TxEnv},
@@ -44,6 +39,10 @@ use reth_revm::{
     Context, Database, MainContext, State,
 };
 use reth_tasks::TaskExecutor;
+
+use revm::handler::instructions::EthInstructions;
+
+use op_revm::{L1BlockInfo, OpContext, OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
 
 use sova_cli::SovaConfig;
 
@@ -197,14 +196,12 @@ impl BlockExecutorFactory for MyEvmConfig {
         I: InspectorFor<Self, &'a mut State<DB>> + 'a,
         <DB as Database>::Error: Send + Sync + 'static,
     {
-        MyBlockExecutor {
-            inner: OpBlockExecutor::new(
-                evm,
-                ctx,
-                self.inner.chain_spec().clone(),
-                *self.inner.executor_factory.receipt_builder(),
-            ),
-        }
+        MyBlockExecutor::new(
+            evm,
+            ctx,
+            self.inner.chain_spec().clone(),
+            *self.inner.executor_factory.receipt_builder(),
+        )
     }
 }
 
@@ -273,7 +270,6 @@ impl MyEvmFactory {
     }
 }
 
-// https://github.com/alloy-rs/evm/blob/ba6ed193e8a2029b5bc3fb39b1e412bddb507efb/crates/op-evm/src/lib.rs#L215
 impl EvmFactory for MyEvmFactory {
     type Evm<DB, I>
         = SovaEvm<DB, I, CustomPrecompiles>
@@ -296,9 +292,10 @@ impl EvmFactory for MyEvmFactory {
 
     /// Create a new EVM
     ///
-    /// NOTE: The evm should never run on its own without an inspector.
+    /// NOTE: On Sova, EVM engine should never run on its own without an inspector.
     /// The lock state is updated via the inspector and needs to be in sync on every tx.
-    /// Use create_evm_with_inspector() when creating an EVM in sova-reth.
+    /// Always use [`EvmFactory::create_evm_with_inspector`] when creating a new
+    /// instance of an EVM.
     fn create_evm<DB: Database>(
         &self,
         db: DB,

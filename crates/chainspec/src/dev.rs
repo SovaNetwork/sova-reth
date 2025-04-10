@@ -10,7 +10,9 @@ use reth_chainspec::{Chain, DepositContract};
 use reth_optimism_chainspec::{OpChainSpec, OpChainSpecBuilder};
 use reth_revm::primitives::hex;
 
-use crate::constants::{deposit_contract_storage, sova_forks, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE};
+use crate::constants::{
+    deposit_contract_storage, sova_forks, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE,
+};
 
 /// Sova dev devnet specification.
 pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {

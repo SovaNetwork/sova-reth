@@ -9,7 +9,9 @@ use alloy_primitives::{address, b256, Address, Bytes, U256};
 use reth_chainspec::{Chain, DepositContract};
 use reth_optimism_chainspec::{OpChainSpec, OpChainSpecBuilder};
 
-use crate::constants::{deposit_contract_storage, sova_forks, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE};
+use crate::constants::{
+    deposit_contract_storage, sova_forks, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE,
+};
 
 /// Sova main chain specification.
 pub static TESTNET: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {

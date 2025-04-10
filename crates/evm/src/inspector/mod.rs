@@ -417,6 +417,7 @@ where
     }
 }
 
+/// Trait for types that can provide an inspector
 pub trait WithInspector {
     fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>>;
 }
