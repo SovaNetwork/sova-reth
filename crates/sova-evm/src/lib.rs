@@ -3,9 +3,10 @@ mod evm;
 mod execute;
 mod inspector;
 mod precompiles;
+mod sova_revm;
 
 use constants::BTC_PRECOMPILE_ADDRESS;
-use evm::SovaEvm;
+use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
@@ -19,7 +20,7 @@ use parking_lot::RwLock;
 use alloy_consensus::{Block, Header};
 use alloy_evm::{
     block::{BlockExecutorFactory, BlockExecutorFor},
-    EvmEnv, EvmFactory,
+    EvmEnv,
 };
 use alloy_op_evm::OpBlockExecutionCtx;
 use alloy_primitives::{Address, Bytes};
@@ -30,26 +31,23 @@ use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes}
 use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
 use reth_primitives::{SealedBlock, SealedHeader};
 use reth_revm::{
-    context::{Cfg, TxEnv},
-    context_interface::{result::EVMError, ContextTr},
+    context::Cfg,
+    context_interface::ContextTr,
     handler::{EthPrecompiles, PrecompileProvider},
-    inspector::{Inspector, NoOpInspector},
     interpreter::{Gas, InputsImpl, InstructionResult, InterpreterResult},
     precompile::PrecompileError,
-    Context, Database, MainContext, State,
+    Database, State,
 };
 use reth_tasks::TaskExecutor;
 
-use revm::handler::instructions::EthInstructions;
-
-use op_revm::{L1BlockInfo, OpContext, OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
+use op_revm::OpSpecId;
 
 use sova_cli::SovaConfig;
 
 // Custom precompiles that include Bitcoin precompile
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CustomPrecompiles {
-    /// Standard Ethereum precompiles
+    /// Standard Ethereum precompiles (prague)
     pub standard: EthPrecompiles,
     /// Bitcoin RPC precompile
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
@@ -134,7 +132,7 @@ pub struct MyEvmConfig {
     /// Wrapper around optimism configuration
     inner: OpEvmConfig,
     /// EVM Factory
-    evm_factory: MyEvmFactory,
+    evm_factory: SovaEvmFactory,
     /// Engine inspector used to track bitcoin precompile execution for double spends
     inspector: Arc<RwLock<SovaInspector>>,
 }
@@ -165,7 +163,7 @@ impl MyEvmConfig {
         let bitcoin_precompile = Arc::new(RwLock::new(bitcoin_precompile));
         Ok(Self {
             inner: OpEvmConfig::optimism(chain_spec),
-            evm_factory: MyEvmFactory::new(bitcoin_precompile),
+            evm_factory: SovaEvmFactory::new(bitcoin_precompile),
             inspector: Arc::new(RwLock::new(inspector)),
         })
     }
@@ -177,7 +175,7 @@ impl MyEvmConfig {
 }
 
 impl BlockExecutorFactory for MyEvmConfig {
-    type EvmFactory = MyEvmFactory;
+    type EvmFactory = SovaEvmFactory;
     type ExecutionCtx<'a> = OpBlockExecutionCtx;
     type Transaction = OpTransactionSigned;
     type Receipt = OpReceipt;
@@ -251,112 +249,5 @@ impl ConfigureEvm for MyEvmConfig {
 impl WithInspector for MyEvmConfig {
     fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
         &self.inspector
-    }
-}
-
-/// Custom EVM configuration
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct MyEvmFactory {
-    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
-}
-
-impl MyEvmFactory {
-    /// Create a new factory with the given Bitcoin precompile
-    pub fn new(bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>) -> Self {
-        Self {
-            bitcoin_rpc_precompile,
-        }
-    }
-}
-
-impl EvmFactory for MyEvmFactory {
-    type Evm<DB, I>
-        = SovaEvm<DB, I, CustomPrecompiles>
-    where
-        DB: Database,
-        I: Inspector<Self::Context<DB>>,
-        <DB as Database>::Error: Send + Sync + 'static;
-
-    type Context<DB>
-        = OpContext<DB>
-    where
-        DB: Database,
-        <DB as Database>::Error: Send + Sync + 'static;
-
-    type Tx = OpTransaction<TxEnv>;
-    type Error<DBError: core::error::Error + Send + Sync + 'static> =
-        EVMError<DBError, OpTransactionError>;
-    type HaltReason = OpHaltReason;
-    type Spec = OpSpecId;
-
-    /// Create a new EVM
-    ///
-    /// NOTE: On Sova, EVM engine should never run on its own without an inspector.
-    /// The lock state is updated via the inspector and needs to be in sync on every tx.
-    /// Always use [`EvmFactory::create_evm_with_inspector`] when creating a new
-    /// instance of an EVM.
-    fn create_evm<DB: Database>(
-        &self,
-        db: DB,
-        input: EvmEnv<Self::Spec>,
-    ) -> Self::Evm<DB, NoOpInspector>
-    where
-        <DB as Database>::Error: Send + Sync + 'static,
-    {
-        let custom_precompiles = CustomPrecompiles::new(self.bitcoin_rpc_precompile.clone());
-
-        // Create the context
-        let context = Context::mainnet()
-            .with_db(db)
-            .with_block(input.block_env)
-            .with_cfg(input.cfg_env)
-            .with_tx(OpTransaction::default())
-            .with_chain(L1BlockInfo::default());
-
-        // Create the OpEvm with our custom precompiles
-        let op_evm = op_revm::OpEvm(revm::context::Evm {
-            data: revm::context::EvmData {
-                ctx: context,
-                inspector: NoOpInspector {},
-            },
-            instruction: EthInstructions::new_mainnet(),
-            precompiles: custom_precompiles,
-        });
-
-        SovaEvm::new(op_evm, false)
-    }
-
-    fn create_evm_with_inspector<DB: Database, I: Inspector<Self::Context<DB>>>(
-        &self,
-        db: DB,
-        input: EvmEnv<Self::Spec>,
-        inspector: I,
-    ) -> Self::Evm<DB, I>
-    where
-        <DB as Database>::Error: Send + Sync + 'static,
-    {
-        // Create custom precompiles with our Bitcoin precompile
-        let custom_precompiles = CustomPrecompiles::new(self.bitcoin_rpc_precompile.clone());
-
-        // Create the context
-        let context = Context::mainnet()
-            .with_db(db)
-            .with_block(input.block_env)
-            .with_cfg(input.cfg_env)
-            .with_tx(OpTransaction::default())
-            .with_chain(L1BlockInfo::default());
-
-        // Create the OpEvm with our custom precompiles and inspector
-        let op_evm = op_revm::OpEvm(revm::context::Evm {
-            data: revm::context::EvmData {
-                ctx: context,
-                inspector,
-            },
-            instruction: EthInstructions::new_mainnet(),
-            precompiles: custom_precompiles,
-        });
-
-        SovaEvm::new(op_evm, true)
     }
 }

@@ -6,8 +6,9 @@ use std::{
 use alloy_genesis::{Genesis, GenesisAccount};
 use alloy_primitives::{address, b256, Address, Bytes, U256};
 
-use reth_chainspec::{Chain, DepositContract};
-use reth_optimism_chainspec::{OpChainSpec, OpChainSpecBuilder};
+use reth_chainspec::{BaseFeeParams, BaseFeeParamsKind, Chain, ChainSpec, DepositContract};
+use reth_optimism_chainspec::{make_op_genesis_header, OpChainSpec, OpChainSpecBuilder};
+use reth_primitives_traits::SealedHeader;
 use reth_revm::primitives::hex;
 
 use crate::constants::{
@@ -16,8 +17,6 @@ use crate::constants::{
 
 /// Sova dev devnet specification.
 pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
-    let deposit_contract_storage = deposit_contract_storage();
-
     let genesis = Genesis::default()
         .with_nonce(0x01d83d)
         .with_timestamp(0x673e4f9b)
@@ -40,22 +39,31 @@ pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
                 Address::from_str(DEPOSIT_CONTRACT_ADDRESS).unwrap(),
                 GenesisAccount::default()
                     .with_code(Some(Bytes::from_str(DEPOSIT_CONTRACT_CODE).unwrap()))
-                    .with_storage(Some(deposit_contract_storage))
+                    .with_storage(Some(deposit_contract_storage()))
                     .with_balance(U256::from(0)),
             ),
         ]);
 
-    let mut spec: OpChainSpec = OpChainSpecBuilder::default()
-        .chain(Chain::from_id(120893))
-        .genesis(genesis)
-        .with_forks(sova_forks())
-        .build();
+    let hardforks = sova_forks();
+    let genesis_header = SealedHeader::seal_slow(make_op_genesis_header(&genesis, &hardforks));
 
-    spec.inner.deposit_contract = Some(DepositContract::new(
+    let deposit_contract = Some(DepositContract::new(
         Address::from_str(DEPOSIT_CONTRACT_ADDRESS).unwrap(),
         0,
         b256!("649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5"),
     ));
 
-    spec.into()
+    OpChainSpec {
+        inner: ChainSpec {
+            chain: Chain::dev(),
+            genesis_header,
+            genesis,
+            paris_block_and_final_difficulty: Some((0, U256::from(0))),
+            hardforks,
+            base_fee_params: BaseFeeParamsKind::Constant(BaseFeeParams::ethereum()),
+            deposit_contract,
+            ..Default::default()
+        },
+    }
+    .into()
 });

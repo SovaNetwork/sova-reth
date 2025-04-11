@@ -3,7 +3,9 @@ extern crate alloc;
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 
 use alloy_consensus::{BlockHeader, Eip658Value, Header, Transaction, TxReceipt};
-use alloy_eips::{eip6110::MAINNET_DEPOSIT_CONTRACT_ADDRESS, eip7685::Requests, Encodable2718, Typed2718};
+use alloy_eips::{
+    eip6110::MAINNET_DEPOSIT_CONTRACT_ADDRESS, eip7685::Requests, Encodable2718, Typed2718,
+};
 use alloy_evm::block::ExecutableTx;
 
 use alloy_op_evm::{block::receipt_builder::OpReceiptBuilder, OpBlockExecutionCtx};
@@ -15,7 +17,17 @@ use op_alloy_consensus::OpDepositReceipt;
 use op_revm::transaction::deposit::DEPOSIT_TRANSACTION_TYPE;
 use reth_errors::{BlockValidationError, RethError};
 use reth_evm::{
-    block::{BlockExecutor, InternalBlockExecutionError, StateChangePostBlockSource, StateChangeSource, SystemCaller}, eth::{eip6110::{self, accumulate_deposits_from_receipts}, receipt_builder::ReceiptBuilderCtx}, execute::{BlockExecutionError, BlockExecutorProvider, Executor}, state_change::{balance_increment_state, post_block_balance_increments}, ConfigureEvm, Database, Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded, OnStateHook
+    block::{
+        BlockExecutor, InternalBlockExecutionError, StateChangePostBlockSource, StateChangeSource,
+        SystemCaller,
+    },
+    eth::{
+        eip6110::{self, accumulate_deposits_from_receipts},
+        receipt_builder::ReceiptBuilderCtx,
+    },
+    execute::{BlockExecutionError, BlockExecutorProvider, Executor},
+    state_change::{balance_increment_state, post_block_balance_increments},
+    ConfigureEvm, Database, Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded, OnStateHook,
 };
 use reth_node_api::NodePrimitives;
 use reth_optimism_forks::OpHardforks;
@@ -27,6 +39,7 @@ use reth_revm::{
     state::Account,
     DatabaseCommit,
 };
+use reth_tracing::tracing::info;
 use revm::context::result::ResultAndState;
 
 use crate::WithInspector;
@@ -255,6 +268,8 @@ where
         drop(strategy);
         drop(inspector);
 
+        info!("execution flow: pre-exe done");
+
         // *** SIMULATION PHASE ***
 
         // Get evm_env
@@ -280,6 +295,7 @@ where
                 }
             };
         }
+        info!("execution flow: simulation done");
 
         drop(evm);
 
@@ -321,6 +337,7 @@ where
         }
 
         drop(inspector);
+        info!("execution flow: reverts applied");
 
         // *** EXECUTION PHASE ***
 
@@ -343,6 +360,8 @@ where
 
         drop(inspector);
 
+        info!("execution flow: main execution done");
+
         // *** UPDATE SENTINEL LOCKS ***
         {
             let inspector_lock = self.strategy_factory.with_inspector();
@@ -362,7 +381,11 @@ where
                 })?;
         }
 
+        info!("execution flow: sentinel locks updated");
+
         self.db.merge_transitions(BundleRetention::Reverts);
+
+        info!("execution flow: db merged");
 
         Ok(result)
     }
@@ -437,11 +460,7 @@ where
         Receipt: TxReceipt<Log = Log> + 'a,
     {
         let mut out = Vec::new();
-        accumulate_deposits_from_receipts(
-            MAINNET_DEPOSIT_CONTRACT_ADDRESS,
-            receipts,
-            &mut out,
-        )?;
+        accumulate_deposits_from_receipts(MAINNET_DEPOSIT_CONTRACT_ADDRESS, receipts, &mut out)?;
         Ok(out.into())
     }
 }
@@ -462,11 +481,13 @@ where
 
     fn apply_pre_execution_changes(&mut self) -> Result<(), BlockExecutionError> {
         // Set state clear flag if the block is after the Spurious Dragon hardfork.
-        let state_clear_flag =
-            self.spec.is_spurious_dragon_active_at_block(self.evm.block().number);
+        let state_clear_flag = self
+            .spec
+            .is_spurious_dragon_active_at_block(self.evm.block().number);
         self.evm.db_mut().set_state_clear_flag(state_clear_flag);
 
-        self.system_caller.apply_blockhashes_contract_call(self.ctx.parent_hash, &mut self.evm)?;
+        self.system_caller
+            .apply_blockhashes_contract_call(self.ctx.parent_hash, &mut self.evm)?;
         self.system_caller
             .apply_beacon_root_contract_call(self.ctx.parent_beacon_block_root, &mut self.evm)?;
 
@@ -484,11 +505,13 @@ where
         // must be no greater than the block’s gasLimit.
         let block_available_gas = self.evm.block().gas_limit - self.gas_used;
         if tx.tx().gas_limit() > block_available_gas && (self.is_regolith || !is_deposit) {
-            return Err(BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
-                transaction_gas_limit: tx.tx().gas_limit(),
-                block_available_gas,
-            }
-            .into());
+            return Err(
+                BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
+                    transaction_gas_limit: tx.tx().gas_limit(),
+                    block_available_gas,
+                }
+                .into(),
+            );
         }
 
         // Cache the depositor account prior to the state transition for the deposit nonce.
@@ -509,11 +532,15 @@ where
         let hash = tx.tx().trie_hash();
 
         // Execute transaction.
-        let result_and_state =
-            self.evm.transact(tx).map_err(move |err| BlockExecutionError::evm(err, hash))?;
+        let result_and_state = self
+            .evm
+            .transact(tx)
+            .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        self.system_caller
-            .on_state(StateChangeSource::Transaction(self.receipts.len()), &result_and_state.state);
+        self.system_caller.on_state(
+            StateChangeSource::Transaction(self.receipts.len()),
+            &result_and_state.state,
+        );
         let ResultAndState { result, state } = result_and_state;
 
         f(&result);
@@ -541,18 +568,21 @@ where
                         logs: ctx.result.into_logs(),
                     };
 
-                    self.receipt_builder.build_deposit_receipt(OpDepositReceipt {
-                        inner: receipt,
-                        deposit_nonce: depositor.map(|account| account.nonce),
-                        // The deposit receipt version was introduced in Canyon to indicate an
-                        // update to how receipt hashes should be computed
-                        // when set. The state transition process ensures
-                        // this is only set for post-Canyon deposit
-                        // transactions.
-                        deposit_receipt_version: (is_deposit
-                            && self.spec.is_canyon_active_at_timestamp(self.evm.block().timestamp))
-                        .then_some(1),
-                    })
+                    self.receipt_builder
+                        .build_deposit_receipt(OpDepositReceipt {
+                            inner: receipt,
+                            deposit_nonce: depositor.map(|account| account.nonce),
+                            // The deposit receipt version was introduced in Canyon to indicate an
+                            // update to how receipt hashes should be computed
+                            // when set. The state transition process ensures
+                            // this is only set for post-Canyon deposit
+                            // transactions.
+                            deposit_receipt_version: (is_deposit
+                                && self
+                                    .spec
+                                    .is_canyon_active_at_timestamp(self.evm.block().timestamp))
+                            .then_some(1),
+                        })
                 }
             },
         );
@@ -565,9 +595,13 @@ where
     fn finish(
         mut self,
     ) -> Result<(Self::Evm, BlockExecutionResult<Self::Receipt>), BlockExecutionError> {
-        let requests = if self.spec.is_prague_active_at_timestamp(self.evm.block().timestamp) {
+        let requests = if self
+            .spec
+            .is_prague_active_at_timestamp(self.evm.block().timestamp)
+        {
             // Collect all EIP-6110 deposits
-            let deposit_requests = MyBlockExecutor::<E, R, Spec>::parse_deposits_from_receipts(&self.receipts)?;
+            let deposit_requests =
+                MyBlockExecutor::<E, R, Spec>::parse_deposits_from_receipts(&self.receipts)?;
 
             let mut requests = Requests::default();
 
@@ -575,7 +609,10 @@ where
                 requests.push_request_with_type(eip6110::DEPOSIT_REQUEST_TYPE, deposit_requests);
             }
 
-            requests.extend(self.system_caller.apply_post_execution_changes(&mut self.evm)?);
+            requests.extend(
+                self.system_caller
+                    .apply_post_execution_changes(&mut self.evm)?,
+            );
             requests
         } else {
             Requests::default()
@@ -598,7 +635,11 @@ where
             })
         })?;
 
-        let gas_used = self.receipts.last().map(|r| r.cumulative_gas_used()).unwrap_or_default();
+        let gas_used = self
+            .receipts
+            .last()
+            .map(|r| r.cumulative_gas_used())
+            .unwrap_or_default();
         Ok((
             self.evm,
             BlockExecutionResult {

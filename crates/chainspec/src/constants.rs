@@ -37,24 +37,21 @@ pub fn sova_forks() -> ChainHardforks {
                 activation_block_number: 0,
             },
         ),
+        (OpHardfork::Bedrock.boxed(), ForkCondition::Block(0)),
+        (OpHardfork::Regolith.boxed(), ForkCondition::Timestamp(0)),
         (
             EthereumHardfork::Shanghai.boxed(),
             ForkCondition::Timestamp(0),
         ),
+        (OpHardfork::Canyon.boxed(), ForkCondition::Timestamp(0)),
         (
             EthereumHardfork::Cancun.boxed(),
             ForkCondition::Timestamp(0),
         ),
-        (OpHardfork::Regolith.boxed(), ForkCondition::Timestamp(0)),
-        (OpHardfork::Bedrock.boxed(), ForkCondition::Block(0)),
         (OpHardfork::Ecotone.boxed(), ForkCondition::Timestamp(0)),
-        (OpHardfork::Canyon.boxed(), ForkCondition::Timestamp(0)),
-        (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
-        (OpHardfork::Isthmus.boxed(), ForkCondition::Timestamp(0)),
-        (
-            EthereumHardfork::Prague.boxed(),
-            ForkCondition::Timestamp(0),
-        ),
+        (OpHardfork::Fjord.boxed(), ForkCondition::Timestamp(0)),
+        (OpHardfork::Granite.boxed(), ForkCondition::Timestamp(0)),
+        // (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
     ])
 }
 
