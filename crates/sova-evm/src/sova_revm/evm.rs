@@ -1,28 +1,15 @@
-use core::ops::{Deref, DerefMut};
-
-use alloy_primitives::{Address, Bytes, TxKind, U256};
-
-use op_alloy_consensus::OpTxType;
-
-use op_revm::{OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
-
-use alloy_evm::{Database, Evm as AlloyEvm};
-use reth_evm::EvmEnv;
 use revm::{
-    context::{
-        result::{EVMError, ResultAndState},
-        BlockEnv, ContextSetters, ContextTr, Evm, EvmData, TxEnv,
-    },
+    context::{ContextSetters, ContextTr, Evm, EvmData},
     handler::{
         instructions::{EthInstructions, InstructionProvider},
         EvmTr, PrecompileProvider,
     },
     inspector::{InspectorEvmTr, JournalExt},
     interpreter::{
-        interpreter::EthInterpreter, Interpreter, InterpreterAction, InterpreterResult,
+        interpreter::EthInterpreter, Interpreter, InterpreterAction, 
         InterpreterTypes,
     },
-    Context, ExecuteEvm, InspectEvm, Inspector,
+    Inspector,
 };
 
 use crate::CustomPrecompiles;

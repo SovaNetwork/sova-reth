@@ -7,7 +7,7 @@ use alloy_genesis::{Genesis, GenesisAccount};
 use alloy_primitives::{address, b256, Address, Bytes, U256};
 
 use reth_chainspec::{BaseFeeParams, BaseFeeParamsKind, Chain, ChainSpec, DepositContract};
-use reth_optimism_chainspec::{make_op_genesis_header, OpChainSpec, OpChainSpecBuilder};
+use reth_optimism_chainspec::{make_op_genesis_header, OpChainSpec};
 use reth_primitives_traits::SealedHeader;
 use reth_revm::primitives::hex;
 
