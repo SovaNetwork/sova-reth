@@ -48,7 +48,7 @@ use reth_revm::{
     DatabaseCommit,
 };
 use reth_storage_api::errors::ProviderError;
-use reth_tracing::tracing::{debug, info, trace, warn};
+use reth_tracing::tracing::{debug, trace, warn};
 use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
 
 use revm::{
@@ -370,8 +370,6 @@ where
             .with_bundle_update()
             .build();
 
-        info!("database complete");
-
         // *** SIMULATION PHASE ***
         let next_block_attributes = OpNextBlockEnvAttributes {
             timestamp: ctx.attributes().payload_attributes.timestamp(),
@@ -387,15 +385,12 @@ where
                 .parent_beacon_block_root(),
             extra_data: ctx.extra_data()?,
         };
-        info!("attributes");
 
         // Get evm_env for the next block
         let evm_env = ctx
             .evm_config
             .next_evm_env(&ctx.parent(), &next_block_attributes)
             .map_err(RethError::other)?;
-
-        info!("evm_env");
 
         // Get best transaction attributes for simulation
         let best_tx_attrs;
@@ -408,8 +403,6 @@ where
 
         // Get best transactions for simulation
         let mut best_txs = best(best_tx_attrs);
-
-        info!("best txs");
 
         // Get inspector
         let inspector_lock = evm_config.with_inspector();
@@ -433,8 +426,6 @@ where
                 }
             };
         }
-
-        info!("simulated");
 
         drop(evm);
 
@@ -479,7 +470,6 @@ where
                 }
             }
         }
-        info!("applied revert cache");
 
         drop(inspector);
 
@@ -501,8 +491,6 @@ where
             PayloadBuilderError::Internal(err.into())
         })?;
 
-        info!("done pre-exe");
-
         // Add in Bitcoin context txs
         let mut info: ExecutionInfo = ExecutionInfo::default();
 
@@ -522,7 +510,6 @@ where
                     fees: info.total_fees,
                 });
             }
-            info!("Done mempool txs")
         }
 
         let BlockBuilderOutcome {
@@ -571,7 +558,6 @@ where
                     )))
                 })?;
         }
-        info!("locks updated");
 
         let payload = OpBuiltPayload::new(
             ctx.payload_id(),
@@ -612,11 +598,11 @@ where
         ctx.execute_sequencer_transactions(&mut builder)?;
         builder.into_executor().apply_post_execution_changes()?;
 
-        let ExecutionWitnessRecord { 
+        let ExecutionWitnessRecord {
             hashed_state,
             codes,
             keys,
-            lowest_block_number: _
+            lowest_block_number: _,
         } = ExecutionWitnessRecord::from_executed_state(&db);
         let state = state_provider.witness(Default::default(), hashed_state)?;
         Ok(ExecutionWitness {

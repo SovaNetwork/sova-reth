@@ -9,7 +9,13 @@ use reth_node_builder::{
     components::{
         BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, NetworkBuilder,
         PayloadBuilderBuilder,
-    }, node::FullNodeTypes, rpc::{EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder, RethRpcAddOns, RpcAddOns, RpcHandle}, BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig
+    },
+    node::FullNodeTypes,
+    rpc::{
+        EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder, RethRpcAddOns, RpcAddOns,
+        RpcHandle,
+    },
+    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
 };
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_node::{
@@ -20,22 +26,20 @@ use reth_optimism_node::{
 use reth_optimism_payload_builder::builder::OpPayloadTransactions;
 use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
 use reth_optimism_rpc::OpEthApiError;
-use reth_rpc_builder::{config::RethRpcServerConfig, RethRpcModule};
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
 use reth_rpc_eth_types::error::FromEvmError;
 use reth_tracing::tracing::info;
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
-use reth_rpc_api::BlockSubmissionValidationApiServer;
 
 use revm_context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
-use sova_rpc::{SovaEthApi, SovaEthApiBuilder, SovaValidationApi};
+use sova_rpc::{SovaEthApi, SovaEthApiBuilder};
 
 use crate::{engine::SovaEngineValidator, rpc::SovaEngineApiBuilder, SovaArgs};
 
-/// Storage implementation for Optimism.
+/// Storage implementation for Sova
 pub type SovaStorage = EthStorage<OpTransactionSigned>;
 
 /// Custom AddOns for Sova
@@ -45,8 +49,6 @@ where
     N: FullNodeComponents,
     SovaEthApiBuilder: EthApiBuilder<N>,
 {
-    /// Rpc add-ons responsible for launching the RPC servers and instantiating the RPC handlers
-    /// and eth-api.
     pub inner: RpcAddOns<
         N,
         SovaEthApiBuilder,
@@ -76,7 +78,6 @@ where
     }
 }
 
-/// A regular sova evm and executor builder.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct SovaAddOnsBuilder;
@@ -88,6 +89,8 @@ impl SovaAddOnsBuilder {
         N: FullNodeComponents<Types: NodeTypes<Primitives = OpPrimitives>>,
         SovaEthApiBuilder: EthApiBuilder<N>,
     {
+        // NOTE: In optimism this is where the sequencer is injected as an AddOn.
+        // Block producers on Sova commit to a specific BTC block context.
 
         SovaAddOns {
             inner: RpcAddOns::new(
@@ -120,25 +123,8 @@ where
         self,
         ctx: reth_node_api::AddOnsContext<'_, N>,
     ) -> eyre::Result<Self::Handle> {
-        let validation_api = SovaValidationApi::new(
-            ctx.node.provider().clone(),
-            Arc::new(ctx.node.consensus().clone()),
-            ctx.node.block_executor().clone(),
-            ctx.config.rpc.flashbots_config(),
-            Box::new(ctx.node.task_executor().clone()),
-            Arc::new(SovaEngineValidator::new(ctx.config.chain.clone())),
-        );
-
-        self.inner
-            .launch_add_ons_with(ctx, move |modules, _, _| {
-                modules.merge_if_module_configured(
-                    RethRpcModule::Flashbots,
-                    validation_api.into_rpc(),
-                )?;
-
-                Ok(())
-            })
-            .await
+        // No-op - no flashbots, no optimism sequencer
+        self.inner.launch_add_ons_with(ctx, |_, _, _| Ok(())).await
     }
 }
 
@@ -173,7 +159,7 @@ where
             Payload = OpEngineTypes,
         >,
     >,
-   SovaEthApiBuilder: EthApiBuilder<N>,
+    SovaEthApiBuilder: EthApiBuilder<N>,
 {
     type Validator = SovaEngineValidator;
 
@@ -487,7 +473,6 @@ where
         Ok(handle)
     }
 }
-
 
 /// Builder for [`SovaEngineValidator`].
 #[derive(Debug, Default, Clone)]

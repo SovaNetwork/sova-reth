@@ -1,8 +1,7 @@
-use op_revm::{L1BlockInfo, OpSpecId, transaction::OpTxTr};
+use op_revm::{transaction::OpTxTr, L1BlockInfo, OpSpecId};
 use revm::{
     context::{Cfg, JournalOutput, JournalTr},
     context_interface::Block,
-    inspector::NoOpInspector,
     Context, Database, Inspector,
 };
 
@@ -14,10 +13,6 @@ use super::evm::SovaEvm;
 pub trait SovaBuilder: Sized {
     /// Type of the context.
     type Context;
-
-    /// Build the Sova EVM with default inspector and custom precompiles.
-    fn build_sova_op(self, precompiles: CustomPrecompiles)
-        -> SovaEvm<Self::Context, NoOpInspector>;
 
     /// Build the Sova EVM with custom inspector and custom precompiles.
     fn build_sova_op_with_inspector<INSP: Inspector<Self::Context>>(
@@ -36,13 +31,6 @@ where
     JOURNAL: JournalTr<Database = DB, FinalOutput = JournalOutput>,
 {
     type Context = Self;
-
-    fn build_sova_op(
-        self,
-        precompiles: CustomPrecompiles,
-    ) -> SovaEvm<Self::Context, NoOpInspector> {
-        SovaEvm::new(self, NoOpInspector {}).with_precompiles(precompiles)
-    }
 
     fn build_sova_op_with_inspector<INSP>(
         self,

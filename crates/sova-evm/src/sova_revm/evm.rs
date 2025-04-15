@@ -5,10 +5,7 @@ use revm::{
         EvmTr, PrecompileProvider,
     },
     inspector::{InspectorEvmTr, JournalExt},
-    interpreter::{
-        interpreter::EthInterpreter, Interpreter, InterpreterAction, 
-        InterpreterTypes,
-    },
+    interpreter::{interpreter::EthInterpreter, Interpreter, InterpreterAction, InterpreterTypes},
     Inspector,
 };
 
@@ -21,7 +18,9 @@ pub struct SovaEvm<CTX, INSP, I = EthInstructions<EthInterpreter, CTX>, P = Cust
     pub Evm<CTX, INSP, I, P>,
 );
 
-impl<CTX: ContextTr, INSP> SovaEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, CustomPrecompiles> {
+impl<CTX: ContextTr, INSP>
+    SovaEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, CustomPrecompiles>
+{
     pub fn new(ctx: CTX, inspector: INSP) -> Self {
         Self(Evm {
             data: EvmData { ctx, inspector },

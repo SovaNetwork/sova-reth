@@ -1,20 +1,21 @@
-use alloy_primitives::{Bytes, Sealable, Sealed, Signature, B256};
 use alloy_consensus::{transaction::Recovered, Transaction as _};
+use alloy_primitives::{Bytes, Sealable, Sealed, Signature, B256};
+use alloy_rpc_types_eth::TransactionInfo;
 use op_alloy_consensus::OpTxEnvelope;
+use op_alloy_rpc_types::{OpTransactionRequest, Transaction};
+use reth_node_api::FullNodeComponents;
+use reth_optimism_primitives::{OpReceipt, OpTransactionSigned};
 use reth_optimism_rpc::OpEthApiError;
-use reth_rpc_eth_types::{utils::recover_raw_transaction, EthApiError};
-use reth_storage_api::{
-    BlockReader, BlockReaderIdExt, ProviderTx, ReceiptProvider, TransactionsProvider,
-};use reth_transaction_pool::{TransactionOrigin, TransactionPool};
 use reth_rpc_eth_api::{
     helpers::{EthSigner, EthTransactions, LoadTransaction, SpawnBlocking},
     FromEthApiError, FullEthApiTypes, RpcNodeCore, RpcNodeCoreExt, TransactionCompat,
 };
-use reth_node_api::FullNodeComponents;
+use reth_rpc_eth_types::{utils::recover_raw_transaction, EthApiError};
+use reth_storage_api::{
+    BlockReader, BlockReaderIdExt, ProviderTx, ReceiptProvider, TransactionsProvider,
+};
 use reth_transaction_pool::PoolTransaction;
-use op_alloy_rpc_types::{OpTransactionRequest, Transaction};
-use reth_optimism_primitives::{OpReceipt, OpTransactionSigned};
-use alloy_rpc_types_eth::TransactionInfo;
+use reth_transaction_pool::{TransactionOrigin, TransactionPool};
 
 use super::{SovaEthApi, SovaNodeCore};
 
@@ -90,7 +91,11 @@ where
         }
 
         let TransactionInfo {
-            block_hash, block_number, index: transaction_index, base_fee, ..
+            block_hash,
+            block_number,
+            index: transaction_index,
+            base_fee,
+            ..
         } = tx_info;
 
         let effective_gas_price = if tx.is_deposit() {
@@ -125,7 +130,7 @@ where
     ) -> Result<OpTransactionSigned, Self::Error> {
         let request: OpTransactionRequest = request.into();
         let Ok(tx) = request.build_typed_tx() else {
-            return Err(OpEthApiError::Eth(EthApiError::TransactionConversionError))
+            return Err(OpEthApiError::Eth(EthApiError::TransactionConversionError));
         };
 
         // Create an empty signature for the transaction.
@@ -148,7 +153,7 @@ where
                 deposit.input = deposit.input.slice(..4);
                 let mut deposit = deposit.seal_unchecked(hash);
                 std::mem::swap(tx, &mut deposit);
-                return
+                return;
             }
         };
         *input = input.slice(..4);

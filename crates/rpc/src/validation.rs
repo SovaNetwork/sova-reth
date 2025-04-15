@@ -11,7 +11,6 @@ use alloy_rpc_types_engine::{
     PraguePayloadFields,
 };
 use async_trait::async_trait;
-use reth_rpc::ValidationApiConfig;
 use core::fmt;
 use jsonrpsee::core::RpcResult;
 use reth_chainspec::{ChainSpecProvider, EthereumHardforks};
@@ -27,12 +26,12 @@ use reth_primitives_traits::{
     SealedBlock, SealedHeaderFor,
 };
 use reth_revm::{cached::CachedReads, database::StateProviderDatabase};
+use reth_rpc::ValidationApiConfig;
 use reth_rpc_api::BlockSubmissionValidationApiServer;
 use reth_rpc_server_types::result::internal_rpc_err;
 use reth_storage_api::{BlockReaderIdExt, StateProviderFactory};
 use reth_tasks::TaskSpawner;
 use revm_primitives::{Address, B256, U256};
-use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{oneshot, RwLock};
 

@@ -37,7 +37,8 @@ mod test {
     fn default_run_op() {
         let ctx = Context::sova();
         // convert to optimism context
-        let mut evm = ctx.build_sova_op_with_inspector(NoOpInspector {}, CustomPrecompiles::default());
+        let mut evm =
+            ctx.build_sova_op_with_inspector(NoOpInspector {}, CustomPrecompiles::default());
         // execute
         let _ = evm.replay();
         // inspect

@@ -4,16 +4,17 @@ use std::sync::Arc;
 
 use alloy_consensus::Block;
 use alloy_rpc_types_engine::{CancunPayloadFields, PayloadError, PraguePayloadFields};
-use op_alloy_rpc_types_engine::OpExecutionData;
+use op_alloy_rpc_types_engine::{OpExecutionData, OpPayloadError};
 use reth_chainspec::EthereumHardforks;
 use reth_engine_primitives::{EngineValidator, PayloadValidator};
+use reth_node_api::{BuiltPayload, NodePrimitives, PayloadTypes};
 use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::{OpBuiltPayload, OpPayloadAttributes, OpPayloadBuilderAttributes};
 use reth_optimism_primitives::{OpBlock, OpPrimitives};
-use reth_node_api::{BuiltPayload, NodePrimitives, PayloadTypes};
 use reth_payload_primitives::{
-    validate_version_specific_fields, EngineApiMessageVersion,
-    EngineObjectValidationError, NewPayloadError, PayloadOrAttributes,
+    validate_version_specific_fields, EngineApiMessageVersion, EngineObjectValidationError,
+    NewPayloadError, PayloadOrAttributes,
 };
 use reth_payload_validator::{cancun, prague, shanghai};
 use reth_primitives_traits::{Block as _, RecoveredBlock, SealedBlock, SignedTransaction};
@@ -50,7 +51,9 @@ pub struct SovaEngineValidator {
 impl SovaEngineValidator {
     /// Instantiates a new validator.
     pub const fn new(chain_spec: Arc<OpChainSpec>) -> Self {
-        Self { inner: SovaExecutionPayloadValidator::new(chain_spec) }
+        Self {
+            inner: SovaExecutionPayloadValidator::new(chain_spec),
+        }
     }
 
     /// Returns the chain spec used by the validator.
@@ -68,8 +71,13 @@ impl PayloadValidator for SovaEngineValidator {
         &self,
         payload: OpExecutionData,
     ) -> Result<RecoveredBlock<Self::Block>, NewPayloadError> {
-        let sealed_block = self.inner.ensure_well_formed_payload(payload)?;
-        sealed_block.try_recover().map_err(|e| NewPayloadError::Other(e.into()))
+        let sealed_block = self
+            .inner
+            .ensure_well_formed_payload(payload)
+            .map_err(NewPayloadError::other)?;
+        sealed_block
+            .try_recover()
+            .map_err(|e| NewPayloadError::Other(e.into()))
     }
 }
 
@@ -125,7 +133,7 @@ impl<OpChainSpec> SovaExecutionPayloadValidator<OpChainSpec> {
     }
 }
 
-impl<OpChainSpec: EthereumHardforks> SovaExecutionPayloadValidator<OpChainSpec> {
+impl<OpChainSpec: OpHardforks> SovaExecutionPayloadValidator<OpChainSpec> {
     /// Returns true if the Cancun hardfork is active at the given timestamp.
     #[inline]
     fn is_cancun_active_at_timestamp(&self, timestamp: u64) -> bool {
@@ -170,7 +178,7 @@ impl<OpChainSpec: EthereumHardforks> SovaExecutionPayloadValidator<OpChainSpec> 
     pub fn ensure_well_formed_payload<T: SignedTransaction>(
         &self,
         payload: OpExecutionData,
-    ) -> Result<SealedBlock<Block<T>>, PayloadError> {
+    ) -> Result<SealedBlock<Block<T>>, OpPayloadError> {
         let OpExecutionData { payload, sidecar } = payload;
 
         let expected_hash = payload.block_hash();
@@ -180,10 +188,10 @@ impl<OpChainSpec: EthereumHardforks> SovaExecutionPayloadValidator<OpChainSpec> 
 
         // Ensure the hash included in the payload matches the block hash
         if expected_hash != sealed_block.hash() {
-            return Err(PayloadError::BlockHash {
+            return Err(OpPayloadError::from(PayloadError::BlockHash {
                 execution: sealed_block.hash(),
                 consensus: expected_hash,
-            })
+            }));
         }
 
         shanghai::ensure_well_formed_fields(
@@ -194,7 +202,7 @@ impl<OpChainSpec: EthereumHardforks> SovaExecutionPayloadValidator<OpChainSpec> 
         // set up cancun payload fields
         let cancun_fields = CancunPayloadFields {
             parent_beacon_block_root: sidecar.parent_beacon_block_root().unwrap(),
-            versioned_hashes: sidecar.versioned_hashes().unwrap().to_vec()
+            versioned_hashes: sidecar.versioned_hashes().unwrap().to_vec(),
         };
 
         cancun::ensure_well_formed_fields(
@@ -205,7 +213,7 @@ impl<OpChainSpec: EthereumHardforks> SovaExecutionPayloadValidator<OpChainSpec> 
 
         // set up prague payload fields
         let prague_fields = PraguePayloadFields {
-            requests: alloy_eips::eip7685::RequestsOrHash::Hash(sidecar.requests_hash().unwrap())
+            requests: alloy_eips::eip7685::RequestsOrHash::Hash(sidecar.requests_hash().unwrap()),
         };
 
         prague::ensure_well_formed_fields(
@@ -217,4 +225,3 @@ impl<OpChainSpec: EthereumHardforks> SovaExecutionPayloadValidator<OpChainSpec> 
         Ok(sealed_block)
     }
 }
-

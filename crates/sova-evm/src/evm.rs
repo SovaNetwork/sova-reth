@@ -4,10 +4,7 @@ use std::sync::Arc;
 use alloy_evm::{Database, Evm, EvmEnv, EvmFactory};
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use op_alloy_consensus::OpTxType;
-use op_revm::{
-    OpHaltReason, OpSpecId,
-    OpTransaction, OpTransactionError,
-};
+use op_revm::{OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
 use parking_lot::RwLock;
 use revm::{
     context::{BlockEnv, TxEnv},
