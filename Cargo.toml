@@ -69,6 +69,7 @@ reth-provider = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6
 reth-revm = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-rpc = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-rpc-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
+reth-rpc-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-rpc-eth-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-rpc-eth-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-rpc-engine-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }

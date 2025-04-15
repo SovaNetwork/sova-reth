@@ -11,9 +11,9 @@ use alloy_rpc_types_engine::{
     PraguePayloadFields,
 };
 use async_trait::async_trait;
+use reth_rpc::ValidationApiConfig;
 use core::fmt;
 use jsonrpsee::core::RpcResult;
-use op_alloy_rpc_types_engine::OpExecutionData;
 use reth_chainspec::{ChainSpecProvider, EthereumHardforks};
 use reth_consensus::{Consensus, FullConsensus};
 use reth_engine_primitives::PayloadValidator;
@@ -495,7 +495,6 @@ where
     }
 }
 
-// TODO import from reth...
 pub struct ValidationApiInner<Provider, E: BlockExecutorProvider> {
     /// The provider that can interact with the chain.
     provider: Provider,
@@ -528,29 +527,6 @@ pub struct ValidationApiInner<Provider, E: BlockExecutorProvider> {
 impl<Provider, E: BlockExecutorProvider> fmt::Debug for ValidationApiInner<Provider, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ValidationApiInner").finish_non_exhaustive()
-    }
-}
-
-/// Configuration for validation API.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ValidationApiConfig {
-    /// Disallowed addresses.
-    pub disallow: HashSet<Address>,
-    /// The maximum block distance - parent to latest - allowed for validation
-    pub validation_window: u64,
-}
-
-impl ValidationApiConfig {
-    /// Default validation blocks window of 3 blocks
-    pub const DEFAULT_VALIDATION_WINDOW: u64 = 3;
-}
-
-impl Default for ValidationApiConfig {
-    fn default() -> Self {
-        Self {
-            disallow: Default::default(),
-            validation_window: Self::DEFAULT_VALIDATION_WINDOW,
-        }
     }
 }
 

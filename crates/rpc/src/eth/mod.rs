@@ -1,3 +1,7 @@
+mod block;
+mod call;
+mod pending_block;
+mod receipt;
 mod transaction;
 
 use op_alloy_network::Optimism;

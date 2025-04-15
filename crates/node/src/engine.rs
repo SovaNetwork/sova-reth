@@ -1,10 +1,9 @@
-//! Validates execution payload wrt Ethereum Execution Engine API version.
-//! Validates execution payload wrt Ethereum consensus rules
+//! Validates execution payload wrt Ethereum consensus rules and Execution Engine API version.
 
 use std::sync::Arc;
 
 use alloy_consensus::Block;
-use alloy_rpc_types_engine::{CancunPayloadFields, ExecutionData, PayloadError, PraguePayloadFields};
+use alloy_rpc_types_engine::{CancunPayloadFields, PayloadError, PraguePayloadFields};
 use op_alloy_rpc_types_engine::OpExecutionData;
 use reth_chainspec::EthereumHardforks;
 use reth_engine_primitives::{EngineValidator, PayloadValidator};

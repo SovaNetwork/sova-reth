@@ -20,16 +20,18 @@ use reth_optimism_node::{
 use reth_optimism_payload_builder::builder::OpPayloadTransactions;
 use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
 use reth_optimism_rpc::OpEthApiError;
+use reth_rpc_builder::{config::RethRpcServerConfig, RethRpcModule};
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
 use reth_rpc_eth_types::error::FromEvmError;
 use reth_tracing::tracing::info;
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
+use reth_rpc_api::BlockSubmissionValidationApiServer;
 
 use revm_context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
-use sova_rpc::{SovaEthApi, SovaEthApiBuilder, SovaEthApiInner, SovaValidationApi};
+use sova_rpc::{SovaEthApi, SovaEthApiBuilder, SovaValidationApi};
 
 use crate::{engine::SovaEngineValidator, rpc::SovaEngineApiBuilder, SovaArgs};
 
