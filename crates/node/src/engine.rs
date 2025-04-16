@@ -199,26 +199,15 @@ impl<OpChainSpec: OpHardforks> SovaExecutionPayloadValidator<OpChainSpec> {
             self.is_shanghai_active_at_timestamp(sealed_block.timestamp),
         )?;
 
-        // set up cancun payload fields
-        let cancun_fields = CancunPayloadFields {
-            parent_beacon_block_root: sidecar.parent_beacon_block_root().unwrap(),
-            versioned_hashes: sidecar.versioned_hashes().unwrap().to_vec(),
-        };
-
         cancun::ensure_well_formed_fields(
             &sealed_block,
-            Some(&cancun_fields),
+            sidecar.canyon(),
             self.is_cancun_active_at_timestamp(sealed_block.timestamp),
         )?;
 
-        // set up prague payload fields
-        let prague_fields = PraguePayloadFields {
-            requests: alloy_eips::eip7685::RequestsOrHash::Hash(sidecar.requests_hash().unwrap()),
-        };
-
         prague::ensure_well_formed_fields(
             sealed_block.body(),
-            Some(&prague_fields),
+            sidecar.isthmus(),
             self.is_prague_active_at_timestamp(sealed_block.timestamp),
         )?;
 

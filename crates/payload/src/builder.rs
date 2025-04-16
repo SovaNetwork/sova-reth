@@ -38,6 +38,7 @@ use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
+use reth_primitives::InvalidTransactionError;
 use reth_primitives_traits::{NodePrimitives, SealedHeader, SignedTransaction, TxTy};
 use reth_provider::{StateProvider, StateProviderFactory};
 use reth_revm::{
@@ -49,7 +50,7 @@ use reth_revm::{
 };
 use reth_storage_api::errors::ProviderError;
 use reth_tracing::tracing::{debug, trace, warn};
-use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
+use reth_transaction_pool::{error::InvalidPoolTransactionError, BestTransactionsAttributes, PoolTransaction, TransactionPool};
 
 use revm::{
     context::{Block, BlockEnv},
@@ -370,7 +371,19 @@ where
             .with_bundle_update()
             .build();
 
+        let mut builder = ctx.block_builder(&mut db)?;
+
+        // Get best transaction attributes for simulation
+        let best_tx_attrs= ctx.best_transaction_attributes(builder.evm_mut().block());
+
+        // Get best transactions for simulation
+        let mut best_txs = best(best_tx_attrs);
+
+        // release db
+        drop(builder);
+
         // *** SIMULATION PHASE ***
+
         let next_block_attributes = OpNextBlockEnvAttributes {
             timestamp: ctx.attributes().payload_attributes.timestamp(),
             suggested_fee_recipient: ctx
@@ -392,25 +405,13 @@ where
             .next_evm_env(&ctx.parent(), &next_block_attributes)
             .map_err(RethError::other)?;
 
-        // Get best transaction attributes for simulation
-        let best_tx_attrs;
-        {
-            // Create a temporary block builder to get the block attributes
-            let mut temp_builder = ctx.block_builder(&mut db)?;
-            best_tx_attrs = ctx.best_transaction_attributes(temp_builder.evm_mut().block());
-            // temp_builder is dropped here, releasing the borrow on db
-        }
-
-        // Get best transactions for simulation
-        let mut best_txs = best(best_tx_attrs);
-
         // Get inspector
         let inspector_lock = evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
 
         // Create EVM with inspector
-        let mut evm =
-            evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+        let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+
 
         // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
         while let Some(pool_tx) = best_txs.next(()) {
@@ -492,7 +493,7 @@ where
         })?;
 
         // Add in Bitcoin context txs
-        let mut info: ExecutionInfo = ExecutionInfo::default();
+        let mut info: ExecutionInfo = ExecutionInfo::new();
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {
@@ -500,11 +501,18 @@ where
                 .execute_best_transactions(&mut info, &mut builder, best_txs)?
                 .is_some()
             {
+                warn!("Payload Builder: build cancelled");
                 return Ok(BuildOutcomeKind::Cancelled);
             }
 
             // check if the new payload is even more valuable
             if !ctx.is_better_payload(info.total_fees) {
+                // Release db
+                drop(builder);
+
+                // Release inspector
+                drop(inspector);
+
                 // can skip building the block
                 return Ok(BuildOutcomeKind::Aborted {
                     fees: info.total_fees,
@@ -518,26 +526,6 @@ where
             trie_updates,
             block,
         } = builder.finish(state_provider)?;
-
-        let sealed_block = Arc::new(block.sealed_block().clone());
-        debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");
-
-        let execution_outcome = ExecutionOutcome::new(
-            db.take_bundle(),
-            vec![execution_result.receipts],
-            block.number,
-            Vec::new(),
-        );
-
-        // create the executed block data
-        let executed: ExecutedBlockWithTrieUpdates<N> = ExecutedBlockWithTrieUpdates {
-            block: ExecutedBlock {
-                recovered_block: Arc::new(block.clone()),
-                execution_output: Arc::new(execution_outcome),
-                hashed_state: Arc::new(hashed_state),
-            },
-            trie: Arc::new(trie_updates),
-        };
 
         drop(inspector);
 
@@ -558,6 +546,26 @@ where
                     )))
                 })?;
         }
+
+        let sealed_block = Arc::new(block.sealed_block().clone());
+        debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");
+
+        let execution_outcome = ExecutionOutcome::new(
+            db.take_bundle(),
+            vec![execution_result.receipts],
+            block.number,
+            Vec::new(),
+        );
+
+        // create the executed block data
+        let executed: ExecutedBlockWithTrieUpdates<N> = ExecutedBlockWithTrieUpdates {
+            block: ExecutedBlock {
+                recovered_block: Arc::new(block.clone()),
+                execution_output: Arc::new(execution_outcome),
+                hashed_state: Arc::new(hashed_state),
+            },
+            trie: Arc::new(trie_updates),
+        };
 
         let payload = OpBuiltPayload::new(
             ctx.payload_id(),

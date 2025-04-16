@@ -181,8 +181,7 @@ run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest
 	--authrpc.port 8551 \
 	--datadir ./data \
 	--log.stdout.filter debug \
-	--dev \
-	--enable_tx_conditional true
+	--dev
 
 .PHONY: run-sova-mainnet-regtest
 run-sova-mainnet-regtest: ## Compile and run sova-reth in mainnet mode using bitcoin regtest and accompanying services

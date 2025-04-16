@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use op_alloy_consensus::OpPooledTransaction;
+use reth_chainspec::EthereumHardforks;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor};
 use reth_network::{NetworkHandle, PeersInfo};
-use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes, TxTy};
+use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodePrimitives, NodeTypes, TxTy};
 use reth_node_builder::{
     components::{
-        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, NetworkBuilder,
-        PayloadBuilderBuilder,
+        BasicPayloadServiceBuilder, ComponentsBuilder, ConsensusBuilder, ExecutorBuilder, NetworkBuilder, PayloadBuilderBuilder
     },
     node::FullNodeTypes,
     rpc::{
@@ -24,13 +24,14 @@ use reth_optimism_node::{
     OpEngineTypes, OpNetworkPrimitives, OpNextBlockEnvAttributes,
 };
 use reth_optimism_payload_builder::builder::OpPayloadTransactions;
-use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
+use reth_optimism_primitives::{DepositReceipt, OpPrimitives, OpTransactionSigned};
 use reth_optimism_rpc::OpEthApiError;
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
 use reth_rpc_eth_types::error::FromEvmError;
 use reth_tracing::tracing::info;
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
+use reth_ethereum_consensus::EthBeaconConsensus;
 
 use revm_context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
@@ -215,7 +216,7 @@ impl SovaNode {
         BasicPayloadServiceBuilder<MyPayloadBuilder>,
         SovaNetworkBuilder,
         MyExecutorBuilder,
-        OpConsensusBuilder,
+        SovaConsensusBuilder,
     >
     where
         Node: FullNodeTypes<
@@ -242,7 +243,7 @@ impl SovaNode {
                 self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
             ))
-            .consensus(OpConsensusBuilder::default())
+            .consensus(SovaConsensusBuilder::default())
     }
 
     pub fn provider_factory_builder() -> ProviderFactoryBuilder<Self> {
@@ -267,7 +268,7 @@ where
         BasicPayloadServiceBuilder<MyPayloadBuilder>,
         SovaNetworkBuilder,
         MyExecutorBuilder,
-        OpConsensusBuilder,
+        SovaConsensusBuilder,
     >;
 
     type AddOns = SovaAddOns<
@@ -488,5 +489,26 @@ where
 
     async fn build(self, ctx: &AddOnsContext<'_, Node>) -> eyre::Result<Self::Validator> {
         Ok(SovaEngineValidator::new(ctx.config.chain.clone()))
+    }
+}
+
+/// A basic ethereum consensus builder for sova
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct SovaConsensusBuilder;
+
+impl<Node> ConsensusBuilder<Node> for SovaConsensusBuilder
+where
+    Node: FullNodeTypes<
+        Types: NodeTypes<
+            ChainSpec: EthereumHardforks,
+            Primitives: NodePrimitives<Receipt: DepositReceipt>,
+        >,
+    >,
+{
+    type Consensus = Arc<EthBeaconConsensus<<Node::Types as NodeTypes>::ChainSpec>>;
+
+    async fn build_consensus(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::Consensus> {
+        Ok(Arc::new(EthBeaconConsensus::new(ctx.chain_spec())))
     }
 }
