@@ -10085,7 +10085,6 @@ dependencies = [
  "reth-chainspec",
  "reth-consensus",
  "reth-engine-primitives",
- "reth-ethereum-consensus",
  "reth-ethereum-payload-builder",
  "reth-evm",
  "reth-network",
