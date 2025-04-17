@@ -7,7 +7,8 @@ use reth_network::{NetworkHandle, PeersInfo};
 use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes, TxTy};
 use reth_node_builder::{
     components::{
-        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, NetworkBuilder, PayloadBuilderBuilder, PoolBuilder, PoolBuilderConfigOverrides
+        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, NetworkBuilder,
+        PayloadBuilderBuilder, PoolBuilder, PoolBuilderConfigOverrides,
     },
     node::FullNodeTypes,
     rpc::{
@@ -19,18 +20,26 @@ use reth_node_builder::{
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::{
-    node::OpConsensusBuilder, txpool::{conditional::MaybeConditionalTransaction, interop::MaybeInteropTransaction, supervisor::DEFAULT_SUPERVISOR_URL, OpPooledTx}, OpEngineTypes, OpNetworkPrimitives, OpNextBlockEnvAttributes
+    node::OpConsensusBuilder,
+    txpool::{
+        conditional::MaybeConditionalTransaction, interop::MaybeInteropTransaction,
+        supervisor::DEFAULT_SUPERVISOR_URL, OpPooledTx,
+    },
+    OpEngineTypes, OpNetworkPrimitives, OpNextBlockEnvAttributes,
 };
 use reth_optimism_payload_builder::builder::OpPayloadTransactions;
 use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
 use reth_optimism_rpc::OpEthApiError;
 use reth_optimism_txpool::supervisor::SupervisorClient;
+use reth_provider::CanonStateSubscriptions;
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
 use reth_rpc_eth_types::error::FromEvmError;
 use reth_tracing::tracing::{debug, info};
-use reth_transaction_pool::{blobstore::DiskFileBlobStore, CoinbaseTipOrdering, EthPoolTransaction, PoolTransaction, TransactionPool, TransactionValidationTaskExecutor};
+use reth_transaction_pool::{
+    blobstore::DiskFileBlobStore, CoinbaseTipOrdering, EthPoolTransaction, PoolTransaction,
+    TransactionPool, TransactionValidationTaskExecutor,
+};
 use reth_trie_db::MerklePatriciaTrie;
-use reth_provider::CanonStateSubscriptions;
 
 use revm_context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
@@ -112,7 +121,7 @@ impl SovaNode {
                 self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
             )))
-            .network(SovaNetworkBuilder::default())
+            .network(SovaNetworkBuilder)
             .executor(MyExecutorBuilder::new(
                 self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
@@ -217,11 +226,7 @@ impl SovaAddOnsBuilder {
         // Block producers on Sova commit to a specific BTC block context.
 
         SovaAddOns {
-            inner: RpcAddOns::new(
-                SovaEthApiBuilder::default(),
-                Default::default(),
-                Default::default(),
-            ),
+            inner: RpcAddOns::new(SovaEthApiBuilder, Default::default(), Default::default()),
         }
     }
 }
@@ -359,12 +364,17 @@ where
     type Pool = SovaTransactionPool<Node::Provider, DiskFileBlobStore, T>;
 
     async fn build_pool(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::Pool> {
-        let Self { pool_config_overrides, .. } = self;
+        let Self {
+            pool_config_overrides,
+            ..
+        } = self;
         let data_dir = ctx.config().datadir();
         let blob_store = DiskFileBlobStore::open(data_dir.blobstore(), Default::default())?;
         // supervisor used for interop
-        if ctx.chain_spec().is_interop_active_at_timestamp(ctx.head().timestamp) &&
-            self.supervisor_http == DEFAULT_SUPERVISOR_URL
+        if ctx
+            .chain_spec()
+            .is_interop_active_at_timestamp(ctx.head().timestamp)
+            && self.supervisor_http == DEFAULT_SUPERVISOR_URL
         {
             info!(target: "reth::cli",
                 url=%DEFAULT_SUPERVISOR_URL,
@@ -417,16 +427,17 @@ where
                 let transactions_backup_config =
                     reth_transaction_pool::maintain::LocalTransactionBackupConfig::with_local_txs_backup(transactions_path);
 
-                ctx.task_executor().spawn_critical_with_graceful_shutdown_signal(
-                    "local transactions backup task",
-                    |shutdown| {
-                        reth_transaction_pool::maintain::backup_local_transactions_task(
-                            shutdown,
-                            pool.clone(),
-                            transactions_backup_config,
-                        )
-                    },
-                );
+                ctx.task_executor()
+                    .spawn_critical_with_graceful_shutdown_signal(
+                        "local transactions backup task",
+                        |shutdown| {
+                            reth_transaction_pool::maintain::backup_local_transactions_task(
+                                shutdown,
+                                pool.clone(),
+                                transactions_backup_config,
+                            )
+                        },
+                    );
             }
 
             // spawn the main maintenance task

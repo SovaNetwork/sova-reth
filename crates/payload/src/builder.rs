@@ -38,9 +38,7 @@ use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
 use reth_primitives_traits::{NodePrimitives, SealedHeader, SignedTransaction, TxTy};
 use reth_provider::{StateProvider, StateProviderFactory};
 use reth_revm::{
-    cancelled::CancelOnDrop,
-    database::StateProviderDatabase,
-    db::State,
+    cancelled::CancelOnDrop, database::StateProviderDatabase, db::State,
     witness::ExecutionWitnessRecord,
 };
 use reth_storage_api::errors::ProviderError;
@@ -282,7 +280,8 @@ where
     ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
         let pool = self.pool.clone();
         self.build_payload(args, |attrs| {
-            self.best_transactions.best_transactions(pool.clone(), attrs)
+            self.best_transactions
+                .best_transactions(pool.clone(), attrs)
         })
     }
 
@@ -337,7 +336,7 @@ impl<'a, Txs, Evm> MyBuilder<'a, Txs, Evm> {
     }
 }
 
-impl<'a, Txs, Evm, N> MyBuilder<'a, Txs, Evm>
+impl<Txs, Evm, N> MyBuilder<'_, Txs, Evm>
 where
     Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
     N: OpPayloadPrimitives,
@@ -484,7 +483,7 @@ where
         // 2. execute sequencer transactions
         // let mut info = ctx.execute_sequencer_transactions(&mut builder)?;
 
-        let mut info = ExecutionInfo::new(); 
+        let mut info = ExecutionInfo::new();
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {

@@ -230,9 +230,9 @@ impl ConfigureEvm for MyEvmConfig {
         self.inner.next_evm_env(parent, attributes)
     }
 
-    fn context_for_block<'a>(
+    fn context_for_block(
         &self,
-        block: &'a SealedBlock<Block<OpTransactionSigned>>,
+        block: &SealedBlock<Block<OpTransactionSigned>>,
     ) -> OpBlockExecutionCtx {
         self.inner.context_for_block(block)
     }

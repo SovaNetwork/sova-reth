@@ -5,14 +5,16 @@ use parking_lot::RwLock;
 use reth_chainspec::ChainSpecProvider;
 use reth_optimism_evm::RethL1BlockInfo;
 use reth_optimism_forks::OpHardforks;
-use reth_optimism_node::txpool::{interop::MaybeInteropTransaction, supervisor::SupervisorClient, InvalidCrossTx};
+use reth_optimism_node::txpool::{
+    interop::MaybeInteropTransaction, supervisor::SupervisorClient, InvalidCrossTx,
+};
 use reth_primitives_traits::{
     transaction::error::InvalidTransactionError, Block, GotExpected, SealedBlock,
 };
 use reth_storage_api::{BlockReaderIdExt, StateProvider, StateProviderFactory};
 use reth_transaction_pool::{
-    EthPoolTransaction, EthTransactionValidator,
-    TransactionOrigin, TransactionValidationOutcome, TransactionValidator,
+    EthPoolTransaction, EthTransactionValidator, TransactionOrigin, TransactionValidationOutcome,
+    TransactionValidator,
 };
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -79,7 +81,10 @@ impl<Client, Tx> SovaTransactionValidator<Client, Tx> {
     /// Whether to ensure that the transaction's sender has enough balance to also cover the L1 gas
     /// fee.
     pub fn require_l1_data_gas_fee(self, require_l1_data_gas_fee: bool) -> Self {
-        Self { require_l1_data_gas_fee, ..self }
+        Self {
+            require_l1_data_gas_fee,
+            ..self
+        }
     }
 
     /// Returns whether this validator also requires the transaction's sender to have enough balance
@@ -97,15 +102,21 @@ where
     /// Create a new [`SovaTransactionValidator`].
     pub fn new(inner: EthTransactionValidator<Client, Tx>) -> Self {
         let this = Self::with_block_info(inner, OpL1BlockInfo::default());
-        if let Ok(Some(block)) =
-            this.inner.client().block_by_number_or_tag(alloy_eips::BlockNumberOrTag::Latest)
+        if let Ok(Some(block)) = this
+            .inner
+            .client()
+            .block_by_number_or_tag(alloy_eips::BlockNumberOrTag::Latest)
         {
             // genesis block has no txs, so we can't extract L1 info, we set the block info to empty
             // so that we will accept txs into the pool before the first block
             if block.header().number() == 0 {
-                this.block_info.timestamp.store(block.header().timestamp(), Ordering::Relaxed);
-                this.block_info.number.store(block.header().number(), Ordering::Relaxed);
-            } 
+                this.block_info
+                    .timestamp
+                    .store(block.header().timestamp(), Ordering::Relaxed);
+                this.block_info
+                    .number
+                    .store(block.header().number(), Ordering::Relaxed);
+            }
             // else {
             //     this.update_l1_block_info(block.header(), block.body().transactions().first());
             // }
@@ -124,7 +135,9 @@ where
             block_info: Arc::new(block_info),
             require_l1_data_gas_fee: true,
             supervisor_client: None,
-            fork_tracker: Arc::new(OpForkTracker { interop: AtomicBool::from(false) }),
+            fork_tracker: Arc::new(OpForkTracker {
+                interop: AtomicBool::from(false),
+            }),
         }
     }
 
@@ -142,14 +155,21 @@ where
         H: BlockHeader,
         T: Transaction,
     {
-        self.block_info.timestamp.store(header.timestamp(), Ordering::Relaxed);
-        self.block_info.number.store(header.number(), Ordering::Relaxed);
+        self.block_info
+            .timestamp
+            .store(header.timestamp(), Ordering::Relaxed);
+        self.block_info
+            .number
+            .store(header.number(), Ordering::Relaxed);
 
         if let Some(Ok(cost_addition)) = tx.map(reth_optimism_evm::extract_l1_info_from_tx) {
             *self.block_info.l1_block_info.write() = cost_addition;
         }
 
-        if self.chain_spec().is_interop_active_at_timestamp(header.timestamp()) {
+        if self
+            .chain_spec()
+            .is_interop_active_at_timestamp(header.timestamp())
+        {
             self.fork_tracker.interop.store(true, Ordering::Relaxed);
         }
     }
@@ -165,7 +185,8 @@ where
         origin: TransactionOrigin,
         transaction: Tx,
     ) -> TransactionValidationOutcome<Tx> {
-        self.validate_one_with_state(origin, transaction, &mut None).await
+        self.validate_one_with_state(origin, transaction, &mut None)
+            .await
     }
 
     /// Validates a single transaction with a provided state provider.
@@ -189,7 +210,7 @@ where
             return TransactionValidationOutcome::Invalid(
                 transaction,
                 InvalidTransactionError::TxTypeNotSupported.into(),
-            )
+            );
         }
 
         // // Interop cross tx validation
@@ -212,7 +233,8 @@ where
         //     _ => {}
         // }
 
-        self.inner.validate_one_with_state(origin, transaction, state)
+        self.inner
+            .validate_one_with_state(origin, transaction, state)
 
         // self.apply_op_checks(outcome)
     }
@@ -227,7 +249,9 @@ where
         transactions: Vec<(TransactionOrigin, Tx)>,
     ) -> Vec<TransactionValidationOutcome<Tx>> {
         futures_util::future::join_all(
-            transactions.into_iter().map(|(origin, tx)| self.validate_one(origin, tx)),
+            transactions
+                .into_iter()
+                .map(|(origin, tx)| self.validate_one(origin, tx)),
         )
         .await
     }
@@ -239,7 +263,7 @@ where
     ) -> TransactionValidationOutcome<Tx> {
         if !self.requires_l1_data_gas_fee() {
             // no need to check L1 gas fee
-            return outcome
+            return outcome;
         }
         // ensure that the account has enough balance to cover the L1 gas cost
         if let TransactionValidationOutcome::Valid {
@@ -273,10 +297,14 @@ where
                 return TransactionValidationOutcome::Invalid(
                     valid_tx.into_transaction(),
                     InvalidTransactionError::InsufficientFunds(
-                        GotExpected { got: balance, expected: cost }.into(),
+                        GotExpected {
+                            got: balance,
+                            expected: cost,
+                        }
+                        .into(),
                     )
                     .into(),
-                )
+                );
             }
 
             return TransactionValidationOutcome::Valid {
@@ -284,7 +312,7 @@ where
                 state_nonce,
                 transaction: valid_tx,
                 propagate,
-            }
+            };
         }
         outcome
     }
@@ -338,8 +366,12 @@ where
         //     new_tip_block.body().transactions().first(),
         // );
 
-        self.block_info.timestamp.store(new_tip_block.header().timestamp(), Ordering::Relaxed);
-        self.block_info.number.store(new_tip_block.header().number(), Ordering::Relaxed);
+        self.block_info
+            .timestamp
+            .store(new_tip_block.header().timestamp(), Ordering::Relaxed);
+        self.block_info
+            .number
+            .store(new_tip_block.header().number(), Ordering::Relaxed);
     }
 }
 
