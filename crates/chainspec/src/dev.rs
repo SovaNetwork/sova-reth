@@ -55,7 +55,7 @@ pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
 
     OpChainSpec {
         inner: ChainSpec {
-            chain: Chain::dev(),
+            chain: Chain::from_id(120893),
             genesis_header,
             genesis,
             paris_block_and_final_difficulty: Some((0, U256::from(0))),

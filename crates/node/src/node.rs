@@ -1,14 +1,17 @@
 use std::sync::Arc;
 
 use op_alloy_consensus::{interop::SafetyLevel, OpPooledTransaction};
+use reth_ethereum_consensus::EthBeaconConsensus;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor};
 use reth_network::{NetworkHandle, PeersInfo};
-use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes, TxTy};
+use reth_node_api::{
+    AddOnsContext, FullNodeComponents, NodeAddOns, NodePrimitives, NodeTypes, TxTy,
+};
 use reth_node_builder::{
     components::{
-        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, NetworkBuilder,
-        PayloadBuilderBuilder, PoolBuilder, PoolBuilderConfigOverrides,
+        BasicPayloadServiceBuilder, ComponentsBuilder, ConsensusBuilder, ExecutorBuilder,
+        NetworkBuilder, PayloadBuilderBuilder, PoolBuilder, PoolBuilderConfigOverrides,
     },
     node::FullNodeTypes,
     rpc::{
@@ -20,7 +23,6 @@ use reth_node_builder::{
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::{
-    node::OpConsensusBuilder,
     txpool::{
         conditional::MaybeConditionalTransaction, interop::MaybeInteropTransaction,
         supervisor::DEFAULT_SUPERVISOR_URL, OpPooledTx,
@@ -28,7 +30,7 @@ use reth_optimism_node::{
     OpEngineTypes, OpNetworkPrimitives, OpNextBlockEnvAttributes,
 };
 use reth_optimism_payload_builder::builder::OpPayloadTransactions;
-use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
+use reth_optimism_primitives::{DepositReceipt, OpPrimitives, OpTransactionSigned};
 use reth_optimism_rpc::OpEthApiError;
 use reth_optimism_txpool::supervisor::SupervisorClient;
 use reth_provider::CanonStateSubscriptions;
@@ -98,8 +100,8 @@ impl SovaNode {
         SovaPoolBuilder,
         BasicPayloadServiceBuilder<SovaPayloadBuilder>,
         SovaNetworkBuilder,
-        MyExecutorBuilder,
-        OpConsensusBuilder,
+        SovaExecutorBuilder,
+        SovaConsensusBuilder,
     >
     where
         Node: FullNodeTypes<
@@ -122,11 +124,11 @@ impl SovaNode {
                 Arc::clone(&self.bitcoin_client),
             )))
             .network(SovaNetworkBuilder)
-            .executor(MyExecutorBuilder::new(
+            .executor(SovaExecutorBuilder::new(
                 self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
             ))
-            .consensus(OpConsensusBuilder::default())
+            .consensus(SovaConsensusBuilder::default())
     }
 
     pub fn provider_factory_builder() -> ProviderFactoryBuilder<Self> {
@@ -150,8 +152,8 @@ where
         SovaPoolBuilder,
         BasicPayloadServiceBuilder<SovaPayloadBuilder>,
         SovaNetworkBuilder,
-        MyExecutorBuilder,
-        OpConsensusBuilder,
+        SovaExecutorBuilder,
+        SovaConsensusBuilder,
     >;
 
     type AddOns = SovaAddOns<
@@ -216,7 +218,7 @@ where
 pub struct SovaAddOnsBuilder;
 
 impl SovaAddOnsBuilder {
-    /// Builds an instance of [`OpAddOns`].
+    /// Builds an instance of [`SovaAddOns`].
     pub fn build<N>(self) -> SovaAddOns<N>
     where
         N: FullNodeComponents<Types: NodeTypes<Primitives = OpPrimitives>>,
@@ -490,6 +492,7 @@ where
     }
 }
 
+/// A Sova payload builder service
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct SovaPayloadBuilder<Txs = ()> {
@@ -598,13 +601,17 @@ where
     }
 }
 
+/// A type that knows how to build the Sova EVM.
+///
+/// The Sova EVM is customized such that there are new precompiles and a
+/// custom inspector which is used for enforcing transaction finality on Bitcoin.
 #[derive(Debug, Default, Clone)]
-pub struct MyExecutorBuilder {
+pub struct SovaExecutorBuilder {
     pub config: SovaConfig,
     pub bitcoin_client: Arc<BitcoinClient>,
 }
 
-impl MyExecutorBuilder {
+impl SovaExecutorBuilder {
     pub fn new(config: SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
         Self {
             config: config.clone(),
@@ -613,7 +620,7 @@ impl MyExecutorBuilder {
     }
 }
 
-impl<Types, Node> ExecutorBuilder<Node> for MyExecutorBuilder
+impl<Types, Node> ExecutorBuilder<Node> for SovaExecutorBuilder
 where
     Types: NodeTypes<ChainSpec = OpChainSpec, Primitives = OpPrimitives>,
     Node: FullNodeTypes<Types = Types>,
@@ -645,6 +652,9 @@ where
     }
 }
 
+/// A type that knows how to build the Sova network.
+/// Similar to the Ethereum network builder, this builder spawns
+/// an Ethereum p2p tx pool and p2p eth request handler.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SovaNetworkBuilder;
 
@@ -690,23 +700,26 @@ where
     }
 }
 
-// /// A basic optimism consensus builder.
-// #[derive(Debug, Default, Clone)]
-// #[non_exhaustive]
-// pub struct SovaConsensusBuilder;
+/// A basic Sova consensus builder which uses unmodified
+/// Ethereum style consensus to choose the canonical chain.
+/// The EthBeaconConsensus consensus engine does basic checks
+/// as outlined in the Ethereum execution specs.
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct SovaConsensusBuilder;
 
-// impl<Node> ConsensusBuilder<Node> for SovaConsensusBuilder
-// where
-//     Node: FullNodeTypes<
-//         Types: NodeTypes<
-//             ChainSpec: OpHardforks,
-//             Primitives: NodePrimitives<Receipt: DepositReceipt>,
-//         >,
-//     >,
-// {
-//     type Consensus = Arc<EthBeaconConsensus<<Node::Types as NodeTypes>::ChainSpec>>;
+impl<Node> ConsensusBuilder<Node> for SovaConsensusBuilder
+where
+    Node: FullNodeTypes<
+        Types: NodeTypes<
+            ChainSpec: OpHardforks,
+            Primitives: NodePrimitives<Receipt: DepositReceipt>,
+        >,
+    >,
+{
+    type Consensus = Arc<EthBeaconConsensus<<Node::Types as NodeTypes>::ChainSpec>>;
 
-//     async fn build_consensus(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::Consensus> {
-//         Ok(Arc::new(EthBeaconConsensus::new(ctx.chain_spec())))
-//     }
-// }
+    async fn build_consensus(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::Consensus> {
+        Ok(Arc::new(EthBeaconConsensus::new(ctx.chain_spec())))
+    }
+}

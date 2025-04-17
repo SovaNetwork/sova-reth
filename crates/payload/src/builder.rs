@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
-use alloy_primitives::{Bytes, U256};
+use alloy_primitives::{
+    map::foldhash::{HashMap, HashMapExt},
+    Address, Bytes, U256,
+};
 use alloy_rlp::Encodable;
 use alloy_rpc_types_debug::ExecutionWitness;
 use alloy_rpc_types_engine::PayloadId;
@@ -12,7 +15,7 @@ use reth_basic_payload_builder::{
 };
 use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
-use reth_errors::{BlockExecutionError, BlockValidationError};
+use reth_errors::{BlockExecutionError, BlockValidationError, RethError};
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
     execute::{BlockBuilder, BlockBuilderOutcome, BlockExecutor},
@@ -38,14 +41,20 @@ use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
 use reth_primitives_traits::{NodePrimitives, SealedHeader, SignedTransaction, TxTy};
 use reth_provider::{StateProvider, StateProviderFactory};
 use reth_revm::{
-    cancelled::CancelOnDrop, database::StateProviderDatabase, db::State,
+    cancelled::CancelOnDrop,
+    database::StateProviderDatabase,
+    db::{State, TransitionAccount},
     witness::ExecutionWitnessRecord,
+    DatabaseCommit,
 };
 use reth_storage_api::errors::ProviderError;
 use reth_tracing::tracing::{debug, info, trace, warn};
 use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
 
-use revm::context::{Block, BlockEnv};
+use revm::{
+    context::{Block, BlockEnv},
+    state::Account,
+};
 
 use sova_cli::SovaConfig;
 use sova_evm::{BitcoinClient, MyEvmConfig, WithInspector};
@@ -362,123 +371,126 @@ where
             .with_bundle_update()
             .build();
 
-        // let next_block_attributes = OpNextBlockEnvAttributes {
-        //     timestamp: ctx.attributes().timestamp(),
-        //     suggested_fee_recipient: ctx.attributes().suggested_fee_recipient(),
-        //     prev_randao: ctx.attributes().prev_randao(),
-        //     gas_limit: ctx
-        //         .attributes()
-        //         .gas_limit
-        //         .unwrap_or(ctx.parent().gas_limit),
-        //     parent_beacon_block_root: ctx.attributes().parent_beacon_block_root(),
-        //     extra_data: ctx.extra_data()?,
-        // };
+        // *** SIMULATION PHASE ***
 
-        // // Get evm_env for the next block
-        // let evm_env = ctx
-        //     .evm_config
-        //     .next_evm_env(&ctx.parent(), &next_block_attributes)
-        //     .map_err(RethError::other)?;
+        let next_block_attributes = OpNextBlockEnvAttributes {
+            timestamp: ctx.attributes().timestamp(),
+            suggested_fee_recipient: ctx.attributes().suggested_fee_recipient(),
+            prev_randao: ctx.attributes().prev_randao(),
+            gas_limit: ctx.attributes().gas_limit.unwrap_or(ctx.parent().gas_limit),
+            parent_beacon_block_root: ctx.attributes().parent_beacon_block_root(),
+            extra_data: ctx.extra_data()?,
+        };
 
-        // // Get best transaction attributes for simulation
-        // let sim_tx_attrs = BestTransactionsAttributes::new(
-        //     evm_env.block_env.basefee,
-        //     evm_env.block_env.blob_gasprice().map(|p| p as u64),
-        // );
+        // Get evm_env for the next block
+        let evm_env = ctx
+            .evm_config
+            .next_evm_env(&ctx.parent(), &next_block_attributes)
+            .map_err(RethError::other)?;
 
-        // // Get best transactions for simulation
-        // let mut sim_txs = best(sim_tx_attrs);
+        // Get best transaction attributes for simulation
+        let sim_tx_attrs = BestTransactionsAttributes::new(
+            evm_env.block_env.basefee,
+            evm_env.block_env.blob_gasprice().map(|p| p as u64),
+        );
 
-        // // *** SIMULATION PHASE ***
+        // Get best transactions for simulation
+        let mut sim_txs = best(sim_tx_attrs);
 
-        // // Get inspector
-        // let inspector_lock = evm_config.with_inspector();
-        // let mut inspector = inspector_lock.write();
+        // Get inspector
+        let inspector_lock = evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
 
-        // // Create EVM with inspector
-        // let mut evm =
-        //     evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+        // Create EVM with inspector
+        let mut evm =
+            evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-        // // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-        // while let Some(pool_tx) = sim_txs.next(()) {
-        //     let tx = pool_tx.into_consensus();
+        // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
+        while let Some(pool_tx) = sim_txs.next(()) {
+            let tx = pool_tx.into_consensus();
 
-        //     match evm.transact(tx) {
-        //         Ok(_result) => {
-        //             // Explicitly NOT committing state changes here
-        //             // We're only using this simulation to capture reverts in the inspector
-        //         }
-        //         Err(_err) => {
-        //             // we dont really care about the error here, we just want to capture the revert
-        //         }
-        //     };
-        // }
+            match evm.transact(tx) {
+                Ok(_result) => {
+                    // Explicitly NOT committing state changes here
+                    // We're only using this simulation to capture reverts in the inspector
+                }
+                Err(_err) => {
+                    // we dont really care about the error here, we just want to capture the revert
+                }
+            };
+        }
 
-        // drop(evm);
+        info!("payload builder: done sim");
 
-        // let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
+        drop(evm);
 
-        // // apply mask to the database
-        // if !revert_cache.is_empty() {
-        //     for (address, transition) in &revert_cache {
-        //         for (slot, slot_data) in &transition.storage {
-        //             let prev_value = slot_data.previous_or_original_value;
+        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
 
-        //             // Load account from state
-        //             let acc = db.load_cache_account(*address).map_err(|err| {
-        //                 warn!(target: "payload_builder",
-        //                     parent_hash=%ctx.parent().hash(),
-        //                     %err,
-        //                     "failed to load account for payload"
-        //                 );
-        //                 PayloadBuilderError::Internal(err.into())
-        //             })?;
+        // apply mask to the database
+        if !revert_cache.is_empty() {
+            for (address, transition) in &revert_cache {
+                for (slot, slot_data) in &transition.storage {
+                    let prev_value = slot_data.previous_or_original_value;
 
-        //             // Set slot in account to previous value
-        //             if let Some(a) = acc.account.as_mut() {
-        //                 a.storage.insert(*slot, prev_value);
-        //             }
+                    // Load account from state
+                    let acc = db.load_cache_account(*address).map_err(|err| {
+                        warn!(target: "payload_builder",
+                            parent_hash=%ctx.parent().hash(),
+                            %err,
+                            "failed to load account for payload"
+                        );
+                        PayloadBuilderError::Internal(err.into())
+                    })?;
 
-        //             // Convert to revm account, mark as modified and commit it to state
-        //             let mut revm_acc: Account = acc
-        //                 .account_info()
-        //                 .ok_or(PayloadBuilderError::Internal(RethError::msg(
-        //                     "failed to convert account to revm account",
-        //                 )))?
-        //                 .into();
+                    // Set slot in account to previous value
+                    if let Some(a) = acc.account.as_mut() {
+                        a.storage.insert(*slot, prev_value);
+                    }
 
-        //             revm_acc.mark_touch();
+                    // Convert to revm account, mark as modified and commit it to state
+                    let mut revm_acc: Account = acc
+                        .account_info()
+                        .ok_or(PayloadBuilderError::Internal(RethError::msg(
+                            "failed to convert account to revm account",
+                        )))?
+                        .into();
 
-        //             let mut changes: HashMap<Address, Account> = HashMap::new();
-        //             changes.insert(*address, revm_acc);
+                    revm_acc.mark_touch();
 
-        //             // commit to account slot changes to state
-        //             db.commit(changes);
-        //         }
-        //     }
-        // }
+                    let mut changes: HashMap<Address, Account> = HashMap::new();
+                    changes.insert(*address, revm_acc);
 
-        // drop(inspector);
+                    // commit to account slot changes to state
+                    db.commit(changes);
+                }
+            }
+        }
+
+        info!("payload builder: done applying mask");
+
+        drop(inspector);
 
         // *** EXECUTION PHASE ***
-        // // Get inspector
-        // let inspector_lock = evm_config.with_inspector();
-        // let mut inspector = inspector_lock.write();
+        // Get inspector
+        let inspector_lock = evm_config.with_inspector();
+        let mut inspector = inspector_lock.write();
 
-        // // Create EVM with inspector
-        // let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
+        // Create EVM with inspector
+        let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
 
-        // // Create block builder
-        // let blk_ctx = evm_config.context_for_next_block(&ctx.parent(), next_block_attributes);
-        // let mut builder = evm_config.create_block_builder(evm, &ctx.parent(), blk_ctx);
+        // Create block builder
+        let blk_ctx = evm_config.context_for_next_block(&ctx.parent(), next_block_attributes);
+        let mut builder = evm_config.create_block_builder(evm, &ctx.parent(), blk_ctx);
 
-        let mut builder = ctx.block_builder(&mut db)?;
+        // let mut builder = ctx.block_builder(&mut db)?;
 
         // 1. apply pre-execution changes
         builder.apply_pre_execution_changes().map_err(|err| {
             warn!(target: "payload_builder", %err, "failed to apply pre-execution changes");
             PayloadBuilderError::Internal(err.into())
         })?;
+
+        info!("payload builder: Done pre-execution");
 
         // 2. execute sequencer transactions
         // let mut info = ctx.execute_sequencer_transactions(&mut builder)?;
@@ -500,6 +512,12 @@ where
 
             // check if the new payload is even more valuable
             if !ctx.is_better_payload(info.total_fees) {
+                // Release db
+                drop(builder);
+
+                // Release inspector
+                drop(inspector);
+
                 // can skip building the block
                 return Ok(BuildOutcomeKind::Aborted {
                     fees: info.total_fees,
@@ -514,23 +532,30 @@ where
             block,
         } = builder.finish(state_provider)?;
 
-        // // *** UPDATE SENTINEL LOCKS ***
-        // {
-        //     let inspector_lock = evm_config.with_inspector();
-        //     let mut inspector = inspector_lock.write();
+        info!("payload builder: Done post-execution");
 
-        //     // Update sentinel locks for Bitcoin broadcasts in this block
-        //     // locks are to be applied to the next block
-        //     let locked_block_num: u64 = block.number + 1;
-        //     inspector
-        //         .update_sentinel_locks(locked_block_num)
-        //         .map_err(|err| {
-        //             PayloadBuilderError::Internal(RethError::msg(format!(
-        //                 "Payload building error: Failed to update sentinel locks: {}",
-        //                 err
-        //             )))
-        //         })?;
-        // }
+        // Release inspector
+        drop(inspector);
+
+        // *** UPDATE SENTINEL LOCKS ***
+        {
+            let inspector_lock = evm_config.with_inspector();
+            let mut inspector = inspector_lock.write();
+
+            // Update sentinel locks for Bitcoin broadcasts in this block
+            // locks are to be applied to the next block
+            let locked_block_num: u64 = block.number + 1;
+            inspector
+                .update_sentinel_locks(locked_block_num)
+                .map_err(|err| {
+                    PayloadBuilderError::Internal(RethError::msg(format!(
+                        "Payload building error: Failed to update sentinel locks: {}",
+                        err
+                    )))
+                })?;
+        }
+
+        info!("payload builder: Done lock updates");
 
         let sealed_block = Arc::new(block.sealed_block().clone());
         debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");
