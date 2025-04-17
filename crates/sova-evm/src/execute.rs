@@ -239,7 +239,9 @@ where
 
         // Ok(result)
 
-        let mut strategy = self.strategy_factory.executor_for_block(&mut self.db, block);
+        let mut strategy = self
+            .strategy_factory
+            .executor_for_block(&mut self.db, block);
 
         strategy.apply_pre_execution_changes()?;
         for tx in block.transactions_recovered() {

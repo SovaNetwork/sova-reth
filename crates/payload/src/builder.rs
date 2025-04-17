@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
-use alloy_primitives::{
-    map::foldhash::{HashMap, HashMapExt},
-    Address, Bytes, U256,
-};
+use alloy_primitives::{Bytes, U256};
 use alloy_rlp::Encodable;
 use alloy_rpc_types_debug::ExecutionWitness;
 use alloy_rpc_types_engine::PayloadId;
@@ -15,7 +12,7 @@ use reth_basic_payload_builder::{
 };
 use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
-use reth_errors::{BlockExecutionError, BlockValidationError, RethError};
+use reth_errors::{BlockExecutionError, BlockValidationError};
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
     execute::{BlockBuilder, BlockBuilderOutcome, BlockExecutor},
@@ -38,31 +35,26 @@ use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
-use reth_primitives::InvalidTransactionError;
 use reth_primitives_traits::{NodePrimitives, SealedHeader, SignedTransaction, TxTy};
 use reth_provider::{StateProvider, StateProviderFactory};
 use reth_revm::{
     cancelled::CancelOnDrop,
     database::StateProviderDatabase,
-    db::{State, TransitionAccount},
+    db::State,
     witness::ExecutionWitnessRecord,
-    DatabaseCommit,
 };
 use reth_storage_api::errors::ProviderError;
-use reth_tracing::tracing::{debug, trace, warn};
-use reth_transaction_pool::{error::InvalidPoolTransactionError, BestTransactionsAttributes, PoolTransaction, TransactionPool};
+use reth_tracing::tracing::{debug, info, trace, warn};
+use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
 
-use revm::{
-    context::{Block, BlockEnv},
-    state::Account,
-};
+use revm::context::{Block, BlockEnv};
 
 use sova_cli::SovaConfig;
 use sova_evm::{BitcoinClient, MyEvmConfig, WithInspector};
 
 /// Sova payload builder that extends the Optimism payload builder with Bitcoin integration
 #[derive(Debug, Clone)]
-pub struct MyPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
+pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
     /// The rollup's compute pending block configuration option.
     pub compute_pending_block: bool,
     /// The type responsible for creating the evm.
@@ -84,8 +76,8 @@ pub struct MyPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
     pub bitcoin_client: Arc<BitcoinClient>,
 }
 
-impl<Pool, Client, Evm> MyPayloadBuilder<Pool, Client, Evm> {
-    /// `MyPayloadBuilder` constructor with Sova and Bitcoin integration.
+impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
+    /// `SovaPayloadBuilder` constructor with Sova and Bitcoin integration.
     pub fn new(
         client: Client,
         pool: Pool,
@@ -144,7 +136,7 @@ impl<Pool, Client, Evm> MyPayloadBuilder<Pool, Client, Evm> {
     }
 }
 
-impl<Pool, Client, Evm, Txs> MyPayloadBuilder<Pool, Client, Evm, Txs> {
+impl<Pool, Client, Evm, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs> {
     /// Sets the rollup's compute pending block configuration option.
     pub const fn set_compute_pending_block(mut self, compute_pending_block: bool) -> Self {
         self.compute_pending_block = compute_pending_block;
@@ -166,7 +158,7 @@ impl<Pool, Client, Evm, Txs> MyPayloadBuilder<Pool, Client, Evm, Txs> {
     pub fn with_transactions<T>(
         self,
         best_transactions: T,
-    ) -> MyPayloadBuilder<Pool, Client, Evm, T> {
+    ) -> SovaPayloadBuilder<Pool, Client, Evm, T> {
         let Self {
             pool,
             client,
@@ -178,7 +170,7 @@ impl<Pool, Client, Evm, Txs> MyPayloadBuilder<Pool, Client, Evm, Txs> {
             bitcoin_client,
             ..
         } = self;
-        MyPayloadBuilder {
+        SovaPayloadBuilder {
             pool,
             client,
             evm_config,
@@ -192,7 +184,7 @@ impl<Pool, Client, Evm, Txs> MyPayloadBuilder<Pool, Client, Evm, Txs> {
     }
 }
 
-impl<Pool, Client, Evm, N, Txs> MyPayloadBuilder<Pool, Client, Evm, Txs>
+impl<Pool, Client, Evm, N, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs>
 where
     Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
@@ -204,7 +196,7 @@ where
     fn build_payload<'a, T>(
         &self,
         args: BuildArguments<OpPayloadBuilderAttributes<N::SignedTx>, OpBuiltPayload<N>>,
-        best: impl FnOnce(BestTransactionsAttributes) -> T + Send + Sync + 'a,
+        best: impl Fn(BestTransactionsAttributes) -> T + Send + Sync + 'a,
     ) -> Result<BuildOutcome<OpBuiltPayload<N>>, PayloadBuilderError>
     where
         T: PayloadTransactions<
@@ -272,8 +264,8 @@ where
     }
 }
 
-// Implementation of the PayloadBuilder trait for MyPayloadBuilder
-impl<Pool, Client, Evm, N, Txs> PayloadBuilder for MyPayloadBuilder<Pool, Client, Evm, Txs>
+// Implementation of the PayloadBuilder trait for SovaPayloadBuilder
+impl<Pool, Client, Evm, N, Txs> PayloadBuilder for SovaPayloadBuilder<Pool, Client, Evm, Txs>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
     N: OpPayloadPrimitives,
@@ -290,7 +282,7 @@ where
     ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
         let pool = self.pool.clone();
         self.build_payload(args, |attrs| {
-            self.best_transactions.best_transactions(pool, attrs)
+            self.best_transactions.best_transactions(pool.clone(), attrs)
         })
     }
 
@@ -326,7 +318,7 @@ where
 pub struct MyBuilder<'a, Txs, Evm> {
     /// Yields the best transaction to include if transactions from the mempool are allowed.
     #[debug(skip)]
-    best: Box<dyn FnOnce(BestTransactionsAttributes) -> Txs + 'a>,
+    best: Box<dyn Fn(BestTransactionsAttributes) -> Txs + 'a>,
     /// The type responsible for creating the evm.
     #[debug(skip)]
     evm_config: Evm,
@@ -335,7 +327,7 @@ pub struct MyBuilder<'a, Txs, Evm> {
 impl<'a, Txs, Evm> MyBuilder<'a, Txs, Evm> {
     /// Creates a new [`MyBuilder`].
     pub fn new(
-        best: impl FnOnce(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
+        best: impl Fn(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
         evm_config: Evm,
     ) -> Self {
         Self {
@@ -371,120 +363,117 @@ where
             .with_bundle_update()
             .build();
 
-        let mut builder = ctx.block_builder(&mut db)?;
+        // let next_block_attributes = OpNextBlockEnvAttributes {
+        //     timestamp: ctx.attributes().timestamp(),
+        //     suggested_fee_recipient: ctx.attributes().suggested_fee_recipient(),
+        //     prev_randao: ctx.attributes().prev_randao(),
+        //     gas_limit: ctx
+        //         .attributes()
+        //         .gas_limit
+        //         .unwrap_or(ctx.parent().gas_limit),
+        //     parent_beacon_block_root: ctx.attributes().parent_beacon_block_root(),
+        //     extra_data: ctx.extra_data()?,
+        // };
 
-        // Get best transaction attributes for simulation
-        let best_tx_attrs= ctx.best_transaction_attributes(builder.evm_mut().block());
+        // // Get evm_env for the next block
+        // let evm_env = ctx
+        //     .evm_config
+        //     .next_evm_env(&ctx.parent(), &next_block_attributes)
+        //     .map_err(RethError::other)?;
 
-        // Get best transactions for simulation
-        let mut best_txs = best(best_tx_attrs);
+        // // Get best transaction attributes for simulation
+        // let sim_tx_attrs = BestTransactionsAttributes::new(
+        //     evm_env.block_env.basefee,
+        //     evm_env.block_env.blob_gasprice().map(|p| p as u64),
+        // );
 
-        // release db
-        drop(builder);
+        // // Get best transactions for simulation
+        // let mut sim_txs = best(sim_tx_attrs);
 
-        // *** SIMULATION PHASE ***
+        // // *** SIMULATION PHASE ***
 
-        let next_block_attributes = OpNextBlockEnvAttributes {
-            timestamp: ctx.attributes().payload_attributes.timestamp(),
-            suggested_fee_recipient: ctx
-                .attributes()
-                .payload_attributes
-                .suggested_fee_recipient(),
-            prev_randao: ctx.attributes().payload_attributes.prev_randao(),
-            gas_limit: ctx.attributes().gas_limit.unwrap_or(ctx.parent().gas_limit),
-            parent_beacon_block_root: ctx
-                .attributes()
-                .payload_attributes
-                .parent_beacon_block_root(),
-            extra_data: ctx.extra_data()?,
-        };
+        // // Get inspector
+        // let inspector_lock = evm_config.with_inspector();
+        // let mut inspector = inspector_lock.write();
 
-        // Get evm_env for the next block
-        let evm_env = ctx
-            .evm_config
-            .next_evm_env(&ctx.parent(), &next_block_attributes)
-            .map_err(RethError::other)?;
+        // // Create EVM with inspector
+        // let mut evm =
+        //     evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-        // Get inspector
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
+        // // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
+        // while let Some(pool_tx) = sim_txs.next(()) {
+        //     let tx = pool_tx.into_consensus();
 
-        // Create EVM with inspector
-        let mut evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+        //     match evm.transact(tx) {
+        //         Ok(_result) => {
+        //             // Explicitly NOT committing state changes here
+        //             // We're only using this simulation to capture reverts in the inspector
+        //         }
+        //         Err(_err) => {
+        //             // we dont really care about the error here, we just want to capture the revert
+        //         }
+        //     };
+        // }
 
+        // drop(evm);
 
-        // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-        while let Some(pool_tx) = best_txs.next(()) {
-            let tx = pool_tx.into_consensus();
+        // let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
 
-            match evm.transact(tx) {
-                Ok(_result) => {
-                    // Explicitly NOT committing state changes here
-                    // We're only using this simulation to capture reverts in the inspector
-                }
-                Err(_err) => {
-                    // we dont really care about the error here, we just want to capture the revert
-                }
-            };
-        }
+        // // apply mask to the database
+        // if !revert_cache.is_empty() {
+        //     for (address, transition) in &revert_cache {
+        //         for (slot, slot_data) in &transition.storage {
+        //             let prev_value = slot_data.previous_or_original_value;
 
-        drop(evm);
+        //             // Load account from state
+        //             let acc = db.load_cache_account(*address).map_err(|err| {
+        //                 warn!(target: "payload_builder",
+        //                     parent_hash=%ctx.parent().hash(),
+        //                     %err,
+        //                     "failed to load account for payload"
+        //                 );
+        //                 PayloadBuilderError::Internal(err.into())
+        //             })?;
 
-        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
+        //             // Set slot in account to previous value
+        //             if let Some(a) = acc.account.as_mut() {
+        //                 a.storage.insert(*slot, prev_value);
+        //             }
 
-        // apply mask to the database
-        if !revert_cache.is_empty() {
-            for (address, transition) in &revert_cache {
-                for (slot, slot_data) in &transition.storage {
-                    let prev_value = slot_data.previous_or_original_value;
+        //             // Convert to revm account, mark as modified and commit it to state
+        //             let mut revm_acc: Account = acc
+        //                 .account_info()
+        //                 .ok_or(PayloadBuilderError::Internal(RethError::msg(
+        //                     "failed to convert account to revm account",
+        //                 )))?
+        //                 .into();
 
-                    // Load account from state
-                    let acc = db.load_cache_account(*address).map_err(|err| {
-                        warn!(target: "payload_builder",
-                            parent_hash=%ctx.parent().hash(),
-                            %err,
-                            "failed to load account for payload"
-                        );
-                        PayloadBuilderError::Internal(err.into())
-                    })?;
+        //             revm_acc.mark_touch();
 
-                    // Set slot in account to previous value
-                    if let Some(a) = acc.account.as_mut() {
-                        a.storage.insert(*slot, prev_value);
-                    }
+        //             let mut changes: HashMap<Address, Account> = HashMap::new();
+        //             changes.insert(*address, revm_acc);
 
-                    // Convert to revm account, mark as modified and commit it to state
-                    let mut revm_acc: Account = acc
-                        .account_info()
-                        .ok_or(PayloadBuilderError::Internal(RethError::msg(
-                            "failed to convert account to revm account",
-                        )))?
-                        .into();
+        //             // commit to account slot changes to state
+        //             db.commit(changes);
+        //         }
+        //     }
+        // }
 
-                    revm_acc.mark_touch();
-
-                    let mut changes: HashMap<Address, Account> = HashMap::new();
-                    changes.insert(*address, revm_acc);
-
-                    // commit to account slot changes to state
-                    db.commit(changes);
-                }
-            }
-        }
-
-        drop(inspector);
+        // drop(inspector);
 
         // *** EXECUTION PHASE ***
-        // Get inspector
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
+        // // Get inspector
+        // let inspector_lock = evm_config.with_inspector();
+        // let mut inspector = inspector_lock.write();
 
-        // Create EVM with inspector
-        let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
+        // // Create EVM with inspector
+        // let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
 
-        // Create block builder
-        let blk_ctx = evm_config.context_for_next_block(&ctx.parent(), next_block_attributes);
-        let mut builder = evm_config.create_block_builder(evm, &ctx.parent(), blk_ctx);
+        // // Create block builder
+        // let blk_ctx = evm_config.context_for_next_block(&ctx.parent(), next_block_attributes);
+        // let mut builder = evm_config.create_block_builder(evm, &ctx.parent(), blk_ctx);
+
+        let mut builder = ctx.block_builder(&mut db)?;
 
         // 1. apply pre-execution changes
         builder.apply_pre_execution_changes().map_err(|err| {
@@ -492,13 +481,18 @@ where
             PayloadBuilderError::Internal(err.into())
         })?;
 
-        // Add in Bitcoin context txs
-        let mut info: ExecutionInfo = ExecutionInfo::new();
+        // 2. execute sequencer transactions
+        // let mut info = ctx.execute_sequencer_transactions(&mut builder)?;
+
+        let mut info = ExecutionInfo::new(); 
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {
+            let exec_tx_attrs = ctx.best_transaction_attributes(builder.evm_mut().block());
+            let exec_txs = best(exec_tx_attrs);
+
             if ctx
-                .execute_best_transactions(&mut info, &mut builder, best_txs)?
+                .execute_best_transactions(&mut info, &mut builder, exec_txs)?
                 .is_some()
             {
                 warn!("Payload Builder: build cancelled");
@@ -507,12 +501,6 @@ where
 
             // check if the new payload is even more valuable
             if !ctx.is_better_payload(info.total_fees) {
-                // Release db
-                drop(builder);
-
-                // Release inspector
-                drop(inspector);
-
                 // can skip building the block
                 return Ok(BuildOutcomeKind::Aborted {
                     fees: info.total_fees,
@@ -527,25 +515,23 @@ where
             block,
         } = builder.finish(state_provider)?;
 
-        drop(inspector);
+        // // *** UPDATE SENTINEL LOCKS ***
+        // {
+        //     let inspector_lock = evm_config.with_inspector();
+        //     let mut inspector = inspector_lock.write();
 
-        // *** UPDATE SENTINEL LOCKS ***
-        {
-            let inspector_lock = evm_config.with_inspector();
-            let mut inspector = inspector_lock.write();
-
-            // Update sentinel locks for Bitcoin broadcasts in this block
-            // locks are to be applied to the next block
-            let locked_block_num: u64 = block.number + 1;
-            inspector
-                .update_sentinel_locks(locked_block_num)
-                .map_err(|err| {
-                    PayloadBuilderError::Internal(RethError::msg(format!(
-                        "Payload building error: Failed to update sentinel locks: {}",
-                        err
-                    )))
-                })?;
-        }
+        //     // Update sentinel locks for Bitcoin broadcasts in this block
+        //     // locks are to be applied to the next block
+        //     let locked_block_num: u64 = block.number + 1;
+        //     inspector
+        //         .update_sentinel_locks(locked_block_num)
+        //         .map_err(|err| {
+        //             PayloadBuilderError::Internal(RethError::msg(format!(
+        //                 "Payload building error: Failed to update sentinel locks: {}",
+        //                 err
+        //             )))
+        //         })?;
+        // }
 
         let sealed_block = Arc::new(block.sealed_block().clone());
         debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");
@@ -749,6 +735,8 @@ where
                 .map_err(|_| {
                     PayloadBuilderError::other(OpPayloadBuilderError::TransactionEcRecoverFailed)
                 })?;
+
+            info!("sequencer tx {:?}", sequencer_tx);
 
             let gas_used = match builder.execute_transaction(sequencer_tx.clone()) {
                 Ok(gas_used) => gas_used,

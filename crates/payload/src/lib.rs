@@ -1,3 +1,3 @@
 mod builder;
 
-pub use builder::MyPayloadBuilder;
+pub use builder::SovaPayloadBuilder;

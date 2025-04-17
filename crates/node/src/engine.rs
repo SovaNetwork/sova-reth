@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use alloy_consensus::Block;
-use alloy_rpc_types_engine::{CancunPayloadFields, PayloadError, PraguePayloadFields};
+use alloy_rpc_types_engine::PayloadError;
 use op_alloy_rpc_types_engine::{OpExecutionData, OpPayloadError};
 use reth_chainspec::EthereumHardforks;
 use reth_engine_primitives::{EngineValidator, PayloadValidator};

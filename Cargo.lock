@@ -9994,7 +9994,7 @@ dependencies = [
 
 [[package]]
 name = "sova-chainspec"
-version = "0.0.3"
+version = "0.0.2"
 dependencies = [
  "alloy-consensus",
  "alloy-genesis",
@@ -10009,7 +10009,7 @@ dependencies = [
 
 [[package]]
 name = "sova-cli"
-version = "0.0.3"
+version = "0.0.2"
 dependencies = [
  "bitcoin",
  "clap",
@@ -10022,7 +10022,7 @@ dependencies = [
 
 [[package]]
 name = "sova-evm"
-version = "0.0.3"
+version = "0.0.2"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi 0.8.25",
@@ -10069,7 +10069,7 @@ dependencies = [
 
 [[package]]
 name = "sova-node"
-version = "0.0.3"
+version = "0.0.2"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -10085,6 +10085,7 @@ dependencies = [
  "reth-chainspec",
  "reth-consensus",
  "reth-engine-primitives",
+ "reth-ethereum-consensus",
  "reth-ethereum-payload-builder",
  "reth-evm",
  "reth-network",
@@ -10097,6 +10098,7 @@ dependencies = [
  "reth-optimism-payload-builder",
  "reth-optimism-primitives",
  "reth-optimism-rpc",
+ "reth-optimism-txpool",
  "reth-payload-builder",
  "reth-payload-primitives",
  "reth-payload-validator",
@@ -10117,11 +10119,12 @@ dependencies = [
  "sova-evm",
  "sova-payload",
  "sova-rpc",
+ "sova-txpool",
 ]
 
 [[package]]
 name = "sova-payload"
-version = "0.0.3"
+version = "0.0.2"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -10166,7 +10169,7 @@ dependencies = [
 
 [[package]]
 name = "sova-reth"
-version = "0.0.3"
+version = "0.0.2"
 dependencies = [
  "clap",
  "eyre",
@@ -10180,7 +10183,7 @@ dependencies = [
 
 [[package]]
 name = "sova-rpc"
-version = "0.0.3"
+version = "0.0.2"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -10259,6 +10262,58 @@ dependencies = [
  "prost",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "sova-txpool"
+version = "0.0.2"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-rpc-types-engine",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "clap",
+ "eyre",
+ "futures-util",
+ "op-alloy-consensus",
+ "op-alloy-rpc-types-engine",
+ "op-revm",
+ "parking_lot",
+ "reth-basic-payload-builder",
+ "reth-chainspec",
+ "reth-consensus",
+ "reth-engine-primitives",
+ "reth-ethereum-payload-builder",
+ "reth-evm",
+ "reth-network",
+ "reth-node-api",
+ "reth-node-builder",
+ "reth-node-core",
+ "reth-optimism-chainspec",
+ "reth-optimism-evm",
+ "reth-optimism-forks",
+ "reth-optimism-node",
+ "reth-optimism-payload-builder",
+ "reth-optimism-primitives",
+ "reth-optimism-rpc",
+ "reth-payload-builder",
+ "reth-payload-primitives",
+ "reth-payload-validator",
+ "reth-primitives",
+ "reth-primitives-traits",
+ "reth-provider",
+ "reth-rpc",
+ "reth-rpc-api",
+ "reth-rpc-builder",
+ "reth-rpc-engine-api",
+ "reth-rpc-eth-types",
+ "reth-storage-api",
+ "reth-tracing",
+ "reth-transaction-pool",
+ "reth-trie-db",
+ "revm-context",
+ "serde",
 ]
 
 [[package]]

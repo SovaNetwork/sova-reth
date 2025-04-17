@@ -3,6 +3,7 @@
 use alloy_consensus::{transaction::TransactionMeta, BlockHeader};
 use alloy_rpc_types_eth::BlockId;
 use op_alloy_rpc_types::OpTransactionReceipt;
+use op_revm::L1BlockInfo;
 use reth_chainspec::ChainSpecProvider;
 use reth_node_api::BlockBody;
 use reth_optimism_chainspec::OpChainSpec;
@@ -41,7 +42,8 @@ where
             let excess_blob_gas = block.excess_blob_gas();
             let timestamp = block.timestamp();
 
-            let mut l1_block_info = reth_optimism_evm::extract_l1_info(block.body())?;
+            // let mut l1_block_info = reth_optimism_evm::extract_l1_info(block.body())?;
+            let mut l1_block_info = L1BlockInfo::default();
 
             return block
                 .body()
