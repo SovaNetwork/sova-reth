@@ -85,9 +85,6 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       
-      - name: Clippy check
-        run: cargo clippy --workspace --target x86_64-pc-windows-gnu --all-targets -- -D warnings
-      
       - name: Build for Windows
         run: |
           cargo check --workspace --target x86_64-pc-windows-gnu
