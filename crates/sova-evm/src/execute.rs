@@ -35,7 +35,7 @@ use reth_primitives::{Log, RecoveredBlock};
 use reth_provider::BlockExecutionResult;
 use reth_revm::{
     context::result::ExecutionResult,
-    db::{states::bundle_state::BundleRetention, State, TransitionAccount},
+    db::{states::bundle_state::BundleRetention, State},
     state::Account,
     DatabaseCommit,
 };
@@ -111,70 +111,56 @@ where
         block: &RecoveredBlock<<Self::Primitives as NodePrimitives>::Block>,
     ) -> Result<BlockExecutionResult<<Self::Primitives as NodePrimitives>::Receipt>, Self::Error>
     {
-        let inspector_lock = self.strategy_factory.with_inspector();
-        let mut inspector = inspector_lock.write();
+        info!("execution flow: starting");
 
-        let evm_env = self.strategy_factory.evm_env(block.header());
-        let evm = self.strategy_factory.evm_with_env_and_inspector(
-            &mut self.db,
-            evm_env,
-            &mut *inspector,
-        );
-        let ctx = self.strategy_factory.context_for_block(block);
-        let mut strategy = self.strategy_factory.create_executor(evm, ctx);
+        // === SIMULATION PHASE ===
+        // Capture revert information
+        let revert_cache = {
+            // Get inspector for simulation phase
+            let inspector_lock = self.strategy_factory.with_inspector();
+            let mut inspector = inspector_lock.write();
 
-        strategy.apply_pre_execution_changes()?;
+            // Set up simulation environment
+            let evm_env = self.strategy_factory.evm_env(block.header());
+            let mut evm = self
+                .strategy_factory
+                .evm_factory()
+                .create_evm_with_inspector(&mut self.db, evm_env, &mut *inspector);
 
-        drop(strategy);
-        drop(inspector);
+            // Run transactions in simulation mode
+            for tx in block.transactions_recovered() {
+                let _ = evm.transact(tx); // Ignore results, just want to capture reverts
+            }
 
-        // *** SIMULATION PHASE ***
+            // We must drop evm first to release the mutable borrow on inspector
+            drop(evm);
 
-        // Get evm_env
-        let evm_env = self.strategy_factory.evm_env(block.header());
+            // Now we can safely access inspector fields
+            let cache = inspector.slot_revert_cache.clone();
 
-        // Get inspector
-        let inspector_lock = self.strategy_factory.with_inspector();
-        let mut inspector = inspector_lock.write();
+            // Explicitly drop inspector and lock
+            drop(inspector);
 
-        let mut evm = self
-            .strategy_factory
-            .evm_factory()
-            .create_evm_with_inspector(&mut self.db, evm_env, &mut *inspector);
+            cache
+        };
 
-        for tx in block.transactions_recovered() {
-            match evm.transact(tx) {
-                Ok(_result) => {
-                    // Explicitly NOT committing state changes here
-                    // We're only using this simulation to capture reverts in the inspector
-                }
-                Err(_err) => {
-                    // we dont really care about the error here, we just want to capture the revert
-                }
-            };
-        }
-
-        drop(evm);
-
-        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
-
-        // apply mask to the database
+        // === REVERT APPLICATION PHASE ===
+        // Apply any reverts collected during simulation
         if !revert_cache.is_empty() {
             for (address, transition) in &revert_cache {
                 for (slot, slot_data) in &transition.storage {
                     let prev_value = slot_data.previous_or_original_value;
 
-                    // Load account from state
+                    // Handle the account
                     let acc = self.db.load_cache_account(*address).map_err(|err| {
                         BlockExecutionError::Internal(InternalBlockExecutionError::msg(err))
                     })?;
 
-                    // Set slot in account to previous value
                     if let Some(a) = acc.account.as_mut() {
                         a.storage.insert(*slot, prev_value);
                     }
 
-                    // Convert to revm account, mark as modified and commit it to state
+                    // Convert to revm account
                     let mut revm_acc: Account = acc
                         .account_info()
                         .ok_or(BlockExecutionError::other(RethError::msg(
@@ -184,45 +170,49 @@ where
 
                     revm_acc.mark_touch();
 
+                    // Commit the change
                     let mut changes: HashMap<Address, Account> = HashMap::new();
                     changes.insert(*address, revm_acc);
-
-                    // commit to account slot changes to state
                     self.db.commit(changes);
                 }
             }
         }
 
-        drop(inspector);
+        // === MAIN EXECUTION PHASE ===
+        // Execute with state hook and get result
+        let result = {
+            // Get fresh inspector
+            let inspector_lock = self.strategy_factory.with_inspector();
+            let mut inspector = inspector_lock.write();
 
-        // *** EXECUTION PHASE ***
+            // Set up environment
+            let evm_env = self.strategy_factory.evm_env(block.header());
+            let evm = self.strategy_factory.evm_with_env_and_inspector(
+                &mut self.db,
+                evm_env,
+                &mut *inspector,
+            );
 
-        let inspector_lock = self.strategy_factory.with_inspector();
-        let mut inspector = inspector_lock.write();
+            // Create executor with state hook
+            let ctx = self.strategy_factory.context_for_block(block);
+            let mut strategy = self.strategy_factory.create_executor(evm, ctx);
 
-        let evm_env = self.strategy_factory.evm_env(block.header());
-        let evm = self.strategy_factory.evm_with_env_and_inspector(
-            &mut self.db,
-            evm_env,
-            &mut *inspector,
-        );
-        let ctx = self.strategy_factory.context_for_block(block);
-        let mut strategy = self.strategy_factory.create_executor(evm, ctx);
+            // Execute all transactions
+            strategy.apply_pre_execution_changes()?;
+            for tx in block.transactions_recovered() {
+                strategy.execute_transaction(tx)?;
+            }
 
-        for tx in block.transactions_recovered() {
-            info!("no state hook - tx: {:?}", tx);
-            strategy.execute_transaction(tx)?;
-        }
-        let result = strategy.apply_post_execution_changes()?;
+            // This method consumes strategy, so it will be dropped automatically
+            let result = strategy.apply_post_execution_changes()?;
 
-        info!(
-            "Execution: execution result receipts: {:?}",
-            result.receipts
-        );
+            // Only drop remaining resources
+            drop(inspector);
 
-        drop(inspector);
+            result
+        };
 
-        // *** UPDATE SENTINEL LOCKS ***
+        // === UPDATE SENTINEL LOCKS ===
         {
             let inspector_lock = self.strategy_factory.with_inspector();
             let mut inspector = inspector_lock.write();

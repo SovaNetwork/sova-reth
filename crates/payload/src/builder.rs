@@ -513,7 +513,7 @@ where
             .with_bundle_update()
             .build();
 
-        // *** SIMULATION PHASE ***
+        // === SIMULATION PHASE ===
 
         let next_block_attributes = OpNextBlockEnvAttributes {
             timestamp: ctx.attributes().timestamp(),
@@ -566,7 +566,8 @@ where
 
         let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
 
-        // apply mask to the database
+        // === REVERT APPLICATION PHASE ===
+        // Apply any reverts collected during simulation
         if !revert_cache.is_empty() {
             for (address, transition) in &revert_cache {
                 for (slot, slot_data) in &transition.storage {
@@ -608,7 +609,7 @@ where
 
         drop(inspector);
 
-        // *** EXECUTION PHASE ***
+        // === MAIN EXECUTION PHASE ===
         // Get inspector
         let inspector_lock = evm_config.with_inspector();
         let mut inspector = inspector_lock.write();
@@ -672,7 +673,7 @@ where
         // Release inspector
         drop(inspector);
 
-        // *** UPDATE SENTINEL LOCKS ***
+        // === UPDATE SENTINEL LOCKS ===
         {
             let inspector_lock = evm_config.with_inspector();
             let mut inspector = inspector_lock.write();
