@@ -149,7 +149,7 @@ impl SovaInspector {
         CallOutcome {
             result: InterpreterResult {
                 result: InstructionResult::Revert,
-                output: Bytes::from(message),
+                output: Bytes::copy_from_slice(message.as_bytes()),
                 gas: Gas::new_spent(gas_limit),
             },
             memory_offset,
@@ -417,6 +417,7 @@ where
     }
 }
 
+/// Trait for types that can provide an inspector
 pub trait WithInspector {
     fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>>;
 }

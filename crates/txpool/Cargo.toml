@@ -1,5 +1,5 @@
 [package]
-name = "sova-node"
+name = "sova-txpool"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,26 +8,18 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
-sova-cli.workspace = true
-sova-evm.workspace = true
-sova-payload.workspace = true
-sova-rpc.workspace = true
-sova-txpool.workspace = true
 
 reth-basic-payload-builder.workspace = true
 reth-chainspec.workspace = true
 reth-consensus.workspace = true
 reth-ethereum-payload-builder.workspace = true
-reth-ethereum-consensus.workspace = true
 reth-evm.workspace = true
 reth-engine-primitives.workspace = true
 reth-network.workspace = true
 reth-node-api.workspace = true
 reth-node-builder.workspace = true
 reth-node-core.workspace = true
-reth-optimism-consensus.workspace = true
 reth-optimism-rpc.workspace = true
-reth-optimism-txpool.workspace = true
 reth-payload-builder.workspace = true
 reth-payload-primitives.workspace = true
 reth-payload-validator.workspace = true
@@ -42,6 +34,8 @@ reth-rpc-builder.workspace = true
 reth-tracing.workspace = true
 reth-transaction-pool.workspace = true
 reth-trie-db.workspace = true
+reth-optimism-evm.workspace = true
+reth-storage-api.workspace = true
 
 reth-optimism-chainspec.workspace = true
 reth-optimism-forks.workspace = true
@@ -66,3 +60,5 @@ bitcoincore-rpc.workspace = true
 clap.workspace = true
 eyre.workspace = true
 serde.workspace = true
+parking_lot.workspace = true
+futures-util.workspace = true

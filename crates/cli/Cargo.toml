@@ -11,6 +11,7 @@ sova-chainspec.workspace = true
 
 reth-cli.workspace = true
 reth-chainspec.workspace = true
+reth-optimism-chainspec.workspace = true
 
 bitcoin.workspace = true
 clap.workspace = true

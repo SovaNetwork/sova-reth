@@ -28,12 +28,25 @@ reth-tasks.workspace = true
 reth-tracing.workspace = true
 reth-revm.workspace = true
 
+reth-optimism-chainspec.workspace = true
+reth-optimism-evm.workspace = true
+reth-optimism-forks.workspace = true
+reth-optimism-primitives.workspace = true
+
 alloy-consensus.workspace = true
 alloy-dyn-abi.workspace = true
 alloy-eips.workspace = true
 alloy-evm.workspace = true
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
+
+alloy-op-evm.workspace = true
+
+op-alloy-consensus.workspace = true
+
+op-revm.workspace = true
+
+revm.workspace = true
 
 bitcoin.workspace = true
 bitcoincore-rpc.workspace = true

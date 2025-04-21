@@ -1,6 +1,7 @@
 use clap::Parser;
 
-use reth::cli::Cli;
+use reth_optimism_cli::Cli;
+
 use reth_tracing::tracing::info;
 
 use sova_cli::SovaChainSpecParser;
