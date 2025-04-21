@@ -34,7 +34,7 @@ mod test {
     };
 
     #[test]
-    fn default_run_op() {
+    fn default_run_sova() {
         let ctx = Context::sova();
         // convert to optimism context
         let mut evm =

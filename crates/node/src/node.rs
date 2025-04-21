@@ -300,8 +300,8 @@ where
 }
 
 /// A Sova transaction pool. This pool is closely associated with the
-/// Optimism design except the L1Block validations are modified to target
-/// Bitcoin L1Block data
+/// Optimism design except the L1Block validations are modified to validate
+/// Bitcoin L1Block data.
 #[derive(Debug, Clone)]
 pub struct SovaPoolBuilder<T = reth_optimism_txpool::OpPooledTransaction> {
     /// Enforced overrides that are applied to the pool config.

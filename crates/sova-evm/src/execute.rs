@@ -210,9 +210,12 @@ where
         let mut strategy = self.strategy_factory.create_executor(evm, ctx);
 
         for tx in block.transactions_recovered() {
+            info!("no state hook - tx: {:?}", tx);
             strategy.execute_transaction(tx)?;
         }
         let result = strategy.apply_post_execution_changes()?;
+
+        info!("Execution: execution result receipts: {:?}", result.receipts);
 
         drop(inspector);
 
@@ -238,20 +241,6 @@ where
         self.db.merge_transitions(BundleRetention::Reverts);
 
         Ok(result)
-
-        // let mut strategy = self
-        //     .strategy_factory
-        //     .executor_for_block(&mut self.db, block);
-
-        // strategy.apply_pre_execution_changes()?;
-        // for tx in block.transactions_recovered() {
-        //     strategy.execute_transaction(tx)?;
-        // }
-        // let result = strategy.apply_post_execution_changes()?;
-
-        // self.db.merge_transitions(BundleRetention::Reverts);
-
-        // Ok(result)
     }
 
     fn execute_one_with_state_hook<H>(
@@ -262,119 +251,107 @@ where
     where
         H: OnStateHook + 'static,
     {
-        let inspector_lock = self.strategy_factory.with_inspector();
-        let mut inspector = inspector_lock.write();
-
-        let evm_env = self.strategy_factory.evm_env(block.header());
-        let evm = self.strategy_factory.evm_with_env_and_inspector(
-            &mut self.db,
-            evm_env,
-            &mut *inspector,
-        );
-        let ctx = self.strategy_factory.context_for_block(block);
-        let mut strategy = self
-            .strategy_factory
-            .create_executor(evm, ctx)
-            .with_state_hook(Some(Box::new(state_hook)));
-
-        strategy.apply_pre_execution_changes()?;
-
-        drop(strategy);
-        drop(inspector);
-
-        info!("execution flow: pre-exe done");
-
-        // *** SIMULATION PHASE ***
-
-        // Get evm_env
-        let evm_env = self.strategy_factory.evm_env(block.header());
-
-        // Get inspector
-        let inspector_lock = self.strategy_factory.with_inspector();
-        let mut inspector = inspector_lock.write();
-
-        let mut evm = self
-            .strategy_factory
-            .evm_factory()
-            .create_evm_with_inspector(&mut self.db, evm_env, &mut *inspector);
-
-        for tx in block.transactions_recovered() {
-            match evm.transact(tx) {
-                Ok(_result) => {
-                    // Explicitly NOT committing state changes here
-                    // We're only using this simulation to capture reverts in the inspector
-                }
-                Err(_err) => {
-                    // we dont really care about the error here, we just want to capture the revert
-                }
-            };
-        }
-        info!("execution flow: simulation done");
-
-        drop(evm);
-
-        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
-
-        // apply mask to the database
+        info!("execution flow: starting");
+    
+        // === SIMULATION PHASE ===
+        // Capture revert information
+        let revert_cache = {
+            // Get inspector for simulation phase
+            let inspector_lock = self.strategy_factory.with_inspector();
+            let mut inspector = inspector_lock.write();
+            
+            // Set up simulation environment
+            let evm_env = self.strategy_factory.evm_env(block.header());
+            let mut evm = self.strategy_factory.evm_factory()
+                .create_evm_with_inspector(&mut self.db, evm_env, &mut *inspector);
+            
+            // Run transactions in simulation mode
+            for tx in block.transactions_recovered() {
+                let _ = evm.transact(tx); // Ignore results, just want to capture reverts
+            }
+            
+            // We must drop evm first to release the mutable borrow on inspector
+            drop(evm);
+            
+            // Now we can safely access inspector fields
+            let cache = inspector.slot_revert_cache.clone();
+            
+            // Explicitly drop inspector and lock
+            drop(inspector);
+            
+            cache
+        };
+            
+        // === REVERT APPLICATION PHASE ===
+        // Apply any reverts collected during simulation
         if !revert_cache.is_empty() {
             for (address, transition) in &revert_cache {
                 for (slot, slot_data) in &transition.storage {
                     let prev_value = slot_data.previous_or_original_value;
-
-                    // Load account from state
+                    
+                    // Handle the account
                     let acc = self.db.load_cache_account(*address).map_err(|err| {
                         BlockExecutionError::Internal(InternalBlockExecutionError::msg(err))
                     })?;
-
-                    // Set slot in account to previous value
+                    
                     if let Some(a) = acc.account.as_mut() {
                         a.storage.insert(*slot, prev_value);
                     }
-
-                    // Convert to revm account, mark as modified and commit it to state
+                    
+                    // Convert to revm account
                     let mut revm_acc: Account = acc
                         .account_info()
                         .ok_or(BlockExecutionError::other(RethError::msg(
                             "failed to convert account to revm account",
                         )))?
                         .into();
-
+                    
                     revm_acc.mark_touch();
-
+                    
+                    // Commit the change
                     let mut changes: HashMap<Address, Account> = HashMap::new();
                     changes.insert(*address, revm_acc);
-
-                    // commit to account slot changes to state
                     self.db.commit(changes);
                 }
             }
         }
-
-        drop(inspector);
-        info!("execution flow: reverts applied");
-
-        // *** EXECUTION PHASE ***
-
-        let inspector_lock = self.strategy_factory.with_inspector();
-        let mut inspector = inspector_lock.write();
-
-        let evm_env = self.strategy_factory.evm_env(block.header());
-        let evm = self.strategy_factory.evm_with_env_and_inspector(
-            &mut self.db,
-            evm_env,
-            &mut *inspector,
-        );
-        let ctx = self.strategy_factory.context_for_block(block);
-        let mut strategy = self.strategy_factory.create_executor(evm, ctx);
-
-        for tx in block.transactions_recovered() {
-            strategy.execute_transaction(tx)?;
-        }
-        let result = strategy.apply_post_execution_changes()?;
-
-        drop(inspector);
-
-        info!("execution flow: main execution done");
+        
+    
+        // === MAIN EXECUTION PHASE ===
+        // Execute with state hook and get result
+        let result = {
+            // Get fresh inspector
+            let inspector_lock = self.strategy_factory.with_inspector();
+            let mut inspector = inspector_lock.write();
+            
+            // Set up environment
+            let evm_env = self.strategy_factory.evm_env(block.header());
+            let evm = self.strategy_factory.evm_with_env_and_inspector(
+                &mut self.db,
+                evm_env,
+                &mut *inspector,
+            );
+            
+            // Create executor with state hook
+            let ctx = self.strategy_factory.context_for_block(block);
+            let mut strategy = self.strategy_factory
+                .create_executor(evm, ctx)
+                .with_state_hook(Some(Box::new(state_hook)));
+            
+            // Execute all transactions
+            strategy.apply_pre_execution_changes()?;
+            for tx in block.transactions_recovered() {
+                strategy.execute_transaction(tx)?;
+            }
+            
+            // This method consumes strategy, so it will be dropped automatically
+            let result = strategy.apply_post_execution_changes()?;
+            
+            // Only drop remaining resources
+            drop(inspector);
+            
+            result
+        };
 
         // *** UPDATE SENTINEL LOCKS ***
         {
@@ -394,29 +371,10 @@ where
                     ))
                 })?;
         }
-
-        info!("execution flow: sentinel locks updated");
-
+        
         self.db.merge_transitions(BundleRetention::Reverts);
-
-        info!("execution flow: db merged");
-
+                
         Ok(result)
-
-        // let mut strategy = self
-        //     .strategy_factory
-        //     .executor_for_block(&mut self.db, block)
-        //     .with_state_hook(Some(Box::new(state_hook)));
-
-        // strategy.apply_pre_execution_changes()?;
-        // for tx in block.transactions_recovered() {
-        //     strategy.execute_transaction(tx)?;
-        // }
-        // let result = strategy.apply_post_execution_changes()?;
-
-        // self.db.merge_transitions(BundleRetention::Reverts);
-
-        // Ok(result)
     }
 
     fn into_state(self) -> State<DB> {
@@ -597,21 +555,20 @@ where
                         logs: ctx.result.into_logs(),
                     };
 
-                    self.receipt_builder
-                        .build_deposit_receipt(OpDepositReceipt {
-                            inner: receipt,
-                            deposit_nonce: depositor.map(|account| account.nonce),
-                            // The deposit receipt version was introduced in Canyon to indicate an
-                            // update to how receipt hashes should be computed
-                            // when set. The state transition process ensures
-                            // this is only set for post-Canyon deposit
-                            // transactions.
-                            deposit_receipt_version: (is_deposit
-                                && self
-                                    .spec
-                                    .is_canyon_active_at_timestamp(self.evm.block().timestamp))
-                            .then_some(1),
-                        })
+                    self.receipt_builder.build_deposit_receipt(OpDepositReceipt {
+                        inner: receipt,
+                        deposit_nonce: depositor.map(|account| account.nonce),
+                        // The deposit receipt version was introduced in Canyon to indicate an
+                        // update to how receipt hashes should be computed
+                        // when set. The state transition process ensures
+                        // this is only set for post-Canyon deposit
+                        // transactions.
+                        deposit_receipt_version: (is_deposit
+                            && self
+                                .spec
+                                .is_canyon_active_at_timestamp(self.evm.block().timestamp))
+                        .then_some(1),
+                    })
                 }
             },
         );

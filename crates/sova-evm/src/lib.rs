@@ -6,6 +6,7 @@ mod precompiles;
 mod sova_revm;
 
 use constants::BTC_PRECOMPILE_ADDRESS;
+pub use constants::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
 use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
 use inspector::SovaInspector;

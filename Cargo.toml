@@ -3,10 +3,10 @@ members = [
     "bin/sova/",
     "crates/chainspec",
     "crates/cli",
-    "crates/sova-evm",
     "crates/node",
     "crates/payload",
     "crates/rpc",
+    "crates/sova-evm",
     "crates/txpool",
 ]
 default-members = ["bin/sova/"]
@@ -43,6 +43,7 @@ reth-cli = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f1483
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-codecs = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-consensus = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
+reth-consensus-common = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-errors = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-engine-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
@@ -84,6 +85,7 @@ reth-trie-db = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f
 
 reth-optimism-node = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-optimism-cli = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
+reth-optimism-consensus = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-optimism-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-optimism-forks = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
 reth-optimism-chainspec = { git = "https://github.com/paradigmxyz/reth.git", rev = "7f11a6f14839baca8d143a73a8b1a66ed0477c37" }
@@ -135,6 +137,7 @@ alloy-rlp = { version = "0.3.10", default-features = false, features = ["core-ne
 # alloy core
 alloy-primitives = { version = "1.0.0", default-features = false, features = ["map-foldhash"] }
 alloy-dyn-abi = "0.8"
+alloy-sol-macro = "1.0.0"
 alloy-sol-types = { version = "1.0.0", default-features = false }
 
 # op-alloy
