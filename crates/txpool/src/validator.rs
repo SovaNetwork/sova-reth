@@ -1,16 +1,14 @@
 use alloy_consensus::{BlockHeader, Transaction};
-use alloy_eips::Encodable2718;
+// use alloy_eips::Encodable2718;
 use op_revm::L1BlockInfo;
 use parking_lot::RwLock;
 use reth_chainspec::ChainSpecProvider;
-use reth_optimism_evm::RethL1BlockInfo;
+// use reth_optimism_evm::RethL1BlockInfo;
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::txpool::{
     interop::MaybeInteropTransaction, supervisor::SupervisorClient, InvalidCrossTx,
 };
-use reth_primitives_traits::{
-    transaction::error::InvalidTransactionError, Block, GotExpected, SealedBlock,
-};
+use reth_primitives_traits::{transaction::error::InvalidTransactionError, Block, SealedBlock};
 use reth_storage_api::{BlockReaderIdExt, StateProvider, StateProviderFactory};
 use reth_transaction_pool::{
     EthPoolTransaction, EthTransactionValidator, TransactionOrigin, TransactionValidationOutcome,
@@ -73,10 +71,10 @@ impl<Client, Tx> SovaTransactionValidator<Client, Tx> {
         self.inner.client()
     }
 
-    /// Returns the current block timestamp.
-    fn block_timestamp(&self) -> u64 {
-        self.block_info.timestamp.load(Ordering::Relaxed)
-    }
+    // /// Returns the current block timestamp.
+    // fn block_timestamp(&self) -> u64 {
+    //     self.block_info.timestamp.load(Ordering::Relaxed)
+    // }
 
     /// Whether to ensure that the transaction's sender has enough balance to also cover the L1 gas
     /// fee.
@@ -256,66 +254,66 @@ where
         .await
     }
 
-    /// Performs the necessary opstack specific checks based on top of the regular eth outcome.
-    fn apply_op_checks(
-        &self,
-        outcome: TransactionValidationOutcome<Tx>,
-    ) -> TransactionValidationOutcome<Tx> {
-        if !self.requires_l1_data_gas_fee() {
-            // no need to check L1 gas fee
-            return outcome;
-        }
-        // ensure that the account has enough balance to cover the L1 gas cost
-        if let TransactionValidationOutcome::Valid {
-            balance,
-            state_nonce,
-            transaction: valid_tx,
-            propagate,
-        } = outcome
-        {
-            let mut l1_block_info = self.block_info.l1_block_info.read().clone();
+    // /// Performs the necessary opstack specific checks based on top of the regular eth outcome.
+    // fn apply_op_checks(
+    //     &self,
+    //     outcome: TransactionValidationOutcome<Tx>,
+    // ) -> TransactionValidationOutcome<Tx> {
+    //     if !self.requires_l1_data_gas_fee() {
+    //         // no need to check L1 gas fee
+    //         return outcome;
+    //     }
+    //     // ensure that the account has enough balance to cover the L1 gas cost
+    //     if let TransactionValidationOutcome::Valid {
+    //         balance,
+    //         state_nonce,
+    //         transaction: valid_tx,
+    //         propagate,
+    //     } = outcome
+    //     {
+    //         let mut l1_block_info = self.block_info.l1_block_info.read().clone();
 
-            let mut encoded = Vec::with_capacity(valid_tx.transaction().encoded_length());
-            let tx = valid_tx.transaction().clone_into_consensus();
-            tx.encode_2718(&mut encoded);
+    //         let mut encoded = Vec::with_capacity(valid_tx.transaction().encoded_length());
+    //         let tx = valid_tx.transaction().clone_into_consensus();
+    //         tx.encode_2718(&mut encoded);
 
-            let cost_addition = match l1_block_info.l1_tx_data_fee(
-                self.chain_spec(),
-                self.block_timestamp(),
-                &encoded,
-                false,
-            ) {
-                Ok(cost) => cost,
-                Err(err) => {
-                    return TransactionValidationOutcome::Error(*valid_tx.hash(), Box::new(err))
-                }
-            };
-            let cost = valid_tx.transaction().cost().saturating_add(cost_addition);
+    //         let cost_addition = match l1_block_info.l1_tx_data_fee(
+    //             self.chain_spec(),
+    //             self.block_timestamp(),
+    //             &encoded,
+    //             false,
+    //         ) {
+    //             Ok(cost) => cost,
+    //             Err(err) => {
+    //                 return TransactionValidationOutcome::Error(*valid_tx.hash(), Box::new(err))
+    //             }
+    //         };
+    //         let cost = valid_tx.transaction().cost().saturating_add(cost_addition);
 
-            // Checks for max cost
-            if cost > balance {
-                return TransactionValidationOutcome::Invalid(
-                    valid_tx.into_transaction(),
-                    InvalidTransactionError::InsufficientFunds(
-                        GotExpected {
-                            got: balance,
-                            expected: cost,
-                        }
-                        .into(),
-                    )
-                    .into(),
-                );
-            }
+    //         // Checks for max cost
+    //         if cost > balance {
+    //             return TransactionValidationOutcome::Invalid(
+    //                 valid_tx.into_transaction(),
+    //                 InvalidTransactionError::InsufficientFunds(
+    //                     GotExpected {
+    //                         got: balance,
+    //                         expected: cost,
+    //                     }
+    //                     .into(),
+    //                 )
+    //                 .into(),
+    //             );
+    //         }
 
-            return TransactionValidationOutcome::Valid {
-                balance,
-                state_nonce,
-                transaction: valid_tx,
-                propagate,
-            };
-        }
-        outcome
-    }
+    //         return TransactionValidationOutcome::Valid {
+    //             balance,
+    //             state_nonce,
+    //             transaction: valid_tx,
+    //             propagate,
+    //         };
+    //     }
+    //     outcome
+    // }
 
     /// Wrapper for is valid cross tx
     pub async fn is_valid_cross_tx(&self, tx: &Tx) -> Option<Result<(), InvalidCrossTx>> {

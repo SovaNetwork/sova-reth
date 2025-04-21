@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
+use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{
-    map::foldhash::{HashMap, HashMapExt}, Address, Bytes, B256, U256
+    map::foldhash::{HashMap, HashMapExt},
+    Address, Bytes, B256, U256,
 };
 use alloy_rlp::{BytesMut, Encodable};
 use alloy_rpc_types_debug::ExecutionWitness;
 use alloy_rpc_types_engine::{PayloadAttributes, PayloadId};
 use alloy_sol_macro::sol;
 use alloy_sol_types::SolCall;
-use alloy_eips::eip2718::Encodable2718;
 use op_alloy_consensus::{TxDeposit, UpgradeDepositSource};
 use reth_basic_payload_builder::{
     is_better_payload, BuildArguments, BuildOutcome, BuildOutcomeKind, MissingPayloadBehaviour,
@@ -59,7 +60,9 @@ use revm::{
 };
 
 use sova_cli::SovaConfig;
-use sova_evm::{BitcoinClient, MyEvmConfig, WithInspector, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
+use sova_evm::{
+    BitcoinClient, MyEvmConfig, WithInspector, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER,
+};
 
 /// Sova payload builder that extends the Optimism payload builder with Bitcoin integration
 #[derive(Debug, Clone)]
@@ -227,12 +230,19 @@ where
                 withdrawals: Some(config.attributes.withdrawals().to_vec()),
                 parent_beacon_block_root: config.attributes.parent_beacon_block_root(),
             },
-            transactions: Some(config.attributes.transactions.iter().map(|tx| tx.encoded_bytes().clone()).collect()),
+            transactions: Some(
+                config
+                    .attributes
+                    .transactions
+                    .iter()
+                    .map(|tx| tx.encoded_bytes().clone())
+                    .collect(),
+            ),
             no_tx_pool: Some(config.attributes.no_tx_pool),
             gas_limit: config.attributes.gas_limit,
             eip_1559_params: config.attributes.eip_1559_params,
         };
-        
+
         // Inject Bitcoin data
         if let Err(err) = self.inject_bitcoin_data_to_payload_attrs(&mut sova_payload_attrs) {
             warn!(target: "payload_builder", "Failed to inject Bitcoin data: {}", err);
@@ -246,7 +256,8 @@ where
                 config.attributes.parent(),
                 sova_payload_attrs,
                 3, // Assuming version 3, adjust if needed
-            ).map_err(PayloadBuilderError::other)?,
+            )
+            .map_err(PayloadBuilderError::other)?,
         };
 
         let ctx = SovaPayloadBuilderCtx {
@@ -279,7 +290,7 @@ where
             warn!(target: "payload_builder", "Failed to inject Bitcoin data into witness: {}", err);
             // Continue with payload witnessing even if Bitcoin data injection fails
         }
-    
+
         let attributes = OpPayloadBuilderAttributes::try_new(parent.hash(), attributes, 3)
             .map_err(PayloadBuilderError::other)?;
 
@@ -306,8 +317,10 @@ where
     }
 
     pub fn update_l1_block_source() -> B256 {
-        UpgradeDepositSource { intent: String::from("Satoshi: L1 Block Update") }
-            .source_hash()
+        UpgradeDepositSource {
+            intent: String::from("Satoshi: L1 Block Update"),
+        }
+        .source_hash()
     }
 
     /// Generate a deposit transaction to record Bitcoin block data
@@ -326,10 +339,10 @@ where
             _blockHash: block_hash,
             _sequenceNumber: sequence_number,
         };
-        
+
         // Generate the ABI-encoded function call
         let input = call_data.abi_encode().into();
-        
+
         // Create a deposit transaction
         let deposit_tx = TxDeposit {
             // Unique identifier for this deposit's source
@@ -349,22 +362,22 @@ where
             // ABI-encoded function call
             input,
         };
-        
+
         // Create a buffer to hold the encoded transaction
         let mut buffer = BytesMut::new();
-        
+
         // Encode the transaction according to EIP-2718
         // This adds the transaction type byte (0x7E for Deposit) followed by RLP encoding
         deposit_tx.encode_2718(&mut buffer);
-        
+
         // Convert to Bytes
         buffer.freeze().into()
     }
-    
+
     /// Add the bitcoin data transaction to the payload attributes
     pub fn add_bitcoin_data_to_payload_attrs(
         block_height: u64,
-        block_timestamp: u64, 
+        block_timestamp: u64,
         network_difficulty: U256,
         block_hash: B256,
         sequence_number: u64,
@@ -377,7 +390,7 @@ where
             block_hash,
             sequence_number,
         );
-        
+
         // Create vector with this transaction
         Some(vec![tx_bytes])
     }
@@ -388,19 +401,14 @@ where
         attributes: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
         // TODO(powvt) fetch from BTC client
-        
+
         // Generate the deposit transaction bytes
-        let transactions = Self::add_bitcoin_data_to_payload_attrs(
-            12,
-            99,
-            U256::ZERO,
-            B256::new([0x1; 32]),
-            0,
-        );
-        
+        let transactions =
+            Self::add_bitcoin_data_to_payload_attrs(12, 99, U256::ZERO, B256::new([0x1; 32]), 0);
+
         // Set the transactions in the payload attributes
         attributes.transactions = transactions;
-        
+
         Ok(())
     }
 }
@@ -519,7 +527,7 @@ where
         // Get evm_env for the next block
         let evm_env = ctx
             .evm_config
-            .next_evm_env(&ctx.parent(), &next_block_attributes)
+            .next_evm_env(ctx.parent(), &next_block_attributes)
             .map_err(RethError::other)?;
 
         // Get best transaction attributes for simulation
@@ -609,8 +617,8 @@ where
         let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
 
         // Create block builder
-        let blk_ctx = evm_config.context_for_next_block(&ctx.parent(), next_block_attributes);
-        let mut builder = evm_config.create_block_builder(evm, &ctx.parent(), blk_ctx);
+        let blk_ctx = evm_config.context_for_next_block(ctx.parent(), next_block_attributes);
+        let mut builder = evm_config.create_block_builder(evm, ctx.parent(), blk_ctx);
 
         // 1. apply pre-execution changes
         builder.apply_pre_execution_changes().map_err(|err| {
@@ -656,7 +664,10 @@ where
             block,
         } = builder.finish(state_provider)?;
 
-        info!("Payload builder: execution result receipts: {:?}", execution_result.receipts);
+        info!(
+            "Payload builder: execution result receipts: {:?}",
+            execution_result.receipts
+        );
 
         // Release inspector
         drop(inspector);
@@ -861,7 +872,7 @@ where
             )
             .map_err(PayloadBuilderError::other)
     }
-    
+
     /// Executes all sequencer transactions that are included in the payload attributes.
     pub fn execute_l1_block_transactions(
         &self,
