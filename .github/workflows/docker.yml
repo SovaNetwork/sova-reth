@@ -18,7 +18,7 @@ env:
 
 jobs:
   extract-version:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Extract version (if main branch)
         if: github.ref == 'refs/heads/main'
@@ -36,7 +36,7 @@ jobs:
 
   build:
     name: build and push
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     permissions:
       packages: write
       contents: read
