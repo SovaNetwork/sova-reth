@@ -174,3 +174,9 @@ jsonrpsee-types = "0.24.9"
 similar-asserts = { version = "1.5.0", features = ["serde"] }
 thiserror = { version = "2.0.0", default-features = false }
 futures-util = { version = "0.3", default-features = false }
+
+# TODO: When we build for a windows target on an ubuntu runner, crunchy tries to
+# get the wrong path, update this when the workflow has been updated
+#
+# See: https://github.com/eira-fransham/crunchy/issues/13
+crunchy = "=0.2.2"
