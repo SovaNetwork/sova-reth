@@ -326,18 +326,15 @@ where
     /// Generate a deposit transaction to record Bitcoin block data
     pub fn create_bitcoin_data_deposit_tx(
         block_height: u64,
-        block_timestamp: u64,
-        network_difficulty: U256,
         block_hash: B256,
-        sequence_number: u64,
     ) -> Bytes {
         // Create the function call data for the setBitcoinBlockData method
         let call_data = setBitcoinBlockDataCall {
             _blockHeight: U256::from(block_height),
-            _blockTimestamp: U256::from(block_timestamp),
-            _networkDifficulty: network_difficulty,
+            _blockTimestamp: U256::ZERO,
+            _networkDifficulty: U256::ZERO,
             _blockHash: block_hash,
-            _sequenceNumber: sequence_number,
+            _sequenceNumber: block_height,
         };
 
         // Generate the ABI-encoded function call
@@ -377,20 +374,14 @@ where
     /// Add the bitcoin data transaction to the payload attributes
     pub fn add_bitcoin_data_to_payload_attrs(
         block_height: u64,
-        block_timestamp: u64,
-        network_difficulty: U256,
         block_hash: B256,
-        sequence_number: u64,
     ) -> Option<Vec<Bytes>> {
         // Generate the deposit transaction
         let tx_bytes = Self::create_bitcoin_data_deposit_tx(
             block_height,
-            block_timestamp,
-            network_difficulty,
             block_hash,
-            sequence_number,
         );
-
+    
         // Create vector with this transaction
         Some(vec![tx_bytes])
     }
@@ -400,14 +391,38 @@ where
         &self,
         attributes: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
-        // TODO(powvt) fetch from BTC client
+        // Fetch the current Bitcoin block info from the Bitcoin client
+        let bitcoin_block_info = match self.bitcoin_client.get_current_block_info() {
+            Ok(info) => info,
+            Err(err) => {
+                warn!(target: "payload_builder", "Failed to fetch Bitcoin block info: {}", err);
+                return Err(PayloadBuilderError::other(RethError::msg(format!(
+                    "Failed to fetch Bitcoin block info: {}", err
+                ))));
+            }
+        };
 
-        // Generate the deposit transaction bytes
-        let transactions =
-            Self::add_bitcoin_data_to_payload_attrs(12, 99, U256::ZERO, B256::new([0x1; 32]), 0);
+        // Get the block hash as a B256 for the deposit transaction
+        // Convert from Bitcoin's BlockHash to Alloy's B256
+        let mut block_hash_bytes = [0u8; 32];
+        block_hash_bytes.copy_from_slice(&bitcoin_block_info.block_hash_six_blocks_back[..]);
+        let block_hash = B256::new(block_hash_bytes);
+
+        // Generate the deposit transaction bytes with just height and hash
+        let transactions = Self::add_bitcoin_data_to_payload_attrs(
+            bitcoin_block_info.current_block_height,
+            block_hash,
+        );
 
         // Set the transactions in the payload attributes
         attributes.transactions = transactions;
+
+        debug!(
+            target: "payload_builder",
+            "Injected Bitcoin data: height={}, hash={:?}",
+            bitcoin_block_info.current_block_height,
+            block_hash,
+        );
 
         Ok(())
     }

@@ -5,6 +5,12 @@ use bitcoincore_rpc::{bitcoin::Txid, json::DecodeRawTransactionResult, Auth, Cli
 
 use sova_cli::BitcoinConfig;
 
+#[derive(Clone)]
+pub struct L1BlockInfo {
+    pub current_block_height: u64,
+    pub block_hash_six_blocks_back: BlockHash,
+}
+
 pub struct BitcoinClient {
     client: Client,
 }
@@ -67,5 +73,21 @@ impl BitcoinClient {
 
     pub fn send_raw_transaction(&self, tx: &Transaction) -> Result<Txid, bitcoincore_rpc::Error> {
         self.client.send_raw_transaction(tx)
+    }
+
+    pub fn get_current_block_info(&self) -> Result<L1BlockInfo, bitcoincore_rpc::Error> {
+        // Get the current block height
+        let current_block_height = self.get_block_height()?;
+        
+        // Calculate the height 6 blocks back
+        let height_six_blocks_back = current_block_height.saturating_sub(6);
+        
+        // Get the block hash for the block 6 confirmations back
+        let block_hash_six_blocks_back = self.client.get_block_hash(height_six_blocks_back)?;
+        
+        Ok(L1BlockInfo {
+            current_block_height,
+            block_hash_six_blocks_back,
+        })
     }
 }
