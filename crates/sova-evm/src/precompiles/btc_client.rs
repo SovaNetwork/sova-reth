@@ -80,6 +80,7 @@ impl BitcoinClient {
         let current_block_height = self.get_block_height()?;
         
         // Calculate the height 6 blocks back
+        // TODO(powvt): make this deterministic based on the sentinel confirmation threshold
         let height_six_blocks_back = current_block_height.saturating_sub(6);
         
         // Get the block hash for the block 6 confirmations back
