@@ -181,15 +181,6 @@ impl BitcoinRpcPrecompile {
             }
         };
 
-        // Get current block height for inclusion in the response
-        let current_block = match self.bitcoin_client.get_block_height() {
-            Ok(height) => height,
-            Err(e) => {
-                warn!("WARNING: Failed to get block height: {}", e);
-                0 // Default to 0 if we can't get the height
-            }
-        };
-
         // Attempt to broadcast the transaction
         let txid: bitcoincore_rpc::bitcoin::Txid =
             match self.bitcoin_client.send_raw_transaction(&tx) {
@@ -302,13 +293,13 @@ impl BitcoinRpcPrecompile {
             };
 
         // format to match slot locking service
+        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
         let mut bytes = txid.to_raw_hash().to_byte_array().to_vec();
         bytes.reverse();
 
-        // Encode the response: txid (32 bytes) followed by current block height (8 bytes)
-        let mut response = Vec::with_capacity(40);
+        // Encode the response: txid (32 bytes)
+        let mut response = Vec::with_capacity(32);
         response.extend_from_slice(&bytes);
-        response.extend_from_slice(&current_block.to_be_bytes());
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }

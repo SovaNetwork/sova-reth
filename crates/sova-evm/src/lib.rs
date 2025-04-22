@@ -6,7 +6,9 @@ mod precompiles;
 mod sova_revm;
 
 use constants::BTC_PRECOMPILE_ADDRESS;
-pub use constants::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
+pub use constants::{
+    L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
+};
 use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
 use inspector::SovaInspector;
@@ -157,7 +159,6 @@ impl MyEvmConfig {
             vec![BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS],
             config.sentinel_url.clone(),
             task_executor,
-            bitcoin_client,
         )
         .map_err(|e| Box::new(e) as Box<dyn Error>)?;
 
