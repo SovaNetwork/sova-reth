@@ -64,6 +64,13 @@ use sova_evm::{
     BitcoinClient, MyEvmConfig, WithInspector, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER,
 };
 
+sol!(
+    function setBitcoinBlockData(
+        uint256 _blockHeight,
+        bytes32 _blockHash
+    );
+);
+
 /// Sova payload builder that extends the Optimism payload builder with Bitcoin integration
 #[derive(Debug, Clone)]
 pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
@@ -324,40 +331,31 @@ where
     }
 
     /// Generate a deposit transaction to record Bitcoin block data
-    pub fn create_bitcoin_data_deposit_tx(
-        block_height: u64,
-        block_timestamp: u64,
-        network_difficulty: U256,
-        block_hash: B256,
-        sequence_number: u64,
-    ) -> Bytes {
+    pub fn create_bitcoin_data_deposit_tx(block_height: u64, block_hash: B256) -> Bytes {
         // Create the function call data for the setBitcoinBlockData method
         let call_data = setBitcoinBlockDataCall {
             _blockHeight: U256::from(block_height),
-            _blockTimestamp: U256::from(block_timestamp),
-            _networkDifficulty: network_difficulty,
             _blockHash: block_hash,
-            _sequenceNumber: sequence_number,
         };
 
         // Generate the ABI-encoded function call
         let input = call_data.abi_encode().into();
 
-        // Create a deposit transaction
+        // Create a system transaction
         let deposit_tx = TxDeposit {
             // Unique identifier for this deposit's source
             source_hash: Self::update_l1_block_source(),
-            // Set sender to a designated system account (adjust as needed)
+            // Designated system account
             from: L1_BLOCK_CONTRACT_CALLER,
-            // Target the Bitcoin data contract
+            // Target the L1Block contract
             to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
-            // No ETH to mint on L2
+            // Dont mint Sova
             mint: 0.into(),
-            // No ETH value to send
+            // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
             value: U256::ZERO,
-            // Set appropriate gas limit for the call
-            gas_limit: 500_000,
-            // Mark as system transaction to bypass gas limits
+            // Gas limit for the call
+            gas_limit: 250_000,
+            // Not a system tx, post regolith this is not a thing
             is_system_transaction: false,
             // ABI-encoded function call
             input,
@@ -377,19 +375,10 @@ where
     /// Add the bitcoin data transaction to the payload attributes
     pub fn add_bitcoin_data_to_payload_attrs(
         block_height: u64,
-        block_timestamp: u64,
-        network_difficulty: U256,
         block_hash: B256,
-        sequence_number: u64,
     ) -> Option<Vec<Bytes>> {
         // Generate the deposit transaction
-        let tx_bytes = Self::create_bitcoin_data_deposit_tx(
-            block_height,
-            block_timestamp,
-            network_difficulty,
-            block_hash,
-            sequence_number,
-        );
+        let tx_bytes = Self::create_bitcoin_data_deposit_tx(block_height, block_hash);
 
         // Create vector with this transaction
         Some(vec![tx_bytes])
@@ -400,14 +389,33 @@ where
         &self,
         attributes: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
-        // TODO(powvt) fetch from BTC client
+        // Fetch the current Bitcoin block info from the Bitcoin client
+        let bitcoin_block_info = match self.bitcoin_client.get_current_block_info() {
+            Ok(info) => info,
+            Err(err) => {
+                warn!(target: "payload_builder", "Failed to fetch Bitcoin block info: {}", err);
+                return Err(PayloadBuilderError::other(RethError::msg(format!(
+                    "Failed to fetch Bitcoin block info: {}",
+                    err
+                ))));
+            }
+        };
 
-        // Generate the deposit transaction bytes
-        let transactions =
-            Self::add_bitcoin_data_to_payload_attrs(12, 99, U256::ZERO, B256::new([0x1; 32]), 0);
+        // Generate the deposit transaction bytes with just height and hash
+        let transactions = Self::add_bitcoin_data_to_payload_attrs(
+            bitcoin_block_info.current_block_height,
+            bitcoin_block_info.block_hash_six_blocks_back,
+        );
 
         // Set the transactions in the payload attributes
         attributes.transactions = transactions;
+
+        debug!(
+            target: "payload_builder",
+            "Injected Bitcoin data: height={}, hash={:?}",
+            bitcoin_block_info.current_block_height,
+            bitcoin_block_info.block_hash_six_blocks_back,
+        );
 
         Ok(())
     }
@@ -769,16 +777,6 @@ where
         })
     }
 }
-
-sol!(
-    function setBitcoinBlockData(
-        uint256 _blockHeight,
-        uint256 _blockTimestamp,
-        uint256 _networkDifficulty,
-        bytes32 _blockHash,
-        uint64 _sequenceNumber
-    );
-);
 
 /// Container type that holds all necessities to build a new payload.
 #[derive(derive_more::Debug)]

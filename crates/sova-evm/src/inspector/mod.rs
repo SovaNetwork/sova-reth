@@ -28,7 +28,9 @@ use reth_revm::{
 };
 use reth_tracing::tracing::{debug, warn};
 
-use crate::{precompiles::BitcoinMethod, BitcoinClient};
+use crate::{
+    precompiles::BitcoinMethod, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
+};
 
 /// Represents a storage change recorded during SSTORE operations
 #[derive(Debug, Clone)]
@@ -48,8 +50,6 @@ pub struct SovaInspector {
     pub cache: StorageCache,
     /// client for calling lock storage service
     pub storage_slot_provider: Arc<StorageSlotProvider>,
-    /// btc client
-    btc_client: Arc<BitcoinClient>,
     /// transition state for applying slot reverts
     pub slot_revert_cache: Vec<(Address, TransitionAccount)>,
     /// Journal checkpoint for the current transaction
@@ -62,7 +62,6 @@ impl SovaInspector {
         excluded_addresses: impl IntoIterator<Item = Address>,
         sentinel_url: String,
         task_executor: TaskExecutor,
-        btc_client: Arc<BitcoinClient>,
     ) -> Result<Self, SlotProviderError> {
         let storage_slot_provider =
             Arc::new(StorageSlotProvider::new(sentinel_url, task_executor)?);
@@ -70,7 +69,6 @@ impl SovaInspector {
         Ok(Self {
             cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
             storage_slot_provider,
-            btc_client,
             slot_revert_cache: Vec::new(),
             checkpoint: None,
         })
@@ -105,6 +103,28 @@ impl SovaInspector {
         self.clear_cache();
 
         Ok(())
+    }
+
+    /// helper to load L1Block data from state
+    fn get_l1_block_data<CTX: ContextTr<Journal: JournalExt>>(
+        context: &mut CTX,
+    ) -> Result<u64, String> {
+        // load the account into the journal
+        match context.journal().load_account(L1_BLOCK_CONTRACT_ADDRESS) {
+            Ok(account_load) => {
+                let account = account_load.data;
+
+                // access storage
+                match account.storage.get(&L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT) {
+                    Some(slot) => {
+                        // Return the value as u64
+                        Ok(slot.present_value().as_limbs()[0])
+                    }
+                    None => Ok(0), // Return 0 instead of error when slot is empty
+                }
+            }
+            Err(err) => Err(format!("Failed to load L1Block account: {}", err)),
+        }
     }
 
     /// Process storage changes from journal entries and update accessed storage cache
@@ -202,17 +222,29 @@ impl SovaInspector {
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Option<CallOutcome> {
-        // get current btc block height
-        let current_btc_block_height = match self.btc_client.get_block_height() {
+        // load current btc block height from state
+        let current_btc_block_height = match Self::get_l1_block_data(context) {
             Ok(height) => height,
             Err(err) => {
+                warn!(
+                    "Failed to get current Bitcoin block height from state: {}",
+                    err
+                );
                 return Some(Self::create_revert_outcome(
-                    format!("Failed to get current btc block height: {}", err),
+                    format!(
+                        "Failed to get current Bitcoin block height from state: {}",
+                        err
+                    ),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
             }
         };
+
+        debug!(
+            "Got Bitcoin block height from state: {}",
+            current_btc_block_height
+        );
 
         // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
@@ -357,7 +389,7 @@ impl SovaInspector {
                     );
                 }
 
-                self.handle_cache_btc_data(outcome);
+                self.handle_cache_btc_data(context, inputs, outcome);
             }
             Ok(_) => (), // Other methods we don't care about do nothing
             Err(err) => {
@@ -371,9 +403,37 @@ impl SovaInspector {
     }
 
     /// Cache the broadcast btc precompile result for future use in lock storage enforcement
-    fn handle_cache_btc_data(&mut self, outcome: &mut CallOutcome) {
+    fn handle_cache_btc_data<CTX: ContextTr<Journal: JournalExt>>(
+        &mut self,
+        context: &mut CTX,
+        inputs: &CallInputs,
+        outcome: &mut CallOutcome,
+    ) -> Option<CallOutcome> {
         let broadcast_txid = outcome.result.output[..32].to_vec();
-        let broadcast_block = u64::from_be_bytes(outcome.result.output[32..40].try_into().unwrap());
+
+        // load current btc block height from state
+        let broadcast_block = match Self::get_l1_block_data(context) {
+            Ok(height) => height,
+            Err(err) => {
+                warn!(
+                    "Failed to get current Bitcoin block height from state: {}",
+                    err
+                );
+                return Some(Self::create_revert_outcome(
+                    format!(
+                        "Failed to get current Bitcoin block height from state: {}",
+                        err
+                    ),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ));
+            }
+        };
+
+        debug!(
+            "Caching btc data from broadcast precompile call. Bitcoin block height from state: {}",
+            broadcast_block
+        );
 
         // set broadcast txid and block in broadcast result
         let broadcast_result = BroadcastResult {
@@ -383,6 +443,8 @@ impl SovaInspector {
 
         // Commit the broadcast storage to block storage and lock data
         self.cache.commit_broadcast(broadcast_result);
+
+        None
     }
 }
 
