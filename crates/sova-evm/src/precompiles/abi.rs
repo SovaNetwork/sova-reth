@@ -33,7 +33,7 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
     ]);
 
     let decoded = input_type
-        .abi_decode(input)
+        .abi_decode_params(input)
         .map_err(|e| PrecompileError::other(format!("Failed to decode input: {:?}", e)))?;
 
     if let DynSolValue::Tuple(values) = decoded {

@@ -146,6 +146,8 @@ impl SovaInspector {
         gas_limit: u64,
         memory_offset: Range<usize>,
     ) -> CallOutcome {
+        warn!("Inspector revert message: {}", message);
+
         CallOutcome {
             result: InterpreterResult {
                 result: InstructionResult::Revert,
@@ -204,7 +206,6 @@ impl SovaInspector {
         let current_btc_block_height = match self.btc_client.get_block_height() {
             Ok(height) => height,
             Err(err) => {
-                warn!("ERROR: Failed to get current btc block height: {}", err);
                 return Some(Self::create_revert_outcome(
                     format!("Failed to get current btc block height: {}", err),
                     inputs.gas_limit,
@@ -265,14 +266,11 @@ impl SovaInspector {
                 }
                 None
             }
-            Err(err) => {
-                warn!("WARNING: Failed to get lock status from provider: {}", err);
-                Some(Self::create_revert_outcome(
-                    format!("Failed to get lock status from provider: {}", err),
-                    inputs.gas_limit,
-                    inputs.return_memory_offset.clone(),
-                ))
-            }
+            Err(err) => Some(Self::create_revert_outcome(
+                format!("Failed to get lock status from provider: {}", err),
+                inputs.gas_limit,
+                inputs.return_memory_offset.clone(),
+            )),
         }
     }
 
@@ -352,7 +350,6 @@ impl SovaInspector {
                 debug!("-> Broadcast call end hook");
                 // only update if call was successful
                 if outcome.result.result != InstructionResult::Return {
-                    debug!("Broadcast btc precompile execution failed");
                     *outcome = Self::create_revert_outcome(
                         "Broadcast btc precompile execution failed".to_string(),
                         inputs.gas_limit,

@@ -100,7 +100,7 @@ impl BitcoinRpcPrecompile {
         // Skip the selector bytes and get the method's input data
         let input_data = &input[4..];
 
-        match method {
+        let res = match method {
             BitcoinMethod::BroadcastTransaction => self.send_btc_tx(input_data),
             BitcoinMethod::DecodeTransaction => {
                 self.decode_raw_transaction(input_data, method.gas_limit())
@@ -108,7 +108,13 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::CheckSignature => self.check_signature(input_data, method.gas_limit()),
             BitcoinMethod::ConvertAddress => self.convert_address(input_data),
             BitcoinMethod::CreateAndSignTransaction => self.create_and_sign_raw_transaction(input),
+        };
+
+        if res.is_err() {
+            warn!("Precompile error: {:?}", res);
         }
+
+        res
     }
 
     fn make_http_request<T: serde::Serialize, R: serde::de::DeserializeOwned>(

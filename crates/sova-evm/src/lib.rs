@@ -154,7 +154,7 @@ impl MyEvmConfig {
 
         let inspector = SovaInspector::new(
             BTC_PRECOMPILE_ADDRESS,
-            vec![BTC_PRECOMPILE_ADDRESS],
+            vec![BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS],
             config.sentinel_url.clone(),
             task_executor,
             bitcoin_client,
