@@ -609,6 +609,8 @@ where
 
         drop(inspector);
 
+        debug!("Payload Builder: mask applied to db");
+
         // === MAIN EXECUTION PHASE ===
         // Get inspector
         let inspector_lock = evm_config.with_inspector();
@@ -628,7 +630,8 @@ where
         })?;
 
         // 2. execute L1Block transactions
-        let mut info = ctx.execute_l1_block_transactions(&mut builder)?;
+        // let mut info = ctx.execute_l1_block_transactions(&mut builder)?;
+        let mut info = ExecutionInfo::new();
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {
@@ -665,7 +668,7 @@ where
             block,
         } = builder.finish(state_provider)?;
 
-        info!(
+        debug!(
             "Payload builder: execution result receipts: {:?}",
             execution_result.receipts
         );
@@ -690,6 +693,8 @@ where
                     )))
                 })?;
         }
+
+        debug!("Payload Builder: locks updated");
 
         let sealed_block = Arc::new(block.sealed_block().clone());
         debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");

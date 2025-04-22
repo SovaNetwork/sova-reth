@@ -39,7 +39,7 @@ use reth_revm::{
     state::Account,
     DatabaseCommit,
 };
-use reth_tracing::tracing::info;
+use reth_tracing::tracing::{debug, info};
 use revm::context::result::ResultAndState;
 
 use crate::WithInspector;
@@ -244,8 +244,6 @@ where
     where
         H: OnStateHook + 'static,
     {
-        info!("execution flow: starting");
-
         // === SIMULATION PHASE ===
         // Capture revert information
         let revert_cache = {
@@ -311,6 +309,7 @@ where
             }
         }
 
+        debug!("Execution: mask applied to db");
         // === MAIN EXECUTION PHASE ===
         // Execute with state hook and get result
         let result = {
@@ -348,6 +347,8 @@ where
             result
         };
 
+        debug!("Execution: receipts: {:?}", result.receipts);
+
         // *** UPDATE SENTINEL LOCKS ***
         {
             let inspector_lock = self.strategy_factory.with_inspector();
@@ -366,6 +367,8 @@ where
                     ))
                 })?;
         }
+
+        debug!("Execution: locks updated");
 
         self.db.merge_transitions(BundleRetention::Reverts);
 
