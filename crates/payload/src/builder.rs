@@ -630,8 +630,7 @@ where
         })?;
 
         // 2. execute L1Block transactions
-        // let mut info = ctx.execute_l1_block_transactions(&mut builder)?;
-        let mut info = ExecutionInfo::new();
+        let mut info = ctx.execute_l1_block_transactions(&mut builder)?;
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {
