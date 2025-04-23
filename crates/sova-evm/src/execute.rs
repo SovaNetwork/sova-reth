@@ -127,6 +127,7 @@ where
 
                 // Check if input data is sufficient
                 if input.len() < 4 {
+                    debug!("L1Block transaction input data too short");
                     return Err(BlockExecutionError::other(RethError::msg(
                         "L1Block transaction input data too short",
                     )));
@@ -190,16 +191,16 @@ where
                         "Function selector not recognized, received {:?}",
                         &input[0..4]
                     );
-                    return Err(BlockExecutionError::other(RethError::msg(
+                    Err(BlockExecutionError::other(RethError::msg(
                         "Function selector not recognized",
-                    )));
+                    )))
                 }
             }
             None => {
                 warn!("Block body transactions are empty");
-                return Err(BlockExecutionError::other(RethError::msg(
+                Err(BlockExecutionError::other(RethError::msg(
                     "Block body transactions are empty",
-                )));
+                )))
             }
         }
     }
