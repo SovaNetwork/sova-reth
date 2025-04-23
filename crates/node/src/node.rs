@@ -647,7 +647,7 @@ where
 
         Ok((
             evm_config.clone(),
-            SovaBlockExecutorProvider::new(evm_config),
+            SovaBlockExecutorProvider::new(evm_config, self.bitcoin_client),
         ))
     }
 }

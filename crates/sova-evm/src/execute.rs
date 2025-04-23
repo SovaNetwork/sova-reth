@@ -1,5 +1,7 @@
 extern crate alloc;
 
+use std::sync::Arc;
+
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 
 use alloy_consensus::{BlockHeader, Eip658Value, Header, Transaction, TxReceipt};
@@ -11,7 +13,7 @@ use alloy_evm::block::ExecutableTx;
 use alloy_op_evm::{block::receipt_builder::OpReceiptBuilder, OpBlockExecutionCtx};
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
-    Address, Bytes,
+    Address, Bytes, B256, U256,
 };
 use op_alloy_consensus::OpDepositReceipt;
 use op_revm::transaction::deposit::DEPOSIT_TRANSACTION_TYPE;
@@ -29,7 +31,7 @@ use reth_evm::{
     state_change::{balance_increment_state, post_block_balance_increments},
     ConfigureEvm, Database, Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded, OnStateHook,
 };
-use reth_node_api::NodePrimitives;
+use reth_node_api::{BlockBody, NodePrimitives};
 use reth_optimism_forks::OpHardforks;
 use reth_primitives::{Log, RecoveredBlock};
 use reth_provider::BlockExecutionResult;
@@ -39,21 +41,25 @@ use reth_revm::{
     state::Account,
     DatabaseCommit,
 };
-use reth_tracing::tracing::{debug, info};
+use reth_tracing::tracing::{debug, info, warn};
 use revm::context::result::ResultAndState;
 
-use crate::WithInspector;
+use crate::{BitcoinClient, WithInspector, L1_BLOCK_SATOSHI_SELECTOR};
 
 /// A Sova block executor provider that can create executors using a strategy factory.
 #[derive(Clone, Debug)]
 pub struct SovaBlockExecutorProvider<F> {
     strategy_factory: F,
+    bitcoin_client: Arc<BitcoinClient>,
 }
 
 impl<F> SovaBlockExecutorProvider<F> {
     /// Creates a new `SovaBlockExecutorProvider` with the given strategy factory.
-    pub const fn new(strategy_factory: F) -> Self {
-        Self { strategy_factory }
+    pub const fn new(strategy_factory: F, bitcoin_client: Arc<BitcoinClient>) -> Self {
+        Self {
+            strategy_factory,
+            bitcoin_client,
+        }
     }
 }
 
@@ -69,7 +75,11 @@ where
     where
         DB: Database,
     {
-        SovaBlockExecutor::new(self.strategy_factory.clone(), db)
+        SovaBlockExecutor::new(
+            self.strategy_factory.clone(),
+            db,
+            self.bitcoin_client.clone(),
+        )
     }
 }
 
@@ -81,11 +91,13 @@ pub struct SovaBlockExecutor<F, DB> {
     pub(crate) strategy_factory: F,
     /// Database.
     pub(crate) db: State<DB>,
+    /// Bitcoin client for validating block data.
+    pub(crate) bitcoin_client: Arc<BitcoinClient>,
 }
 
 impl<F, DB: Database> SovaBlockExecutor<F, DB> {
     /// Creates a new `SovaBlockExecutor` with the given strategy.
-    pub fn new(strategy_factory: F, db: DB) -> Self {
+    pub fn new(strategy_factory: F, db: DB, bitcoin_client: Arc<BitcoinClient>) -> Self {
         let db = State::builder()
             .with_database(db)
             .with_bundle_update()
@@ -94,6 +106,101 @@ impl<F, DB: Database> SovaBlockExecutor<F, DB> {
         Self {
             strategy_factory,
             db,
+            bitcoin_client,
+        }
+    }
+}
+
+impl<F, DB> SovaBlockExecutor<F, DB>
+where
+    F: ConfigureEvm + WithInspector,
+    DB: Database,
+{
+    fn verify_l1block_transaction(
+        &self,
+        block: &RecoveredBlock<<<F as ConfigureEvm>::Primitives as NodePrimitives>::Block>,
+    ) -> Result<(), BlockExecutionError> {
+        match block.body().transactions().first() {
+            Some(tx) => {
+                // Extract the input data from the first transaction
+                let input = tx.input();
+
+                // Check if input data is sufficient
+                if input.len() < 4 {
+                    return Err(BlockExecutionError::other(RethError::msg(
+                        "L1Block transaction input data too short",
+                    )));
+                }
+
+                if block.number() == 0 {
+                    // Skip validation for genesis block
+                    debug!(target: "execution", "Genesis block - skipping Bitcoin block validation");
+                    Ok(())
+                } else if input[0..4] == L1_BLOCK_SATOSHI_SELECTOR {
+                    if input.len() < 68 {
+                        // 4 bytes selector + 32 bytes blockHeight + 32 bytes blockHash
+                        return Err(BlockExecutionError::other(RethError::msg(
+                            "L1Block transaction data insufficient length",
+                        )));
+                    }
+
+                    // Extract block height from 32 bytes after selector
+                    let block_height = U256::try_from_be_slice(&input[4..36]).ok_or_else(|| {
+                        BlockExecutionError::other(RethError::msg(
+                            "Failed to parse Bitcoin block height",
+                        ))
+                    })?;
+
+                    // Extract block hash from next 32 bytes
+                    let tx_block_hash = B256::from_slice(&input[36..68]);
+
+                    // TODO(powvt): Parse setBitcoinBlockDataCompact format from L1Block contract
+
+                    // Validate the Bitcoin block hash
+                    match self
+                        .bitcoin_client
+                        .validate_block_hash(block_height.to::<u64>(), tx_block_hash)
+                    {
+                        Ok(true) => {
+                            debug!(
+                                target: "execution",
+                                "Verified L1Block transaction: Bitcoin height={}, hash={:?}",
+                                block_height.to::<u64>(),
+                                tx_block_hash
+                            );
+                            Ok(())
+                        }
+                        Ok(false) => {
+                            warn!("Bitcoin block hash validation failed: Expected hash {:?} does not match actual hash for block at height {}", tx_block_hash, block_height.to::<u64>() - 6);
+                            return Err(BlockExecutionError::other(RethError::msg(format!(
+                                "Bitcoin block hash validation failed: Expected hash {:?} does not match actual hash for block at height {}",
+                                tx_block_hash, block_height.to::<u64>() - 6
+                            ))));
+                        }
+                        Err(err) => {
+                            warn!("Failed to validate Bitcoin block hash: {}", err);
+                            return Err(BlockExecutionError::other(RethError::msg(format!(
+                                "Failed to validate Bitcoin block hash: {}",
+                                err
+                            ))));
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Function selector not recognized, received {:?}",
+                        &input[0..4]
+                    );
+                    return Err(BlockExecutionError::other(RethError::msg(
+                        "Function selector not recognized",
+                    )));
+                }
+            }
+            None => {
+                warn!("Block body transactions are empty");
+                return Err(BlockExecutionError::other(RethError::msg(
+                    "Block body transactions are empty",
+                )));
+            }
         }
     }
 }
@@ -212,6 +319,9 @@ where
             result
         };
 
+        // === L1Block VERIFICATION ===
+        self.verify_l1block_transaction(block)?;
+
         // === UPDATE SENTINEL LOCKS ===
         {
             let inspector_lock = self.strategy_factory.with_inspector();
@@ -309,7 +419,6 @@ where
             }
         }
 
-        debug!("Execution: mask applied to db");
         // === MAIN EXECUTION PHASE ===
         // Execute with state hook and get result
         let result = {
@@ -347,9 +456,10 @@ where
             result
         };
 
-        debug!("Execution: receipts: {:?}", result.receipts);
+        // === L1Block VERIFICATION ===
+        self.verify_l1block_transaction(block)?;
 
-        // *** UPDATE SENTINEL LOCKS ***
+        // === UPDATE SENTINEL LOCKS ===
         {
             let inspector_lock = self.strategy_factory.with_inspector();
             let mut inspector = inspector_lock.write();
@@ -367,8 +477,6 @@ where
                     ))
                 })?;
         }
-
-        debug!("Execution: locks updated");
 
         self.db.merge_transitions(BundleRetention::Reverts);
 

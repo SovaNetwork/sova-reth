@@ -8,6 +8,7 @@ mod sova_revm;
 use constants::BTC_PRECOMPILE_ADDRESS;
 pub use constants::{
     L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
+    L1_BLOCK_SATOSHI_SELECTOR,
 };
 use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
