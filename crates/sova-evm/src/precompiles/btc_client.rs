@@ -96,4 +96,32 @@ impl BitcoinClient {
             block_hash_six_blocks_back,
         })
     }
+
+    /// Validates that the provided hash matches the actual hash of the Bitcoin block
+    /// that is 6 blocks back from the given height.
+    ///
+    /// Returns Ok(true) if the hash matches, Ok(false) if it doesn't, or an Error
+    /// if there was an issue fetching the block information.
+    pub fn validate_block_hash(
+        &self,
+        block_height: u64,
+        expected_hash: B256,
+    ) -> Result<bool, bitcoincore_rpc::Error> {
+        // Calculate the height 6 blocks back
+        let height_six_blocks_back = block_height.saturating_sub(6);
+
+        // Get the block hash for the block 6 confirmations back
+        let block_hash = self.client.get_block_hash(height_six_blocks_back)?;
+
+        // Convert from Bitcoin's BlockHash to Alloy's B256
+        let mut block_hash_bytes = [0u8; 32];
+        block_hash_bytes.copy_from_slice(&block_hash[..]);
+
+        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
+        block_hash_bytes.reverse();
+        let actual_hash = B256::new(block_hash_bytes);
+
+        // Compare the actual hash with the expected hash
+        Ok(actual_hash == expected_hash)
+    }
 }

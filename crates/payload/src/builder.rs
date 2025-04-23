@@ -293,9 +293,10 @@ where
         parent: SealedHeader,
         mut attributes: OpPayloadAttributes,
     ) -> Result<ExecutionWitness, PayloadBuilderError> {
+        // Inject Bitcoin data
         if let Err(err) = self.inject_bitcoin_data_to_payload_attrs(&mut attributes) {
-            warn!(target: "payload_builder", "Failed to inject Bitcoin data into witness: {}", err);
-            // Continue with payload witnessing even if Bitcoin data injection fails
+            warn!(target: "payload_builder", "Failed to inject Bitcoin data: {}", err);
+            // Continue with payload building even if Bitcoin data injection fails
         }
 
         let attributes = OpPayloadBuilderAttributes::try_new(parent.hash(), attributes, 3)
