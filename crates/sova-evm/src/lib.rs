@@ -2,6 +2,7 @@ mod constants;
 mod evm;
 mod execute;
 mod inspector;
+mod l1;
 mod precompiles;
 mod sova_revm;
 
