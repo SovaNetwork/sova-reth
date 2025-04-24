@@ -42,7 +42,6 @@ where
 
         let mut l1_block_info = L1BlockInfo::default();
 
-
         let mut receipt = OpReceiptBuilder::new(
             &self.inner.eth_api.provider().chain_spec(),
             &tx,
