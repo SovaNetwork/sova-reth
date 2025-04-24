@@ -10,7 +10,6 @@ repository.workspace = true
 sova-cli.workspace = true
 sova-node.workspace = true
 
-reth.workspace = true
 reth-cli-util.workspace = true
 reth-tracing.workspace = true
 reth-optimism-cli.workspace = true

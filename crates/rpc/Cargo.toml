@@ -8,8 +8,6 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
-sova-evm.workspace = true
-
 reth-chain-state.workspace = true
 reth-chainspec.workspace = true
 reth-evm.workspace = true
@@ -53,7 +51,6 @@ jsonrpsee-types.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-similar-asserts.workspace = true
 thiserror.workspace = true
 jsonrpsee.workspace = true
 tokio.workspace = true

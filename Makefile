@@ -104,6 +104,10 @@ clippy: ## Run clippy
 clean-data: ## Remove the data directory
 	rm -rf ./data
 
+.PHONY: check-udeps
+check-udeps: ## Check for unused dependencies in the crate graph
+	cargo +nightly udeps --workspace --all-features --all-targets
+
 ##@ Docker
 
 # Note: This requires a buildx builder with emulation support. For example:
