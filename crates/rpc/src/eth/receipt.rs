@@ -42,7 +42,7 @@ where
 
         let mut l1_block_info = L1BlockInfo::default();
 
-        Ok(OpReceiptBuilder::new(
+        let mut receipt = OpReceiptBuilder::new(
             &self.inner.eth_api.provider().chain_spec(),
             &tx,
             meta,
@@ -50,6 +50,11 @@ where
             &receipts,
             &mut l1_block_info,
         )?
-        .build())
+        .build();
+
+        // TODO(powvt): Cleanup the receipt builder to remove or modify all Optimism L1 block fields
+        receipt.l1_block_info.l1_gas_used = Some(0);
+
+        Ok(receipt)
     }
 }
