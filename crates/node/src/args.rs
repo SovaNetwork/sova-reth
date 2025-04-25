@@ -33,6 +33,15 @@ pub struct SovaArgs {
     #[arg(long, default_value = "http://[::1]:50051")]
     pub sentinel_url: String,
 
+    /// CLI flag to set the confirmation threshold being
+    /// used by the accompanying sentinel service.
+    /// 
+    /// NOTE: It is crucial this is the same value used in
+    ///       the sentinel and should be a global variable
+    ///       in the orchestration of running a validator.
+    #[arg(long, default_value = "6")]
+    pub sentinel_confirmation_threshold: u8,
+
     /// Enable transaction conditional support on sequencer
     #[arg(long = "rollup.enable-tx-conditional", default_value = "false")]
     pub enable_tx_conditional: bool,

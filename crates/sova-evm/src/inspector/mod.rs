@@ -242,7 +242,7 @@ impl SovaInspector {
         };
 
         debug!(
-            "Got Bitcoin block height from state: {}",
+            "Got Bitcoin block height from L1Block contract: {}",
             current_btc_block_height
         );
 

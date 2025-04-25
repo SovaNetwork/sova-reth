@@ -14,9 +14,11 @@ pub struct L1BlockInfo {
 
 pub struct BitcoinClient {
     client: Client,
+    sentinel_confirmation_threshold: u8,
 }
 
 impl Default for BitcoinClient {
+    /// Defaults to a Bitcoin confirmation threshold of 6
     fn default() -> Self {
         // Create default configuration for local regtest node
         let config = BitcoinConfig {
@@ -26,7 +28,7 @@ impl Default for BitcoinClient {
             rpc_password: "password".to_string(),
         };
 
-        Self::new(&config).expect("Failed to create default Bitcoin client")
+        Self::new(&config, 6).expect("Failed to create default Bitcoin client")
     }
 }
 
@@ -37,7 +39,7 @@ impl fmt::Debug for BitcoinClient {
 }
 
 impl BitcoinClient {
-    pub fn new(config: &BitcoinConfig) -> Result<Self, bitcoincore_rpc::Error> {
+    pub fn new(config: &BitcoinConfig, sentinel_confirmation_threshold: u8) -> Result<Self, bitcoincore_rpc::Error> {
         let port = match config.network {
             bitcoin::Network::Bitcoin => 8332,
             bitcoin::Network::Testnet => 18332,
@@ -50,7 +52,7 @@ impl BitcoinClient {
 
         let url = format!("{}:{}", config.network_url, port);
         let client = Client::new(&url, auth)?;
-        Ok(Self { client })
+        Ok(Self { client, sentinel_confirmation_threshold })
     }
 
     pub fn decode_raw_transaction(
@@ -72,15 +74,20 @@ impl BitcoinClient {
         self.client.send_raw_transaction(tx)
     }
 
+    /// Used by the PayloadBuilder flow to snap show the Bitcoin
+    /// context at the time of block building. This fucntion returns:
+    /// - current BTC block height
+    /// - The blockhash in the block that is considered "confirmed" by the sentinel.
+    ///     - For example, if the confirmation threshold on the sentinel is 6,
+    ///       the blockhash is queried from 6 blocks behind the current one.
     pub fn get_current_block_info(&self) -> Result<L1BlockInfo, bitcoincore_rpc::Error> {
         // Get the current block height
         let current_block_height = self.client.get_block_count()?;
 
-        // Calculate the height 6 blocks back
-        // TODO(powvt): make this deterministic based on the sentinel confirmation threshold
-        let height_six_blocks_back = current_block_height.saturating_sub(6);
+        // Calculate the height self.sentinel_confirmation_threshold blocks back
+        let height_six_blocks_back = current_block_height.saturating_sub(self.sentinel_confirmation_threshold.into());
 
-        // Get the block hash for the block 6 confirmations back
+        // Get the block hash for the block self.sentinel_confirmation_threshold confirmations back
         let block_hash = self.client.get_block_hash(height_six_blocks_back)?;
 
         let mut block_hash_bytes = [0u8; 32];
@@ -98,7 +105,7 @@ impl BitcoinClient {
     }
 
     /// Validates that the provided hash matches the actual hash of the Bitcoin block
-    /// that is 6 blocks back from the given height.
+    /// that is self.sentinel_confirmation_threshold blocks back from the given height.
     ///
     /// Returns Ok(true) if the hash matches, Ok(false) if it doesn't, or an Error
     /// if there was an issue fetching the block information.
@@ -107,10 +114,10 @@ impl BitcoinClient {
         block_height: u64,
         expected_hash: B256,
     ) -> Result<bool, bitcoincore_rpc::Error> {
-        // Calculate the height 6 blocks back
-        let height_six_blocks_back = block_height.saturating_sub(6);
+        // Calculate the height self.sentinel_confirmation_threshold blocks back
+        let height_six_blocks_back = block_height.saturating_sub(self.sentinel_confirmation_threshold.into());
 
-        // Get the block hash for the block 6 confirmations back
+        // Get the block hash for the block self.sentinel_confirmation_threshold confirmations back
         let block_hash = self.client.get_block_hash(height_six_blocks_back)?;
 
         // Convert from Bitcoin's BlockHash to Alloy's B256
