@@ -39,7 +39,10 @@ impl fmt::Debug for BitcoinClient {
 }
 
 impl BitcoinClient {
-    pub fn new(config: &BitcoinConfig, sentinel_confirmation_threshold: u8) -> Result<Self, bitcoincore_rpc::Error> {
+    pub fn new(
+        config: &BitcoinConfig,
+        sentinel_confirmation_threshold: u8,
+    ) -> Result<Self, bitcoincore_rpc::Error> {
         let port = match config.network {
             bitcoin::Network::Bitcoin => 8332,
             bitcoin::Network::Testnet => 18332,
@@ -52,7 +55,10 @@ impl BitcoinClient {
 
         let url = format!("{}:{}", config.network_url, port);
         let client = Client::new(&url, auth)?;
-        Ok(Self { client, sentinel_confirmation_threshold })
+        Ok(Self {
+            client,
+            sentinel_confirmation_threshold,
+        })
     }
 
     pub fn decode_raw_transaction(
@@ -84,18 +90,16 @@ impl BitcoinClient {
         // Get the current block height
         let current_block_height = self.client.get_block_count()?;
 
-        // Calculate the height self.sentinel_confirmation_threshold blocks back
-        let height_six_blocks_back = current_block_height.saturating_sub(self.sentinel_confirmation_threshold.into());
-
-        // Get the block hash for the block self.sentinel_confirmation_threshold confirmations back
+        // Get the previous block hash based on the set confirmation threshold
+        let height_six_blocks_back =
+            current_block_height.saturating_sub(self.sentinel_confirmation_threshold.into());
         let block_hash = self.client.get_block_hash(height_six_blocks_back)?;
 
+        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
         let mut block_hash_bytes = [0u8; 32];
         block_hash_bytes.copy_from_slice(&block_hash[..]);
-
-        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
         block_hash_bytes.reverse();
-        // Convert from Bitcoin's BlockHash to Alloy's B256
+
         let block_hash_six_blocks_back = B256::new(block_hash_bytes);
 
         Ok(L1BlockInfo {
@@ -114,18 +118,16 @@ impl BitcoinClient {
         block_height: u64,
         expected_hash: B256,
     ) -> Result<bool, bitcoincore_rpc::Error> {
-        // Calculate the height self.sentinel_confirmation_threshold blocks back
-        let height_six_blocks_back = block_height.saturating_sub(self.sentinel_confirmation_threshold.into());
-
-        // Get the block hash for the block self.sentinel_confirmation_threshold confirmations back
+        // Get the previous block hash based on the set confirmation threshold
+        let height_six_blocks_back =
+            block_height.saturating_sub(self.sentinel_confirmation_threshold.into());
         let block_hash = self.client.get_block_hash(height_six_blocks_back)?;
 
-        // Convert from Bitcoin's BlockHash to Alloy's B256
+        // Reverse the byte order (Bitcoin hashes are reversed compared to EVM)
         let mut block_hash_bytes = [0u8; 32];
         block_hash_bytes.copy_from_slice(&block_hash[..]);
-
-        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
         block_hash_bytes.reverse();
+
         let actual_hash = B256::new(block_hash_bytes);
 
         // Compare the actual hash with the expected hash

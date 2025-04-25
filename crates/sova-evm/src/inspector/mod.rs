@@ -109,21 +109,31 @@ impl SovaInspector {
     fn get_l1_block_data<CTX: ContextTr<Journal: JournalExt>>(
         context: &mut CTX,
     ) -> Result<u64, String> {
-        // load the account into the journal
+        // First, explicitly load the account to ensure it exists in the journal state
         match context.journal().load_account(L1_BLOCK_CONTRACT_ADDRESS) {
-            Ok(account_load) => {
-                let account = account_load.data;
-
-                // access storage
-                match account.storage.get(&L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT) {
-                    Some(slot) => {
-                        // Return the value as u64
-                        Ok(slot.present_value().as_limbs()[0])
+            Ok(_) => {
+                // Now the account exists in the journal state, try to load the storage
+                match context.journal().sload(
+                    L1_BLOCK_CONTRACT_ADDRESS,
+                    L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
+                ) {
+                    Ok(state_load) => {
+                        debug!(
+                            "Got Bitcoin block height from state: {}",
+                            state_load.data.as_limbs()[0]
+                        );
+                        Ok(state_load.data.as_limbs()[0])
                     }
-                    None => Ok(0), // Return 0 instead of error when slot is empty
+                    Err(err) => {
+                        debug!("Storage load error: {}", err);
+                        Ok(0)
+                    }
                 }
             }
-            Err(err) => Err(format!("Failed to load L1Block account: {}", err)),
+            Err(err) => {
+                debug!("Account load error: {}", err);
+                Ok(0)
+            }
         }
     }
 
@@ -242,7 +252,7 @@ impl SovaInspector {
         };
 
         debug!(
-            "Got Bitcoin block height from L1Block contract: {}",
+            "Got Bitcoin block height from state: {}",
             current_btc_block_height
         );
 

@@ -20,7 +20,7 @@
 </p>
 
 <h1 align="center">
-    <img src="./assets/sova-reth-prod.png" alt="sova-reth" width="100%" align="center">
+    <img src="./assets/sova-reth-prod-etch.png" alt="sova-reth" width="100%" align="center">
 </h1>
 
 ## Overview

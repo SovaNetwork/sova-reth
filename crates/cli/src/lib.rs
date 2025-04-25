@@ -63,7 +63,7 @@ impl SovaConfig {
             network_signing_url: network_signing_url.to_owned(),
             network_utxo_url: network_utxo_url.to_owned(),
             sentinel_url: sentinel_url.to_owned(),
-            sentinel_confirmation_threshold
+            sentinel_confirmation_threshold,
         }
     }
 }

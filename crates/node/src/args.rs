@@ -35,7 +35,7 @@ pub struct SovaArgs {
 
     /// CLI flag to set the confirmation threshold being
     /// used by the accompanying sentinel service.
-    /// 
+    ///
     /// NOTE: It is crucial this is the same value used in
     ///       the sentinel and should be a global variable
     ///       in the orchestration of running a validator.
