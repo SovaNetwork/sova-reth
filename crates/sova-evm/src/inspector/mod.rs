@@ -109,21 +109,31 @@ impl SovaInspector {
     fn get_l1_block_data<CTX: ContextTr<Journal: JournalExt>>(
         context: &mut CTX,
     ) -> Result<u64, String> {
-        // load the account into the journal
+        // load the account
         match context.journal().load_account(L1_BLOCK_CONTRACT_ADDRESS) {
-            Ok(account_load) => {
-                let account = account_load.data;
-
-                // access storage
-                match account.storage.get(&L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT) {
-                    Some(slot) => {
-                        // Return the value as u64
-                        Ok(slot.present_value().as_limbs()[0])
+            Ok(_) => {
+                // try to load the storage
+                match context.journal().sload(
+                    L1_BLOCK_CONTRACT_ADDRESS,
+                    L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
+                ) {
+                    Ok(state_load) => {
+                        debug!(
+                            "Got Bitcoin block height from state: {}",
+                            state_load.data.as_limbs()[0]
+                        );
+                        Ok(state_load.data.as_limbs()[0])
                     }
-                    None => Ok(0), // Return 0 instead of error when slot is empty
+                    Err(err) => {
+                        warn!("Storage load error: {}", err);
+                        Ok(0)
+                    }
                 }
             }
-            Err(err) => Err(format!("Failed to load L1Block account: {}", err)),
+            Err(err) => {
+                warn!("Account load error: {}", err);
+                Ok(0)
+            }
         }
     }
 
@@ -240,11 +250,6 @@ impl SovaInspector {
                 ));
             }
         };
-
-        debug!(
-            "Got Bitcoin block height from state: {}",
-            current_btc_block_height
-        );
 
         // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(

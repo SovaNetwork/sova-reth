@@ -81,9 +81,13 @@ impl SovaNode {
             &args.network_signing_url,
             &args.network_utxo_url,
             &args.sentinel_url,
+            args.sentinel_confirmation_threshold,
         );
 
-        let bitcoin_client = BitcoinClient::new(&sova_config.bitcoin_config)?;
+        let bitcoin_client = BitcoinClient::new(
+            &sova_config.bitcoin_config,
+            sova_config.sentinel_confirmation_threshold,
+        )?;
 
         Ok(Self {
             args,
