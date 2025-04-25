@@ -109,10 +109,10 @@ impl SovaInspector {
     fn get_l1_block_data<CTX: ContextTr<Journal: JournalExt>>(
         context: &mut CTX,
     ) -> Result<u64, String> {
-        // First, explicitly load the account to ensure it exists in the journal state
+        // load the account
         match context.journal().load_account(L1_BLOCK_CONTRACT_ADDRESS) {
             Ok(_) => {
-                // Now the account exists in the journal state, try to load the storage
+                // try to load the storage
                 match context.journal().sload(
                     L1_BLOCK_CONTRACT_ADDRESS,
                     L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
@@ -125,13 +125,13 @@ impl SovaInspector {
                         Ok(state_load.data.as_limbs()[0])
                     }
                     Err(err) => {
-                        debug!("Storage load error: {}", err);
+                        warn!("Storage load error: {}", err);
                         Ok(0)
                     }
                 }
             }
             Err(err) => {
-                debug!("Account load error: {}", err);
+                warn!("Account load error: {}", err);
                 Ok(0)
             }
         }
@@ -250,11 +250,6 @@ impl SovaInspector {
                 ));
             }
         };
-
-        debug!(
-            "Got Bitcoin block height from state: {}",
-            current_btc_block_height
-        );
 
         // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
