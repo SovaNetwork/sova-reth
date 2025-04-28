@@ -14,7 +14,6 @@ sova-payload.workspace = true
 sova-rpc.workspace = true
 sova-txpool.workspace = true
 
-reth-basic-payload-builder.workspace = true
 reth-chainspec.workspace = true
 reth-ethereum-payload-builder.workspace = true
 reth-ethereum-consensus.workspace = true
