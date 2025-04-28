@@ -13,5 +13,4 @@ reth-cli.workspace = true
 reth-optimism-chainspec.workspace = true
 
 bitcoin.workspace = true
-clap.workspace = true
 eyre.workspace = true
