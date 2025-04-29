@@ -153,6 +153,7 @@ impl MyEvmConfig {
             config.bitcoin_config.network,
             config.network_signing_url.clone(),
             config.network_utxo_url.clone(),
+            config.sequencer_mode,
         )?;
 
         let inspector = SovaInspector::new(

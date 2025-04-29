@@ -153,8 +153,9 @@ satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "
 # Get current Bitcoin block height
 BTC_BLOCK_HEIGHT=$(satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" get-block-height | grep "Current block height:" | cut -d' ' -f8)
 
-# set withdrawal amount to 10.00 BTC
+# set withdrawal amount to 10.00 BTC and a 0.01 BTC fee
 WITHDRAWAL_AMOUNT=$(btc_to_sats 10.00)
+WITHDRAWAL_FEE=$(btc_to_sats 0.01)
 
 echo "Waiting for UTXO indexer to catch up..."
 while true; do
@@ -192,8 +193,9 @@ cast send \
     --gas-limit 300000 \
     --chain-id "$CHAIN_ID" \
     "$CONTRACT_ADDRESS" \
-    "withdraw(uint64,uint32,string)" \
+    "withdraw(uint64,uint64,uint32,string)" \
     "$WITHDRAWAL_AMOUNT" \
+    "$WITHDRAWAL_FEE" \
     "$BTC_BLOCK_HEIGHT" \
     "$NEW_ADDRESS"
 
