@@ -79,7 +79,7 @@ impl Default for SovaConfig {
             network_utxo_url: String::new(),
             sentinel_url: String::new(),
             sentinel_confirmation_threshold: 6,
-            sequencer_mode: false
+            sequencer_mode: false,
         }
     }
 }

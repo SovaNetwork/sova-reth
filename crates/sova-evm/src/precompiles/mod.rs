@@ -16,7 +16,10 @@ use alloy_primitives::Bytes;
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
-use bitcoin::{consensus::encode::deserialize, hashes::Hash, Address, Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
+use bitcoin::{
+    consensus::encode::deserialize, hashes::Hash, Address, Amount, Network, OutPoint, ScriptBuf,
+    Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+};
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -71,7 +74,7 @@ impl Default for BitcoinRpcPrecompile {
             http_client: Arc::new(ReqwestClient::new()),
             network_signing_url: String::new(),
             network_utxo_url: String::new(),
-            sequencer_mode: false
+            sequencer_mode: false,
         }
     }
 }
@@ -509,11 +512,11 @@ impl BitcoinRpcPrecompile {
                         txid,
                         vout: input.vout,
                     };
-                    
+
                     Ok(TxIn {
                         previous_output: outpoint,
                         script_sig: ScriptBuf::new(),
-                        sequence: Sequence(std::u32::MAX),
+                        sequence: Sequence(u32::MAX),
                         witness: Witness::default(),
                     })
                 })
@@ -523,18 +526,20 @@ impl BitcoinRpcPrecompile {
             let tx_outputs: Vec<TxOut> = outputs
                 .iter()
                 .map(|output| {
-                    let address_str = output["address"]
-                        .as_str()
-                        .ok_or_else(|| PrecompileError::Other("Missing address in output".into()))?;
+                    let address_str = output["address"].as_str().ok_or_else(|| {
+                        PrecompileError::Other("Missing address in output".into())
+                    })?;
                     let amount = output["amount"]
                         .as_u64()
                         .ok_or_else(|| PrecompileError::Other("Missing amount in output".into()))?;
-                    
+
                     let address = Address::from_str(address_str)
                         .map_err(|e| PrecompileError::Other(format!("Invalid address: {:?}", e)))?
                         .require_network(self.network)
-                        .map_err(|e| PrecompileError::Other(format!("Network mismatch: {:?}", e)))?;
-                    
+                        .map_err(|e| {
+                            PrecompileError::Other(format!("Network mismatch: {:?}", e))
+                        })?;
+
                     Ok(TxOut {
                         value: Amount::from_sat(amount),
                         script_pubkey: address.script_pubkey(),
