@@ -19,6 +19,7 @@ pub struct DecodedInput {
     pub method_selector: Vec<u8>,
     pub signer: String,
     pub amount: u64,
+    pub btc_gas_limit: u64,
     pub block_height: u64,
     pub destination: String,
 }
@@ -28,6 +29,7 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
         DynSolType::FixedBytes(4), // method selector
         DynSolType::Address,       // signer address
         DynSolType::Uint(64),      // amount
+        DynSolType::Uint(64),      // btcGasLimit
         DynSolType::Uint(64),      // block_height
         DynSolType::String,        // destination
     ]);
@@ -41,8 +43,9 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
             method_selector: extract_fixed_bytes(&values[0], 4)?,
             signer: extract_address(&values[1])?,
             amount: extract_uint(&values[2])?,
-            block_height: extract_uint(&values[3])?,
-            destination: extract_string(&values[4])?,
+            btc_gas_limit: extract_uint(&values[3])?,
+            block_height: extract_uint(&values[4])?,
+            destination: extract_string(&values[5])?,
         })
     } else {
         Err(PrecompileError::other("Invalid input structure"))

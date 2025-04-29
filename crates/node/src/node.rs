@@ -82,6 +82,7 @@ impl SovaNode {
             &args.network_utxo_url,
             &args.sentinel_url,
             args.sentinel_confirmation_threshold,
+            args.sequencer_mode,
         );
 
         let bitcoin_client = BitcoinClient::new(

@@ -48,6 +48,7 @@ pub struct SovaConfig {
     pub network_utxo_url: String,
     pub sentinel_url: String,
     pub sentinel_confirmation_threshold: u8,
+    pub sequencer_mode: bool,
 }
 
 impl SovaConfig {
@@ -57,6 +58,7 @@ impl SovaConfig {
         network_utxo_url: &str,
         sentinel_url: &str,
         sentinel_confirmation_threshold: u8,
+        sequencer_mode: bool,
     ) -> Self {
         SovaConfig {
             bitcoin_config: Arc::new(bitcoin_config),
@@ -64,6 +66,7 @@ impl SovaConfig {
             network_utxo_url: network_utxo_url.to_owned(),
             sentinel_url: sentinel_url.to_owned(),
             sentinel_confirmation_threshold,
+            sequencer_mode,
         }
     }
 }
@@ -76,6 +79,7 @@ impl Default for SovaConfig {
             network_utxo_url: String::new(),
             sentinel_url: String::new(),
             sentinel_confirmation_threshold: 6,
+            sequencer_mode: false
         }
     }
 }

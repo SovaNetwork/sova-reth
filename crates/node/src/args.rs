@@ -45,6 +45,10 @@ pub struct SovaArgs {
     /// Enable transaction conditional support on sequencer
     #[arg(long = "rollup.enable-tx-conditional", default_value = "false")]
     pub enable_tx_conditional: bool,
+
+    /// enable sequencer mode, this is for validators who are able to process network signed transactions
+    #[arg(long, default_value = "false")]
+    pub sequencer_mode: bool,
 }
 
 fn parse_network_to_wrapper(s: &str) -> Result<BitcoinNetwork, &'static str> {
