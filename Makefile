@@ -175,7 +175,7 @@ run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest
 	--network-utxo-url "http://127.0.0.1:5557" \
 	--sentinel-url "http://[::1]:50051" \
 	--sentinel-confirmation-threshold 6 \
-	--sequencer-mode true \
+	--sequencer-mode \
 	--http \
 	--http.addr "127.0.0.1" \
 	--http.port 8545 \

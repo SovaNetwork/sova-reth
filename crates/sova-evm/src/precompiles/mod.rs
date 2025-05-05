@@ -155,6 +155,7 @@ impl BitcoinRpcPrecompile {
             .send()
             .map_err(|e| PrecompileError::Other(format!("HTTP request failed: {}", e)))?
             .json()
+            // TODO(powvt): check for error responses from enclave
             .map_err(|e| PrecompileError::Other(format!("Failed to parse response: {}", e)))
     }
 
@@ -384,7 +385,7 @@ impl BitcoinRpcPrecompile {
         ethereum_address_trimmed: &str,
     ) -> Result<String, PrecompileError> {
         let enclave_request = serde_json::json!({
-            "ethereum_address": ethereum_address_trimmed
+            "evm_address": ethereum_address_trimmed
         });
 
         let response: serde_json::Value = self.call_enclave("derive_address", &enclave_request)?;
@@ -463,7 +464,7 @@ impl BitcoinRpcPrecompile {
             // === Sign Using Signers PK ===
 
             let sign_request = serde_json::json!({
-                "ethereum_address": decoded_input.signer,
+                "evm_address": decoded_input.signer,
                 "inputs": inputs,
                 "outputs": outputs,
             });
