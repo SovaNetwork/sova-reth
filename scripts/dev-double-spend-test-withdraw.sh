@@ -26,7 +26,7 @@ set -e
 # Configuration
 WALLET_1="user"
 WALLET_2="miner"
-UBTC_BITCOIN_RECEIVE_ADDRESS="bcrt1q8pw3u88q56mfdqhxyeu0a7fesddq8jwsxxqng8" # needs to be updated when eth_address changes since the ETH_ADDRESS is deployer
+UBTC_BITCOIN_RECEIVE_ADDRESS="bcrt1q5443nh36k845xcecc53wttj4gpkg5jguvr4rev" # needs to be updated when eth_address changes since the ETH_ADDRESS is deployer
 DOUBLE_SPEND_RECEIVE_ADDRESS="bcrt1q6xxa0arlrk6jdz02alxc6smdv5g953v7zkswaw" # random address for double spend
 ETH_RPC_URL="http://localhost:8545"
 ETH_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
