@@ -308,11 +308,14 @@ impl SovaInspector {
                 }
                 None
             }
-            Err(err) => Some(Self::create_revert_outcome(
-                format!("Failed to get lock status from provider: {}", err),
-                inputs.gas_limit,
-                inputs.return_memory_offset.clone(),
-            )),
+            Err(err) => {
+                warn!("WARNING: Failed to get lock status from sentinel, check connection to sentinel");
+                Some(Self::create_revert_outcome(
+                    format!("Failed to get lock status from sentinel: {}", err),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ))
+            }
         }
     }
 
