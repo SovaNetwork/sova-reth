@@ -102,6 +102,7 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
         pool: Pool,
         evm_config: Evm,
         builder_config: EthereumBuilderConfig,
+        bitcoin_client: Arc<BitcoinClient>
     ) -> Self {
         Self {
             client,
@@ -112,7 +113,7 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
             config: OpBuilderConfig::default(),
             best_transactions: (),
             sova_config: SovaConfig::default(),
-            bitcoin_client: Arc::new(BitcoinClient::default()),
+            bitcoin_client,
         }
     }
 
