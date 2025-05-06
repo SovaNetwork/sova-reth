@@ -26,7 +26,8 @@ set -e
 # Configuration
 WALLET_1="user"
 WALLET_2="miner"
-UBTC_BITCOIN_RECEIVE_ADDRESS="bcrt1q5443nh36k845xcecc53wttj4gpkg5jguvr4rev" # needs to be updated when eth_address changes since the ETH_ADDRESS is deployer
+UBTC_CONTRACT_ADDRESS="0x2100000000000000000000000000000000000020" # uBTC precompile address
+UBTC_BITCOIN_RECEIVE_ADDRESS="bcrt1q5443nh36k845xcecc53wttj4gpkg5jguvr4rev" # deterministic address based on the network signing bip32 wallet derivation path
 DOUBLE_SPEND_RECEIVE_ADDRESS="bcrt1q6xxa0arlrk6jdz02alxc6smdv5g953v7zkswaw" # random address for double spend
 ETH_RPC_URL="http://localhost:8545"
 ETH_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -58,6 +59,8 @@ get_tx_hex() {
     echo "$hex"
 }
 
+cd ~
+
 echo "Creating Bitcoin wallets..."
 satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" new-wallet --wallet-name "$WALLET_1"
 satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" new-wallet --wallet-name "$WALLET_2"
@@ -79,16 +82,6 @@ TX2_HEX=$(get_tx_hex "$TX2_OUTPUT")
 echo "TX1 Hex: $TX1_HEX"
 echo "TX2 Hex: $TX2_HEX"
 
-echo "Deploying uBTC contract..."
-cd ~/contracts
-DEPLOY_OUTPUT=$(forge create --rpc-url "$ETH_RPC_URL" --broadcast \
-    --private-key "$ETH_PRIVATE_KEY" \
-    src/uBTC.sol:uBTC)
-CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep "Deployed to:" | cut -d' ' -f3)
-echo "Contract deployed to: $CONTRACT_ADDRESS"
-
-cd ~
-
 # Convert 49.999 BTC to satoshis
 AMOUNT_SATS=$(btc_to_sats 49.999)
 
@@ -98,7 +91,7 @@ cast send \
     --private-key "$ETH_PRIVATE_KEY" \
     --gas-limit 250000 \
     --chain-id "$CHAIN_ID" \
-    "$CONTRACT_ADDRESS" \
+    "$UBTC_CONTRACT_ADDRESS" \
     "depositBTC(uint256,bytes)" \
     "$AMOUNT_SATS" \
     "0x$TX1_HEX"
@@ -113,10 +106,10 @@ satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "
 satoshi-suite --rpc-url "$BTC_RPC_URL" --network "$BTC_NETWORK" --rpc-username "$BTC_RPC_USER" --rpc-password "$BTC_RPC_PASS" mine-blocks --wallet-name "$WALLET_2" --blocks 100
 
 echo "Checking contract state..."
-BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$UBTC_CONTRACT_ADDRESS" \
     "balanceOf(address)" \
     "$ETH_ADDRESS" | cast to-dec)
-TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$UBTC_CONTRACT_ADDRESS" \
     "totalSupply()" | cast to-dec)
 
 echo "Balance: $BALANCE"
@@ -132,16 +125,16 @@ cast send \
     --private-key "$ETH_PRIVATE_KEY" \
     --gas-limit 250000 \
     --chain-id "$CHAIN_ID" \
-    "$CONTRACT_ADDRESS" \
+    "$UBTC_CONTRACT_ADDRESS" \
     "depositBTC(uint256,bytes)" \
     "$AMOUNT_SATS" \
     "0x$TX3_HEX"
 
 echo "Checking contract state..."
-BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$UBTC_CONTRACT_ADDRESS" \
     "balanceOf(address)" \
     "$ETH_ADDRESS" | cast to-dec)
-TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$UBTC_CONTRACT_ADDRESS" \
     "totalSupply()" | cast to-dec)
 
 echo "Balance: $BALANCE"
@@ -192,7 +185,7 @@ cast send \
     --private-key "$ETH_PRIVATE_KEY" \
     --gas-limit 300000 \
     --chain-id "$CHAIN_ID" \
-    "$CONTRACT_ADDRESS" \
+    "$UBTC_CONTRACT_ADDRESS" \
     "withdraw(uint64,uint64,uint32,string)" \
     "$WITHDRAWAL_AMOUNT" \
     "$WITHDRAWAL_FEE" \
@@ -200,10 +193,10 @@ cast send \
     "$NEW_ADDRESS"
 
 echo "Checking contract state..."
-BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+BALANCE=$(cast call --rpc-url "$ETH_RPC_URL" "$UBTC_CONTRACT_ADDRESS" \
     "balanceOf(address)" \
     "$ETH_ADDRESS" | cast to-dec)
-TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$CONTRACT_ADDRESS" \
+TOTAL_SUPPLY=$(cast call --rpc-url "$ETH_RPC_URL" "$UBTC_CONTRACT_ADDRESS" \
     "totalSupply()" | cast to-dec)
 
 echo "Balance: $BALANCE"

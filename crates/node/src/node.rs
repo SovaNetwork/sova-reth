@@ -560,6 +560,7 @@ impl<Txs> SovaPayloadBuilder<Txs> {
             pool,
             evm_config,
             EthereumBuilderConfig::new().with_gas_limit(ctx.payload_builder_config().gas_limit()),
+            self.bitcoin_client.clone(),
         )
         .with_transactions(self.best_transactions.clone());
 
