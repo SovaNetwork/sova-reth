@@ -12,7 +12,9 @@ use reth_primitives_traits::SealedHeader;
 use reth_revm::primitives::hex;
 
 use crate::constants::{
-    deposit_contract_storage, sova_forks, ubtc_contract_storage, DEPOSIT_CONTRACT_ADDRESS, DEPOSIT_CONTRACT_CODE, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CODE, UBTC_CONTRACT_ADDRESS, UBTC_CONTRACT_CODE
+    deposit_contract_storage, sova_forks, ubtc_contract_storage, DEPOSIT_CONTRACT_ADDRESS,
+    DEPOSIT_CONTRACT_CODE, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CODE,
+    UBTC_CONTRACT_ADDRESS, UBTC_CONTRACT_CODE,
 };
 
 /// Sova dev devnet specification.

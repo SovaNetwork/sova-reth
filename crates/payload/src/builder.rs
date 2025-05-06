@@ -102,7 +102,7 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
         pool: Pool,
         evm_config: Evm,
         builder_config: EthereumBuilderConfig,
-        bitcoin_client: Arc<BitcoinClient>
+        bitcoin_client: Arc<BitcoinClient>,
     ) -> Self {
         Self {
             client,
