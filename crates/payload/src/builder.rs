@@ -103,6 +103,7 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
         evm_config: Evm,
         builder_config: EthereumBuilderConfig,
         bitcoin_client: Arc<BitcoinClient>,
+        sova_config: SovaConfig,
     ) -> Self {
         Self {
             client,
@@ -112,29 +113,8 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
             compute_pending_block: true,
             config: OpBuilderConfig::default(),
             best_transactions: (),
-            sova_config: SovaConfig::default(),
+            sova_config,
             bitcoin_client,
-        }
-    }
-
-    /// Configures the builder with the given [`OpBuilderConfig`].
-    pub fn with_builder_config(
-        client: Client,
-        pool: Pool,
-        evm_config: Evm,
-        builder_config: EthereumBuilderConfig,
-        config: OpBuilderConfig,
-    ) -> Self {
-        Self {
-            client,
-            pool,
-            evm_config,
-            builder_config,
-            compute_pending_block: true,
-            config,
-            best_transactions: (),
-            sova_config: SovaConfig::default(),
-            bitcoin_client: Arc::new(BitcoinClient::default()),
         }
     }
 

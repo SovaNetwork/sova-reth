@@ -55,7 +55,7 @@ use crate::{engine::SovaEngineValidator, rpc::SovaEngineApiBuilder, SovaArgs};
 pub type SovaStorage = EthStorage<OpTransactionSigned>;
 
 /// Type configuration for a regular Sova node.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SovaNode {
     /// Additional Sova args
@@ -498,7 +498,7 @@ where
 }
 
 /// A Sova payload builder service
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SovaPayloadBuilder<Txs = ()> {
     pub config: SovaConfig,
@@ -561,6 +561,7 @@ impl<Txs> SovaPayloadBuilder<Txs> {
             evm_config,
             EthereumBuilderConfig::new().with_gas_limit(ctx.payload_builder_config().gas_limit()),
             self.bitcoin_client.clone(),
+            self.config,
         )
         .with_transactions(self.best_transactions.clone());
 
@@ -611,7 +612,7 @@ where
 ///
 /// The Sova EVM is customized such that there are new precompiles and a
 /// custom inspector which is used for enforcing transaction finality on Bitcoin.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct SovaExecutorBuilder {
     pub config: SovaConfig,
     pub bitcoin_client: Arc<BitcoinClient>,

@@ -30,17 +30,6 @@ impl BitcoinConfig {
     }
 }
 
-impl Default for BitcoinConfig {
-    fn default() -> Self {
-        BitcoinConfig {
-            network: Network::Regtest,
-            network_url: String::new(),
-            rpc_username: String::new(),
-            rpc_password: String::new(),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct SovaConfig {
     pub bitcoin_config: Arc<BitcoinConfig>,
@@ -67,19 +56,6 @@ impl SovaConfig {
             sentinel_url: sentinel_url.to_owned(),
             sentinel_confirmation_threshold,
             sequencer_mode,
-        }
-    }
-}
-
-impl Default for SovaConfig {
-    fn default() -> Self {
-        SovaConfig {
-            bitcoin_config: Arc::new(BitcoinConfig::default()),
-            network_signing_url: String::new(),
-            network_utxo_url: String::new(),
-            sentinel_url: String::new(),
-            sentinel_confirmation_threshold: 6,
-            sequencer_mode: false,
         }
     }
 }
