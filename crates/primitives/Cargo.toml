@@ -1,0 +1,23 @@
+[package]
+name = "sova-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+
+[dependencies]
+reth-ethereum.workspace = true
+reth-ethereum-primitives.workspace = true
+reth-primitives-traits.workspace = true
+
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+
+op-alloy-consensus.workspace = true
+
+derive_more.workspace = true
+serde.workspace = true

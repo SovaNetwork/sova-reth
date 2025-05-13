@@ -6572,6 +6572,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "reth-ethereum"
+version = "1.3.12"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=6f8e7258f4733279080e4bd8345ce50538a40d6e#6f8e7258f4733279080e4bd8345ce50538a40d6e"
+dependencies = [
+ "alloy-rpc-types-eth",
+ "reth-chainspec",
+ "reth-consensus",
+ "reth-consensus-common",
+ "reth-ethereum-primitives",
+ "reth-evm",
+ "reth-primitives-traits",
+ "reth-revm",
+ "reth-storage-api",
+]
+
+[[package]]
 name = "reth-ethereum-consensus"
 version = "1.3.12"
 source = "git+https://github.com/paradigmxyz/reth.git?rev=6f8e7258f4733279080e4bd8345ce50538a40d6e#6f8e7258f4733279080e4bd8345ce50538a40d6e"
@@ -9530,6 +9546,7 @@ dependencies = [
  "sova-cli",
  "sova-evm",
  "sova-payload",
+ "sova-primitives",
  "sova-rpc",
  "sova-txpool",
 ]
@@ -9575,6 +9592,22 @@ dependencies = [
  "revm",
  "sova-cli",
  "sova-evm",
+]
+
+[[package]]
+name = "sova-primitives"
+version = "0.0.4"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-primitives",
+ "alloy-rlp",
+ "derive_more",
+ "op-alloy-consensus",
+ "reth-ethereum",
+ "reth-ethereum-primitives",
+ "reth-primitives-traits",
+ "serde",
 ]
 
 [[package]]

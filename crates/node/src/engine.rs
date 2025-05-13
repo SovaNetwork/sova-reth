@@ -19,27 +19,35 @@ use reth_payload_primitives::{
 use reth_payload_validator::{cancun, prague, shanghai};
 use reth_primitives_traits::{Block as _, RecoveredBlock, SealedBlock, SignedTransaction};
 
-/// A default payload type for [`SovaEngineTypes`]
+/// The types used in the Sova consensus engine
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 #[non_exhaustive]
-pub struct SovaPayloadTypes<N: NodePrimitives = OpPrimitives>(core::marker::PhantomData<N>);
+pub struct SovaEngineTypes;
 
-impl<N: NodePrimitives> PayloadTypes for SovaPayloadTypes<N>
-where
-    OpBuiltPayload<N>: BuiltPayload<Primitives: NodePrimitives<Block = OpBlock>>,
-{
-    type ExecutionData = OpExecutionData;
-    type BuiltPayload = OpBuiltPayload<N>;
-    type PayloadAttributes = OpPayloadAttributes;
-    type PayloadBuilderAttributes = OpPayloadBuilderAttributes<N::SignedTx>;
+impl PayloadTypes for SovaEngineTypes {
+    // Using standard Ethereum types for compatibility with Eth CL clients
+    type ExecutionData = ExecutionData;
+    type BuiltPayload = EthBuiltPayload;
+    type PayloadAttributes = EthPayloadAttributes;
+    type PayloadBuilderAttributes = EthPayloadBuilderAttributes;
 
     fn block_to_payload(
         block: SealedBlock<
             <<Self::BuiltPayload as BuiltPayload>::Primitives as NodePrimitives>::Block,
         >,
     ) -> Self::ExecutionData {
-        OpExecutionData::from_block_unchecked(block.hash(), &block.into_block())
+        // Convert from Sova block type to standard Ethereum payload
+        // This ensures compatibility with Ethereum consensus clients
+        ExecutionData::from_block_unchecked(block.hash(), &block.into_block())
     }
+}
+
+impl EngineTypes for SovaEngineTypes {
+    // Use standard Ethereum payload envelopes for compatibility with consensus clients
+    type ExecutionPayloadEnvelopeV1 = ExecutionPayloadV1;
+    type ExecutionPayloadEnvelopeV2 = ExecutionPayloadEnvelopeV2;
+    type ExecutionPayloadEnvelopeV3 = ExecutionPayloadEnvelopeV3;
+    type ExecutionPayloadEnvelopeV4 = ExecutionPayloadEnvelopeV4;
 }
 
 /// Validator for the ethereum engine API.

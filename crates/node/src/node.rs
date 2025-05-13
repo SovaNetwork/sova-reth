@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use op_alloy_consensus::{interop::SafetyLevel, OpPooledTransaction};
+
+use reth_chainspec::ChainSpec;
 use reth_ethereum_consensus::EthBeaconConsensus;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor};
@@ -175,11 +177,11 @@ where
 }
 
 impl NodeTypes for SovaNode {
-    type Primitives = OpPrimitives;
-    type ChainSpec = OpChainSpec;
+    type Primitives = SovaPrimitives;
+    type ChainSpec = ChainSpec;
     type StateCommitment = MerklePatriciaTrie;
-    type Storage = SovaStorage;
-    type Payload = OpEngineTypes;
+    type Storage = EthStorage<SovaTransactionSigned>;
+    type Payload = SovaEngineTypes;
 }
 
 /// Custom AddOns for Sova

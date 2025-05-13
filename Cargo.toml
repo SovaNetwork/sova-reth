@@ -13,6 +13,7 @@ members = [
     "crates/cli",
     "crates/node",
     "crates/payload",
+    "crates/primitives",
     "crates/rpc",
     "crates/sova-evm",
     "crates/txpool",
@@ -27,6 +28,7 @@ sova-cli = { path = "crates/cli" }
 sova-evm = { path = "crates/sova-evm" }
 sova-node = { path = "crates/node" }
 sova-payload = { path = "crates/payload" }
+sova-primitives = { path = "crates/primitives" }
 sova-rpc = { path = "crates/rpc" }
 sova-txpool = { path = "crates/txpool" }
 
@@ -41,9 +43,11 @@ reth-chain-state = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-cli = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
-reth-errors = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-engine-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
+reth-errors = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
+reth-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-ethereum-consensus = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
+reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-ethereum-payload-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-execution-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
