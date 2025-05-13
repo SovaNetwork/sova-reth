@@ -6,8 +6,8 @@ use bitcoincore_rpc::{bitcoin::Txid, json::DecodeRawTransactionResult, Auth, Cli
 
 use sova_cli::BitcoinConfig;
 
-#[derive(Clone)]
-pub struct L1BlockInfo {
+#[derive(Clone, Default)]
+pub struct SovaL1BlockInfo {
     pub current_block_height: u64,
     pub block_hash_six_blocks_back: B256,
 }
@@ -86,7 +86,7 @@ impl BitcoinClient {
     /// - The blockhash in the block that is considered "confirmed" by the sentinel.
     ///     - For example, if the confirmation threshold on the sentinel is 6,
     ///       the blockhash is queried from 6 blocks behind the current one.
-    pub fn get_current_block_info(&self) -> Result<L1BlockInfo, bitcoincore_rpc::Error> {
+    pub fn get_current_block_info(&self) -> Result<SovaL1BlockInfo, bitcoincore_rpc::Error> {
         // Get the current block height
         let current_block_height = self.client.get_block_count()?;
 
@@ -102,7 +102,7 @@ impl BitcoinClient {
 
         let block_hash_six_blocks_back = B256::new(block_hash_bytes);
 
-        Ok(L1BlockInfo {
+        Ok(SovaL1BlockInfo {
             current_block_height,
             block_hash_six_blocks_back,
         })

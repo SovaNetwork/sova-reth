@@ -3,7 +3,7 @@ mod btc_client;
 mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
-pub use btc_client::BitcoinClient;
+pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
 pub use precompile_utils::BitcoinMethod;
 
 use std::{str::FromStr, sync::Arc};

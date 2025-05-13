@@ -14,7 +14,7 @@ use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
-pub use precompiles::BitcoinClient;
+pub use precompiles::{BitcoinClient, SovaL1BlockInfo};
 use precompiles::BitcoinRpcPrecompile;
 
 use std::{error::Error, sync::Arc};

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use reth_ethereum_consensus::EthBeaconConsensus;
-use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor};
 use reth_node_api::{
     AddOnsContext, FullNodeComponents, NodeAddOns, NodePrimitives, NodeTypes, PrimitivesTy, TxTy
@@ -16,7 +15,7 @@ use reth_node_builder::{
         EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder, RethRpcAddOns, RpcAddOns,
         RpcHandle,
     },
-    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
+    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder,
 };
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_forks::OpHardforks;
@@ -414,13 +413,13 @@ impl<Txs> SovaPayloadBuilder<Txs> {
         Evm: ConfigureEvm<Primitives = PrimitivesTy<Node::Types>>,
         Txs: OpPayloadTransactions<Pool::Transaction>,
     {
-        let payload_builder = sova_payload::SovaPayloadBuilder::new(
-            ctx.provider().clone(),
+        let payload_builder = sova_payload::SovaPayloadBuilder::with_builder_config(
             pool,
+            ctx.provider().clone(),
             evm_config,
             OpBuilderConfig { da_config: self.da_config.clone() },
-            self.bitcoin_client.clone(),
         )
+        .with_sova_integration(self.config.clone(), self.bitcoin_client.clone())
         .with_transactions(self.best_transactions.clone())
         .set_compute_pending_block(self.compute_pending_block);
         Ok(payload_builder)
