@@ -75,6 +75,7 @@ sol!(
 #[derive(Debug, Clone)]
 pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
     /// The rollup's compute pending block configuration option.
+    // TODO(clabby): Implement this feature.
     pub compute_pending_block: bool,
     /// The type responsible for creating the evm.
     pub evm_config: Evm,
@@ -83,8 +84,6 @@ pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
     /// Node client.
     pub client: Client,
     /// Ethereum builder configuration.
-    pub builder_config: EthereumBuilderConfig,
-    /// Settings for the builder, e.g. DA settings.
     pub config: OpBuilderConfig,
     /// The type responsible for yielding the best transactions for the payload if mempool
     /// transactions are allowed.
@@ -101,16 +100,15 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
         client: Client,
         pool: Pool,
         evm_config: Evm,
-        builder_config: EthereumBuilderConfig,
+        config: OpBuilderConfig,
         bitcoin_client: Arc<BitcoinClient>,
     ) -> Self {
         Self {
+            compute_pending_block: true,
             client,
             pool,
             evm_config,
-            builder_config,
-            compute_pending_block: true,
-            config: OpBuilderConfig::default(),
+            config,
             best_transactions: (),
             sova_config: SovaConfig::default(),
             bitcoin_client,

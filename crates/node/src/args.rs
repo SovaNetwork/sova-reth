@@ -2,8 +2,12 @@ use clap::Parser;
 
 use bitcoin::Network;
 
-/// Our custom cli args extension that adds flags to configure the bitcoin rpc client
-#[derive(Clone, Debug, Default, Parser)]
+use op_alloy_consensus::interop::SafetyLevel;
+
+use reth_optimism_txpool::supervisor::DEFAULT_SUPERVISOR_URL;
+
+/// Custom cli args extension that adds flags to configure Bitcoin functionality
+#[derive(Clone, Debug, Parser)]
 pub struct SovaArgs {
     /// CLI flag to indicate the bitcoin network the bitcoin rpc client will connect to
     #[arg(long, value_parser = parse_network_to_wrapper, default_value = "regtest")]
@@ -42,13 +46,80 @@ pub struct SovaArgs {
     #[arg(long, default_value = "6")]
     pub sentinel_confirmation_threshold: u8,
 
+    /// enable sequencer mode, this is for validators who are able to process network signed transactions
+    #[arg(long, default_value = "false")]
+    pub sequencer_mode: bool,
+
+    /// Endpoint for the sequencer mempool (can be both HTTP and WS)
+    #[arg(long = "rollup.sequencer", visible_aliases = ["rollup.sequencer-http", "rollup.sequencer-ws"])]
+    pub sequencer: Option<String>,
+
+    /// Disable transaction pool gossip
+    #[arg(long = "rollup.disable-tx-pool-gossip")]
+    pub disable_txpool_gossip: bool,
+
+    /// Enable walkback to genesis on startup. This is useful for re-validating the existing DB
+    /// prior to beginning normal syncing.
+    #[arg(long = "rollup.enable-genesis-walkback")]
+    pub enable_genesis_walkback: bool,
+
+    /// By default the pending block equals the latest block
+    /// to save resources and not leak txs from the tx-pool,
+    /// this flag enables computing of the pending block
+    /// from the tx-pool instead.
+    ///
+    /// If `compute_pending_block` is not enabled, the payload builder
+    /// will use the payload attributes from the latest block. Note
+    /// that this flag is not yet functional.
+    #[arg(long = "rollup.compute-pending-block")]
+    pub compute_pending_block: bool,
+
+    /// enables discovery v4 if provided
+    #[arg(long = "rollup.discovery.v4", default_value = "false")]
+    pub discovery_v4: bool,
+
     /// Enable transaction conditional support on sequencer
     #[arg(long = "rollup.enable-tx-conditional", default_value = "false")]
     pub enable_tx_conditional: bool,
 
-    /// enable sequencer mode, this is for validators who are able to process network signed transactions
-    #[arg(long, default_value = "false")]
-    pub sequencer_mode: bool,
+    /// HTTP endpoint for the supervisor
+    #[arg(
+        long = "rollup.supervisor-http",
+        value_name = "SUPERVISOR_HTTP_URL",
+        default_value = DEFAULT_SUPERVISOR_URL
+    )]
+    pub supervisor_http: String,
+
+    /// Safety level for the supervisor
+    #[arg(
+        long = "rollup.supervisor-safety-level",
+        default_value_t = SafetyLevel::CrossUnsafe,
+    )]
+    pub supervisor_safety_level: SafetyLevel,
+}
+
+impl Default for SovaArgs {
+    fn default() -> Self {
+        Self {
+            btc_network: BitcoinNetwork::default(),
+            network_url: "http://127.0.0.1".to_string(),
+            btc_rpc_username: "user".to_string(),
+            btc_rpc_password: "password".to_string(),
+            network_signing_url: "http://127.0.0.1:5555".to_string(),
+            network_utxo_url: "http://127.0.0.1:5557".to_string(),
+            sentinel_url: "http://[::1]:50051".to_string(),
+            sentinel_confirmation_threshold: 6,
+            sequencer_mode: false,
+            sequencer: None,
+            disable_txpool_gossip: false,
+            enable_genesis_walkback: false,
+            compute_pending_block: false,
+            discovery_v4: false,
+            enable_tx_conditional: false,
+            supervisor_http: DEFAULT_SUPERVISOR_URL.to_string(),
+            supervisor_safety_level: SafetyLevel::CrossUnsafe,
+        }
+    }
 }
 
 fn parse_network_to_wrapper(s: &str) -> Result<BitcoinNetwork, &'static str> {
