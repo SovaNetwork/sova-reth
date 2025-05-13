@@ -103,7 +103,18 @@ where
         &self,
         block: &RecoveredBlock<<<F as ConfigureEvm>::Primitives as NodePrimitives>::Block>,
     ) -> Result<(), BlockExecutionError> {
-        match block.body().transactions().first() {
+        for (idx, tx) in block.body().transactions().iter().enumerate() {
+            info!(
+                "idx {}: tx: {:?}",
+                idx,
+                tx
+            );
+        }
+
+        // Validate the SECOND transaction (index 1) for BTC data
+        //
+        // TODO(powvt): Make this resilient to more than one sequencer tx
+        match block.body().transactions().get(1) {
             Some(tx) => {
                 // Extract the input data from the first transaction
                 let input = tx.input();
@@ -121,6 +132,8 @@ where
                     debug!(target: "execution", "Genesis block - skipping Bitcoin block validation");
                     Ok(())
                 } else if input[0..4] == L1_BLOCK_SATOSHI_SELECTOR {
+                    // TODO(powvt): improve validations of BTC data
+
                     if input.len() < 68 {
                         // 4 bytes selector + 32 bytes blockHeight + 32 bytes blockHash
                         return Err(BlockExecutionError::other(RethError::msg(
