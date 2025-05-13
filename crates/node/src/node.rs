@@ -470,8 +470,8 @@ where
 
 /// A type that knows how to build the Sova EVM.
 ///
-/// The Sova EVM is customized such that there are new precompiles and a
-/// custom inspector which is used for enforcing transaction finality on Bitcoin.
+/// The Sova EVM is customized such that there are Bitcoin precompiles as well as
+/// a custom inspector which is used for enforcing transaction finality on Bitcoin.
 #[derive(Debug, Default, Clone)]
 pub struct SovaExecutorBuilder {
     pub config: SovaConfig,

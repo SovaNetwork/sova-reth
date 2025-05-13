@@ -11,7 +11,7 @@ pub use constants::{
     L1_BLOCK_SATOSHI_SELECTOR,
 };
 use evm::{SovaEvm, SovaEvmFactory};
-pub use execute::{MyBlockExecutor, SovaBlockExecutorProvider};
+pub use execute::SovaBlockExecutorProvider;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 use precompiles::BitcoinRpcPrecompile;
@@ -26,7 +26,7 @@ use alloy_evm::{
     block::{BlockExecutorFactory, BlockExecutorFor},
     EvmEnv,
 };
-use alloy_op_evm::OpBlockExecutionCtx;
+use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
 use alloy_primitives::{Address, Bytes};
 
 use reth_evm::{ConfigureEvm, InspectorFor};
@@ -198,7 +198,7 @@ impl BlockExecutorFactory for MyEvmConfig {
         I: InspectorFor<Self, &'a mut State<DB>> + 'a,
         <DB as Database>::Error: Send + Sync + 'static,
     {
-        MyBlockExecutor::new(
+        OpBlockExecutor::new(
             evm,
             ctx,
             self.inner.chain_spec().clone(),
