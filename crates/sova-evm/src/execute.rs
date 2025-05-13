@@ -104,11 +104,7 @@ where
         block: &RecoveredBlock<<<F as ConfigureEvm>::Primitives as NodePrimitives>::Block>,
     ) -> Result<(), BlockExecutionError> {
         for (idx, tx) in block.body().transactions().iter().enumerate() {
-            info!(
-                "idx {}: tx: {:?}",
-                idx,
-                tx
-            );
+            info!("idx {}: tx: {:?}", idx, tx);
         }
 
         // Validate the SECOND transaction (index 1) for BTC data

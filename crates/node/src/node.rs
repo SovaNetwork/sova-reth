@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor};
-use reth_node_api::{
-    AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes, PrimitivesTy, TxTy,
-};
+use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes, PrimitivesTy, TxTy};
 use reth_node_builder::{
     components::{
-        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder,
-        PayloadBuilderBuilder,
+        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, PayloadBuilderBuilder,
     },
     node::FullNodeTypes,
     rpc::{
