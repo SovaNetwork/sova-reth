@@ -19,7 +19,6 @@ use reth_basic_payload_builder::{
 use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_errors::{BlockExecutionError, BlockValidationError, RethError};
-use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{
     execute::{BlockBuilder, BlockBuilderOutcome, BlockExecutor},
     ConfigureEvm, Database, Evm,
@@ -51,7 +50,7 @@ use reth_revm::{
     DatabaseCommit,
 };
 use reth_storage_api::errors::ProviderError;
-use reth_tracing::tracing::{debug, info, trace, warn};
+use reth_tracing::tracing::{debug, trace, warn};
 use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
 
 use revm::{
@@ -61,7 +60,8 @@ use revm::{
 
 use sova_cli::SovaConfig;
 use sova_evm::{
-    BitcoinClient, MyEvmConfig, WithInspector, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER,
+    BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector, L1_BLOCK_CONTRACT_ADDRESS,
+    L1_BLOCK_CONTRACT_CALLER,
 };
 
 sol!(
@@ -71,10 +71,11 @@ sol!(
     );
 );
 
-/// Sova payload builder that extends the Optimism payload builder with Bitcoin integration
+/// Sova payload builder that extends the Optimism payload builder with Bitcoin integrations
 #[derive(Debug, Clone)]
 pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
     /// The rollup's compute pending block configuration option.
+    // TODO(clabby): Implement this feature.
     pub compute_pending_block: bool,
     /// The type responsible for creating the evm.
     pub evm_config: Evm,
@@ -83,8 +84,6 @@ pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
     /// Node client.
     pub client: Client,
     /// Ethereum builder configuration.
-    pub builder_config: EthereumBuilderConfig,
-    /// Settings for the builder, e.g. DA settings.
     pub config: OpBuilderConfig,
     /// The type responsible for yielding the best transactions for the payload if mempool
     /// transactions are allowed.
@@ -97,40 +96,22 @@ pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
 
 impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
     /// `SovaPayloadBuilder` constructor with Sova and Bitcoin integration.
-    pub fn new(
-        client: Client,
-        pool: Pool,
-        evm_config: Evm,
-        builder_config: EthereumBuilderConfig,
-        bitcoin_client: Arc<BitcoinClient>,
-    ) -> Self {
-        Self {
-            client,
-            pool,
-            evm_config,
-            builder_config,
-            compute_pending_block: true,
-            config: OpBuilderConfig::default(),
-            best_transactions: (),
-            sova_config: SovaConfig::default(),
-            bitcoin_client,
-        }
+    pub fn new(pool: Pool, client: Client, evm_config: Evm) -> Self {
+        Self::with_builder_config(pool, client, evm_config, Default::default())
     }
 
     /// Configures the builder with the given [`OpBuilderConfig`].
     pub fn with_builder_config(
-        client: Client,
         pool: Pool,
+        client: Client,
         evm_config: Evm,
-        builder_config: EthereumBuilderConfig,
         config: OpBuilderConfig,
     ) -> Self {
         Self {
-            client,
             pool,
-            evm_config,
-            builder_config,
+            client,
             compute_pending_block: true,
+            evm_config,
             config,
             best_transactions: (),
             sova_config: SovaConfig::default(),
@@ -138,7 +119,7 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
         }
     }
 
-    /// Configures the builder with Sova and Bitcoin integration.
+    /// Configures the `SovaPayloadBuilder` builder with Bitcoin integrations.
     pub fn with_sova_integration(
         mut self,
         sova_config: SovaConfig,
@@ -146,12 +127,6 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
     ) -> Self {
         self.sova_config = sova_config;
         self.bitcoin_client = bitcoin_client;
-        self
-    }
-
-    /// Configure the data availability configuration for the OP builder.
-    pub fn with_da_config(mut self, da_config: OpDAConfig) -> Self {
-        self.config.da_config = da_config;
         self
     }
 }
@@ -163,16 +138,6 @@ impl<Pool, Client, Evm, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs> {
         self
     }
 
-    /// Enables the rollup's compute pending block configuration option.
-    pub const fn compute_pending_block(self) -> Self {
-        self.set_compute_pending_block(true)
-    }
-
-    /// Returns the rollup's compute pending block configuration option.
-    pub const fn is_compute_pending_block(&self) -> bool {
-        self.compute_pending_block
-    }
-
     /// Configures the type responsible for yielding the transactions that should be included in the
     /// payload.
     pub fn with_transactions<T>(
@@ -182,9 +147,8 @@ impl<Pool, Client, Evm, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs> {
         let Self {
             pool,
             client,
-            evm_config,
-            builder_config,
             compute_pending_block,
+            evm_config,
             config,
             sova_config,
             bitcoin_client,
@@ -193,33 +157,53 @@ impl<Pool, Client, Evm, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs> {
         SovaPayloadBuilder {
             pool,
             client,
-            evm_config,
-            builder_config,
             compute_pending_block,
-            config,
+            evm_config,
             best_transactions,
+            config,
             sova_config,
             bitcoin_client,
         }
     }
+
+    /// Enables the rollup's compute pending block configuration option.
+    pub const fn compute_pending_block(self) -> Self {
+        self.set_compute_pending_block(true)
+    }
+
+    /// Returns the rollup's compute pending block configuration option.
+    pub const fn is_compute_pending_block(&self) -> bool {
+        self.compute_pending_block
+    }
 }
 
-impl<Pool, Client, Evm, N, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs>
+impl<Pool, Client, Evm, N, T> SovaPayloadBuilder<Pool, Client, Evm, T>
 where
     Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
     N: OpPayloadPrimitives,
     Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
-    Txs: OpPayloadTransactions<Pool::Transaction>,
 {
-    /// Builds the payload on top of the state.
-    fn build_payload<'a, T>(
+    /// Constructs an Optimism payload from the transactions sent via the
+    /// Payload attributes by the sequencer. If the `no_tx_pool` argument is passed in
+    /// the payload attributes, the transaction pool will be ignored and the only transactions
+    /// included in the payload will be those sent through the attributes.
+    ///
+    /// Given build arguments including an Optimism client, transaction pool,
+    /// and configuration, this function creates a transaction payload. Returns
+    /// a result indicating success with the payload or an error in case of failure.
+    ///
+    /// NOTE(powvt): This implementation of the Optimism PayloadBuilder includes some Sova
+    /// specific differences. The primary differences are applying the revert state changes
+    /// from the sentinel cache and also applying the Sova Bitcoin context
+    /// transactions (SovaL1Block).
+    fn build_payload<'a, Txs>(
         &self,
         args: BuildArguments<OpPayloadBuilderAttributes<N::SignedTx>, OpBuiltPayload<N>>,
-        best: impl Fn(BestTransactionsAttributes) -> T + Send + Sync + 'a,
+        best: impl Fn(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
     ) -> Result<BuildOutcome<OpBuiltPayload<N>>, PayloadBuilderError>
     where
-        T: PayloadTransactions<
+        Txs: PayloadTransactions<
             Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
         >,
     {
@@ -230,7 +214,12 @@ where
             best_payload,
         } = args;
 
-        let mut sova_payload_attrs = OpPayloadAttributes {
+        // TODO(powvt): investigate if this can be None?
+        if config.attributes.transactions.is_empty() {
+            warn!(target: "payload_builder", "No sequencer txs recieved");
+        }
+
+        let mut op_payload_attrs = OpPayloadAttributes {
             payload_attributes: PayloadAttributes {
                 timestamp: config.attributes.timestamp(),
                 prev_randao: config.attributes.prev_randao(),
@@ -238,6 +227,7 @@ where
                 withdrawals: Some(config.attributes.withdrawals().to_vec()),
                 parent_beacon_block_root: config.attributes.parent_beacon_block_root(),
             },
+            // TODO(powvt): smae comment as above, can we do Some() here safely?
             transactions: Some(
                 config
                     .attributes
@@ -252,7 +242,7 @@ where
         };
 
         // Inject Bitcoin data
-        if let Err(err) = self.inject_bitcoin_data_to_payload_attrs(&mut sova_payload_attrs) {
+        if let Err(err) = self.inject_bitcoin_data_to_payload_attrs(&mut op_payload_attrs) {
             warn!(target: "payload_builder", "Failed to inject Bitcoin data: {}", err);
             // Continue with payload building even if Bitcoin data injection fails
         }
@@ -262,7 +252,7 @@ where
             parent_header: config.parent_header.clone(),
             attributes: OpPayloadBuilderAttributes::try_new(
                 config.attributes.parent(),
-                sova_payload_attrs,
+                op_payload_attrs,
                 3, // Assuming version 3, adjust if needed
             )
             .map_err(PayloadBuilderError::other)?,
@@ -277,7 +267,7 @@ where
             best_payload,
         };
 
-        let builder = MyBuilder::new(best, self.evm_config.clone());
+        let builder = SovaBuilder::new(best, self.evm_config.clone());
 
         let state_provider = self.client.state_by_block_hash(ctx.parent().hash())?;
         let state = StateProviderDatabase::new(&state_provider);
@@ -289,16 +279,15 @@ where
     }
 
     /// Computes the witness for the payload.
+    ///
+    /// TODO(powvt): Deal with call to Bitcoin node here.
+    /// Ideally that data is already in the attributes recieved from the sequencer.
     pub fn payload_witness(
         &self,
         parent: SealedHeader,
-        mut attributes: OpPayloadAttributes,
+        attributes: OpPayloadAttributes,
     ) -> Result<ExecutionWitness, PayloadBuilderError> {
-        // Inject Bitcoin data
-        if let Err(err) = self.inject_bitcoin_data_to_payload_attrs(&mut attributes) {
-            warn!(target: "payload_builder", "Failed to inject Bitcoin data: {}", err);
-            // Continue with payload building even if Bitcoin data injection fails
-        }
+        // NOTE(powvt): NOT injecting Bitcoion data into attributes here
 
         let attributes = OpPayloadBuilderAttributes::try_new(parent.hash(), attributes, 3)
             .map_err(PayloadBuilderError::other)?;
@@ -318,7 +307,7 @@ where
 
         let state_provider = self.client.state_by_block_hash(ctx.parent().hash())?;
 
-        let builder = MyBuilder::new(
+        let builder = SovaBuilder::new(
             |_| NoopPayloadTransactions::<Pool::Transaction>::default(),
             self.evm_config.clone(),
         );
@@ -327,7 +316,7 @@ where
 
     pub fn update_l1_block_source() -> B256 {
         UpgradeDepositSource {
-            intent: String::from("Satoshi: L1 Block Update"),
+            intent: String::from("Sova: L1 Block Update"),
         }
         .source_hash()
     }
@@ -374,43 +363,34 @@ where
         buffer.freeze().into()
     }
 
-    /// Add the bitcoin data transaction to the payload attributes
-    pub fn add_bitcoin_data_to_payload_attrs(
-        block_height: u64,
-        block_hash: B256,
-    ) -> Option<Vec<Bytes>> {
-        // Generate the deposit transaction
-        let tx_bytes = Self::create_bitcoin_data_deposit_tx(block_height, block_hash);
-
-        // Create vector with this transaction
-        Some(vec![tx_bytes])
-    }
-
     /// Inject Bitcoin data into a new block via a deposit transaction
     pub fn inject_bitcoin_data_to_payload_attrs(
         &self,
         attributes: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
         // Fetch the current Bitcoin block info from the Bitcoin client
-        let bitcoin_block_info = match self.bitcoin_client.get_current_block_info() {
+        let bitcoin_block_info: SovaL1BlockInfo = match self.bitcoin_client.get_current_block_info()
+        {
             Ok(info) => info,
             Err(err) => {
-                warn!(target: "payload_builder", "Failed to fetch Bitcoin block info: {}", err);
-                return Err(PayloadBuilderError::other(RethError::msg(format!(
-                    "Failed to fetch Bitcoin block info: {}",
-                    err
-                ))));
+                warn!(target: "payload_builder", "Failed to get block info from BTC client: {}", err);
+                SovaL1BlockInfo::default()
             }
         };
 
         // Generate the deposit transaction bytes with just height and hash
-        let transactions = Self::add_bitcoin_data_to_payload_attrs(
+        let btc_tx_bytes = Self::create_bitcoin_data_deposit_tx(
             bitcoin_block_info.current_block_height,
             bitcoin_block_info.block_hash_six_blocks_back,
         );
 
-        // Set the transactions in the payload attributes
-        attributes.transactions = transactions;
+        // Append the Bitcoin transaction to the existing transactions.
+        if let Some(ref mut txs) = attributes.transactions {
+            txs.push(btc_tx_bytes);
+        } else {
+            // If there are no transactions yet, create a vector with just the Bitcoin transaction
+            attributes.transactions = Some(vec![btc_tx_bytes]);
+        }
 
         debug!(
             target: "payload_builder",
@@ -423,7 +403,7 @@ where
     }
 }
 
-// Implementation of the PayloadBuilder trait for SovaPayloadBuilder
+/// Implementation of the [`PayloadBuilder`] trait for [`SovaPayloadBuilder`].
 impl<Pool, Client, Evm, N, Txs> PayloadBuilder for SovaPayloadBuilder<Pool, Client, Evm, Txs>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
@@ -455,6 +435,8 @@ where
         MissingPayloadBehaviour::AwaitInProgress
     }
 
+    // NOTE: this should only be used for testing purposes because this doesn't have access to L1
+    // system txs, hence on_missing_payload we return [MissingPayloadBehaviour::AwaitInProgress].
     fn build_empty_payload(
         &self,
         config: PayloadConfig<Self::Attributes>,
@@ -474,8 +456,23 @@ where
 }
 
 /// The type that builds the payload.
+///
+/// Payload building for Sova is composed of several steps.
+/// The first steps are mandatory and defined by the protocol.
+///
+/// 1. First all System calls are applied.
+/// 2. After canyon the forced deployed `create2deployer` must be loaded
+/// 3. All sequencer transactions are executed (part of the payload attributes)
+/// 4. All SovaL1Block injected transactions are applied
+///
+/// Depending on whether the node acts as a sequencer and is allowed to include additional
+/// transactions (`no_tx_pool == false`):
+/// 4. include additional transactions
+///
+/// And finally
+/// 5. build the block: compute all roots (txs, state)
 #[derive(derive_more::Debug)]
-pub struct MyBuilder<'a, Txs, Evm> {
+pub struct SovaBuilder<'a, Txs, Evm> {
     /// Yields the best transaction to include if transactions from the mempool are allowed.
     #[debug(skip)]
     best: Box<dyn Fn(BestTransactionsAttributes) -> Txs + 'a>,
@@ -484,8 +481,8 @@ pub struct MyBuilder<'a, Txs, Evm> {
     evm_config: Evm,
 }
 
-impl<'a, Txs, Evm> MyBuilder<'a, Txs, Evm> {
-    /// Creates a new [`MyBuilder`].
+impl<'a, Txs, Evm> SovaBuilder<'a, Txs, Evm> {
+    /// Creates a new [`SovaBuilder`].
     pub fn new(
         best: impl Fn(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
         evm_config: Evm,
@@ -497,7 +494,7 @@ impl<'a, Txs, Evm> MyBuilder<'a, Txs, Evm> {
     }
 }
 
-impl<Txs, Evm, N> MyBuilder<'_, Txs, Evm>
+impl<Txs, Evm, N> SovaBuilder<'_, Txs, Evm>
 where
     Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
     N: OpPayloadPrimitives,
@@ -639,8 +636,8 @@ where
             PayloadBuilderError::Internal(err.into())
         })?;
 
-        // 2. execute L1Block transactions
-        let mut info = ctx.execute_l1_block_transactions(&mut builder)?;
+        // 2. execute SovaL1Block transactions
+        let mut info = ctx.execute_sequencer_transactions(&mut builder)?;
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {
@@ -761,7 +758,7 @@ where
         let mut builder = ctx.block_builder(&mut db)?;
 
         builder.apply_pre_execution_changes()?;
-        ctx.execute_l1_block_transactions(&mut builder)?;
+        ctx.execute_sequencer_transactions(&mut builder)?;
         builder.into_executor().apply_post_execution_changes()?;
 
         let ExecutionWitnessRecord {
@@ -879,7 +876,7 @@ where
     }
 
     /// Executes all sequencer transactions that are included in the payload attributes.
-    pub fn execute_l1_block_transactions(
+    pub fn execute_sequencer_transactions(
         &self,
         builder: &mut impl BlockBuilder<Primitives = Evm::Primitives>,
     ) -> Result<ExecutionInfo, PayloadBuilderError> {
@@ -904,7 +901,7 @@ where
                     PayloadBuilderError::other(OpPayloadBuilderError::TransactionEcRecoverFailed)
                 })?;
 
-            info!("sequencer tx {:?}", sequencer_tx);
+            debug!("sequencer tx {:?}", sequencer_tx);
 
             let gas_used = match builder.execute_transaction(sequencer_tx.clone()) {
                 Ok(gas_used) => gas_used,

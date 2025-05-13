@@ -1,53 +1,40 @@
 use std::sync::Arc;
 
-use op_alloy_consensus::{interop::SafetyLevel, OpPooledTransaction};
-use reth_ethereum_consensus::EthBeaconConsensus;
-use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor};
-use reth_network::{NetworkHandle, PeersInfo};
-use reth_node_api::{
-    AddOnsContext, FullNodeComponents, NodeAddOns, NodePrimitives, NodeTypes, TxTy,
-};
+use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes, PrimitivesTy, TxTy};
 use reth_node_builder::{
     components::{
-        BasicPayloadServiceBuilder, ComponentsBuilder, ConsensusBuilder, ExecutorBuilder,
-        NetworkBuilder, PayloadBuilderBuilder, PoolBuilder, PoolBuilderConfigOverrides,
+        BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, PayloadBuilderBuilder,
     },
     node::FullNodeTypes,
     rpc::{
         EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder, RethRpcAddOns, RpcAddOns,
         RpcHandle,
     },
-    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder, PayloadBuilderConfig,
+    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder,
 };
 use reth_optimism_chainspec::OpChainSpec;
-use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::{
-    txpool::{
-        conditional::MaybeConditionalTransaction, interop::MaybeInteropTransaction,
-        supervisor::DEFAULT_SUPERVISOR_URL, OpPooledTx,
-    },
-    OpEngineTypes, OpNetworkPrimitives, OpNextBlockEnvAttributes,
+    node::{OpConsensusBuilder, OpNetworkBuilder, OpPoolBuilder},
+    txpool::OpPooledTx,
+    OpEngineTypes, OpNextBlockEnvAttributes,
 };
-use reth_optimism_payload_builder::builder::OpPayloadTransactions;
-use reth_optimism_primitives::{DepositReceipt, OpPrimitives, OpTransactionSigned};
+use reth_optimism_payload_builder::{
+    builder::OpPayloadTransactions,
+    config::{OpBuilderConfig, OpDAConfig},
+};
+use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
 use reth_optimism_rpc::OpEthApiError;
-use reth_optimism_txpool::supervisor::SupervisorClient;
-use reth_provider::CanonStateSubscriptions;
+
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
 use reth_rpc_eth_types::error::FromEvmError;
-use reth_tracing::tracing::{debug, info};
-use reth_transaction_pool::{
-    blobstore::DiskFileBlobStore, CoinbaseTipOrdering, EthPoolTransaction, PoolTransaction,
-    TransactionPool, TransactionValidationTaskExecutor,
-};
+use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
 use revm_context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
 use sova_rpc::{SovaEthApi, SovaEthApiBuilder};
-use sova_txpool::{SovaTransactionPool, SovaTransactionValidator};
 
 use crate::{engine::SovaEngineValidator, rpc::SovaEngineApiBuilder, SovaArgs};
 
@@ -58,12 +45,19 @@ pub type SovaStorage = EthStorage<OpTransactionSigned>;
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct SovaNode {
-    /// Additional Sova args
+    /// Additional Sova args with Op Rollup Args
     pub args: SovaArgs,
     /// Bitcoin client wrapper
     pub bitcoin_client: Arc<BitcoinClient>,
     /// Node configuration
     pub sova_config: SovaConfig,
+    /// Data availability configuration for the OP builder.
+    ///
+    /// Used to throttle the size of the data availability payloads (configured by the batcher via
+    /// the `miner_` api).
+    ///
+    /// By default no throttling is applied.
+    pub da_config: OpDAConfig,
 }
 
 impl SovaNode {
@@ -94,7 +88,14 @@ impl SovaNode {
             args,
             bitcoin_client: Arc::new(bitcoin_client),
             sova_config,
+            da_config: OpDAConfig::default(),
         })
+    }
+
+    /// Configure the data availability configuration for the builder.
+    pub fn with_da_config(mut self, da_config: OpDAConfig) -> Self {
+        self.da_config = da_config;
+        self
     }
 
     /// Returns the components for the given [`SovaArgs`].
@@ -102,11 +103,11 @@ impl SovaNode {
         &self,
     ) -> ComponentsBuilder<
         Node,
-        SovaPoolBuilder,
+        OpPoolBuilder,
         BasicPayloadServiceBuilder<SovaPayloadBuilder>,
-        SovaNetworkBuilder,
+        OpNetworkBuilder,
         SovaExecutorBuilder,
-        SovaConsensusBuilder,
+        OpConsensusBuilder,
     >
     where
         Node: FullNodeTypes<
@@ -118,22 +119,40 @@ impl SovaNode {
             >,
         >,
     {
-        let pool_builder =
-            SovaPoolBuilder::default().with_enable_tx_conditional(self.args.enable_tx_conditional);
+        let SovaArgs {
+            disable_txpool_gossip,
+            compute_pending_block,
+            discovery_v4,
+            ..
+        } = self.args;
 
         ComponentsBuilder::default()
             .node_types::<Node>()
-            .pool(pool_builder)
-            .payload(BasicPayloadServiceBuilder::new(SovaPayloadBuilder::new(
-                self.sova_config.clone(),
-                Arc::clone(&self.bitcoin_client),
-            )))
-            .network(SovaNetworkBuilder)
+            .pool(
+                OpPoolBuilder::default()
+                    .with_enable_tx_conditional(self.args.enable_tx_conditional)
+                    .with_supervisor(
+                        self.args.supervisor_http.clone(),
+                        self.args.supervisor_safety_level,
+                    ),
+            )
+            .payload(BasicPayloadServiceBuilder::new(
+                SovaPayloadBuilder::new(
+                    self.sova_config.clone(),
+                    Arc::clone(&self.bitcoin_client),
+                    compute_pending_block,
+                )
+                .with_da_config(self.da_config.clone()),
+            ))
+            .network(OpNetworkBuilder {
+                disable_txpool_gossip,
+                disable_discovery_v4: !discovery_v4,
+            })
             .executor(SovaExecutorBuilder::new(
                 self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
             ))
-            .consensus(SovaConsensusBuilder::default())
+            .consensus(OpConsensusBuilder::default())
     }
 
     pub fn provider_factory_builder() -> ProviderFactoryBuilder<Self> {
@@ -154,11 +173,11 @@ where
 {
     type ComponentsBuilder = ComponentsBuilder<
         N,
-        SovaPoolBuilder,
+        OpPoolBuilder,
         BasicPayloadServiceBuilder<SovaPayloadBuilder>,
-        SovaNetworkBuilder,
+        OpNetworkBuilder,
         SovaExecutorBuilder,
-        SovaConsensusBuilder,
+        OpConsensusBuilder,
     >;
 
     type AddOns = SovaAddOns<
@@ -304,217 +323,49 @@ where
     }
 }
 
-/// A Sova transaction pool. This pool is closely associated with the
-/// Optimism design except the L1Block validations are modified to validate
-/// Bitcoin L1Block data.
-#[derive(Debug, Clone)]
-pub struct SovaPoolBuilder<T = reth_optimism_txpool::OpPooledTransaction> {
-    /// Enforced overrides that are applied to the pool config.
-    pub pool_config_overrides: PoolBuilderConfigOverrides,
-    /// Enable transaction conditionals.
-    pub enable_tx_conditional: bool,
-    /// Supervisor client url
-    pub supervisor_http: String,
-    /// Supervisor safety level
-    pub supervisor_safety_level: SafetyLevel,
-    /// Marker for the pooled transaction type.
-    _pd: core::marker::PhantomData<T>,
-}
-
-impl<T> Default for SovaPoolBuilder<T> {
-    fn default() -> Self {
-        Self {
-            pool_config_overrides: Default::default(),
-            enable_tx_conditional: false,
-            supervisor_http: DEFAULT_SUPERVISOR_URL.to_string(),
-            supervisor_safety_level: SafetyLevel::CrossUnsafe,
-            _pd: Default::default(),
-        }
-    }
-}
-
-impl<T> SovaPoolBuilder<T> {
-    /// Sets the `enable_tx_conditional` flag on the pool builder.
-    pub fn with_enable_tx_conditional(mut self, enable_tx_conditional: bool) -> Self {
-        self.enable_tx_conditional = enable_tx_conditional;
-        self
-    }
-
-    /// Sets the [`PoolBuilderConfigOverrides`] on the pool builder.
-    pub fn with_pool_config_overrides(
-        mut self,
-        pool_config_overrides: PoolBuilderConfigOverrides,
-    ) -> Self {
-        self.pool_config_overrides = pool_config_overrides;
-        self
-    }
-
-    /// Sets the supervisor client
-    pub fn with_supervisor(
-        mut self,
-        supervisor_client: String,
-        supervisor_safety_level: SafetyLevel,
-    ) -> Self {
-        self.supervisor_http = supervisor_client;
-        self.supervisor_safety_level = supervisor_safety_level;
-        self
-    }
-}
-
-impl<Node, T> PoolBuilder<Node> for SovaPoolBuilder<T>
-where
-    Node: FullNodeTypes<Types: NodeTypes<ChainSpec: OpHardforks>>,
-    T: EthPoolTransaction<Consensus = TxTy<Node::Types>>
-        + MaybeConditionalTransaction
-        + MaybeInteropTransaction,
-{
-    type Pool = SovaTransactionPool<Node::Provider, DiskFileBlobStore, T>;
-
-    async fn build_pool(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::Pool> {
-        let Self {
-            pool_config_overrides,
-            ..
-        } = self;
-        let data_dir = ctx.config().datadir();
-        let blob_store = DiskFileBlobStore::open(data_dir.blobstore(), Default::default())?;
-        // supervisor used for interop
-        if ctx
-            .chain_spec()
-            .is_interop_active_at_timestamp(ctx.head().timestamp)
-            && self.supervisor_http == DEFAULT_SUPERVISOR_URL
-        {
-            info!(target: "reth::cli",
-                url=%DEFAULT_SUPERVISOR_URL,
-                "Default supervisor url is used, consider changing --rollup.supervisor-http."
-            );
-        }
-        let supervisor_client =
-            SupervisorClient::new(self.supervisor_http.clone(), self.supervisor_safety_level).await;
-
-        let validator = TransactionValidationTaskExecutor::eth_builder(ctx.provider().clone())
-            .no_eip4844()
-            .with_head_timestamp(ctx.head().timestamp)
-            .kzg_settings(ctx.kzg_settings()?)
-            .with_additional_tasks(
-                pool_config_overrides
-                    .additional_validation_tasks
-                    .unwrap_or_else(|| ctx.config().txpool.additional_validation_tasks),
-            )
-            .build_with_tasks(ctx.task_executor().clone(), blob_store.clone())
-            .map(|validator| {
-                SovaTransactionValidator::new(validator)
-                    // In --dev mode we can't require gas fees because we're unable to decode
-                    // the L1 block info
-                    .require_l1_data_gas_fee(!ctx.config().dev.dev)
-                    .with_supervisor(supervisor_client.clone())
-            });
-
-        let transaction_pool = reth_transaction_pool::Pool::new(
-            validator,
-            CoinbaseTipOrdering::default(),
-            blob_store,
-            pool_config_overrides.apply(ctx.pool_config()),
-        );
-        info!(target: "reth::cli", "Transaction pool initialized");
-
-        // spawn txpool maintenance tasks
-        {
-            let pool = transaction_pool.clone();
-            let chain_events = ctx.provider().canonical_state_stream();
-            let client = ctx.provider().clone();
-            if !ctx.config().txpool.disable_transactions_backup {
-                // Use configured backup path or default to data dir
-                let transactions_path = ctx
-                    .config()
-                    .txpool
-                    .transactions_backup_path
-                    .clone()
-                    .unwrap_or_else(|| data_dir.txpool_transactions());
-
-                let transactions_backup_config =
-                    reth_transaction_pool::maintain::LocalTransactionBackupConfig::with_local_txs_backup(transactions_path);
-
-                ctx.task_executor()
-                    .spawn_critical_with_graceful_shutdown_signal(
-                        "local transactions backup task",
-                        |shutdown| {
-                            reth_transaction_pool::maintain::backup_local_transactions_task(
-                                shutdown,
-                                pool.clone(),
-                                transactions_backup_config,
-                            )
-                        },
-                    );
-            }
-
-            // spawn the main maintenance task
-            ctx.task_executor().spawn_critical(
-                "txpool maintenance task",
-                reth_transaction_pool::maintain::maintain_transaction_pool_future(
-                    client,
-                    pool.clone(),
-                    chain_events,
-                    ctx.task_executor().clone(),
-                    reth_transaction_pool::maintain::MaintainPoolConfig {
-                        max_tx_lifetime: pool.config().max_queued_lifetime,
-                        no_local_exemptions: transaction_pool
-                            .config()
-                            .local_transactions_config
-                            .no_exemptions,
-                        ..Default::default()
-                    },
-                ),
-            );
-            debug!(target: "reth::cli", "Spawned txpool maintenance task");
-
-            // spawn the Op txpool maintenance task
-            let chain_events = ctx.provider().canonical_state_stream();
-            ctx.task_executor().spawn_critical(
-                "Op txpool interop maintenance task",
-                reth_optimism_txpool::maintain::maintain_transaction_pool_interop_future(
-                    pool.clone(),
-                    chain_events,
-                    supervisor_client,
-                ),
-            );
-            debug!(target: "reth::cli", "Spawned Op interop txpool maintenance task");
-
-            if self.enable_tx_conditional {
-                // spawn the Op txpool maintenance task
-                let chain_events = ctx.provider().canonical_state_stream();
-                ctx.task_executor().spawn_critical(
-                    "Op txpool conditional maintenance task",
-                    reth_optimism_txpool::maintain::maintain_transaction_pool_conditional_future(
-                        pool,
-                        chain_events,
-                    ),
-                );
-                debug!(target: "reth::cli", "Spawned Op conditional txpool maintenance task");
-            }
-        }
-
-        Ok(transaction_pool)
-    }
-}
-
 /// A Sova payload builder service
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct SovaPayloadBuilder<Txs = ()> {
     pub config: SovaConfig,
     pub bitcoin_client: Arc<BitcoinClient>,
+    /// By default the pending block equals the latest block
+    /// to save resources and not leak txs from the tx-pool,
+    /// this flag enables computing of the pending block
+    /// from the tx-pool instead.
+    ///
+    /// If `compute_pending_block` is not enabled, the payload builder
+    /// will use the payload attributes from the latest block. Note
+    /// that this flag is not yet functional.
+    pub compute_pending_block: bool,
     /// The type responsible for yielding the best transactions for the payload if mempool
     /// transactions are allowed.
     pub best_transactions: Txs,
+    /// This data availability configuration specifies constraints for the payload builder
+    /// when assembling payloads
+    pub da_config: OpDAConfig,
 }
 
 impl SovaPayloadBuilder {
-    pub fn new(config: SovaConfig, bitcoin_client: Arc<BitcoinClient>) -> Self {
+    /// Create a new instance with the given `compute_pending_block` flag and data availability config.
+    pub fn new(
+        config: SovaConfig,
+        bitcoin_client: Arc<BitcoinClient>,
+        compute_pending_block: bool,
+    ) -> Self {
         Self {
             config,
             bitcoin_client,
+            compute_pending_block,
             best_transactions: (),
+            da_config: OpDAConfig::default(),
         }
+    }
+
+    /// Configure the data availability configuration for the OP payload builder.
+    pub fn with_da_config(mut self, da_config: OpDAConfig) -> Self {
+        self.da_config = da_config;
+        self
     }
 }
 
@@ -525,12 +376,16 @@ impl<Txs> SovaPayloadBuilder<Txs> {
         let Self {
             config,
             bitcoin_client,
+            compute_pending_block,
+            da_config,
             ..
         } = self;
         SovaPayloadBuilder {
             config,
             bitcoin_client,
+            compute_pending_block,
             best_transactions,
+            da_config,
         }
     }
 
@@ -553,17 +408,20 @@ impl<Txs> SovaPayloadBuilder<Txs> {
         Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
             + Unpin
             + 'static,
+        Evm: ConfigureEvm<Primitives = PrimitivesTy<Node::Types>>,
         Txs: OpPayloadTransactions<Pool::Transaction>,
     {
-        let payload_builder = sova_payload::SovaPayloadBuilder::new(
-            ctx.provider().clone(),
+        let payload_builder = sova_payload::SovaPayloadBuilder::with_builder_config(
             pool,
+            ctx.provider().clone(),
             evm_config,
-            EthereumBuilderConfig::new().with_gas_limit(ctx.payload_builder_config().gas_limit()),
-            self.bitcoin_client.clone(),
+            OpBuilderConfig {
+                da_config: self.da_config.clone(),
+            },
         )
-        .with_transactions(self.best_transactions.clone());
-
+        .with_sova_integration(self.config.clone(), self.bitcoin_client.clone())
+        .with_transactions(self.best_transactions.clone())
+        .set_compute_pending_block(self.compute_pending_block);
         Ok(payload_builder)
     }
 }
@@ -609,8 +467,8 @@ where
 
 /// A type that knows how to build the Sova EVM.
 ///
-/// The Sova EVM is customized such that there are new precompiles and a
-/// custom inspector which is used for enforcing transaction finality on Bitcoin.
+/// The Sova EVM is customized such that there are Bitcoin precompiles as well as
+/// a custom inspector which is used for enforcing transaction finality on Bitcoin.
 #[derive(Debug, Default, Clone)]
 pub struct SovaExecutorBuilder {
     pub config: SovaConfig,
@@ -658,37 +516,6 @@ where
     }
 }
 
-/// A type that knows how to build the Sova network.
-/// Similar to the Ethereum network builder, this builder spawns
-/// an Ethereum p2p tx pool and p2p eth request handler.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct SovaNetworkBuilder;
-
-impl<Node, Pool> NetworkBuilder<Node, Pool> for SovaNetworkBuilder
-where
-    Node: FullNodeTypes<Types: NodeTypes<ChainSpec = OpChainSpec, Primitives = OpPrimitives>>,
-    Pool: TransactionPool<
-            Transaction: PoolTransaction<
-                Consensus = TxTy<Node::Types>,
-                Pooled = OpPooledTransaction,
-            >,
-        > + Unpin
-        + 'static,
-{
-    type Primitives = OpNetworkPrimitives;
-
-    async fn build_network(
-        self,
-        ctx: &BuilderContext<Node>,
-        pool: Pool,
-    ) -> eyre::Result<NetworkHandle<Self::Primitives>> {
-        let network = ctx.network_builder().await?;
-        let handle = ctx.start_network(network, pool);
-        info!(target: "reth::cli", enode=%handle.local_node_record(), "P2P networking initialized");
-        Ok(handle)
-    }
-}
-
 /// Builder for [`SovaEngineValidator`].
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
@@ -703,29 +530,5 @@ where
 
     async fn build(self, ctx: &AddOnsContext<'_, Node>) -> eyre::Result<Self::Validator> {
         Ok(SovaEngineValidator::new(ctx.config.chain.clone()))
-    }
-}
-
-/// A basic Sova consensus builder which uses unmodified
-/// Ethereum style consensus to choose the canonical chain.
-/// The EthBeaconConsensus consensus engine does basic checks
-/// as outlined in the Ethereum execution specs.
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct SovaConsensusBuilder;
-
-impl<Node> ConsensusBuilder<Node> for SovaConsensusBuilder
-where
-    Node: FullNodeTypes<
-        Types: NodeTypes<
-            ChainSpec: OpHardforks,
-            Primitives: NodePrimitives<Receipt: DepositReceipt>,
-        >,
-    >,
-{
-    type Consensus = Arc<EthBeaconConsensus<<Node::Types as NodeTypes>::ChainSpec>>;
-
-    async fn build_consensus(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::Consensus> {
-        Ok(Arc::new(EthBeaconConsensus::new(ctx.chain_spec())))
     }
 }
