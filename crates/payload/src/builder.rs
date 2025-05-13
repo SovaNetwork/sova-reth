@@ -60,7 +60,8 @@ use revm::{
 
 use sova_cli::SovaConfig;
 use sova_evm::{
-    BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER
+    BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector, L1_BLOCK_CONTRACT_ADDRESS,
+    L1_BLOCK_CONTRACT_CALLER,
 };
 
 sol!(
@@ -95,11 +96,7 @@ pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
 
 impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
     /// `SovaPayloadBuilder` constructor with Sova and Bitcoin integration.
-    pub fn new(
-        pool: Pool,
-        client: Client,
-        evm_config: Evm,
-    ) -> Self {
+    pub fn new(pool: Pool, client: Client, evm_config: Evm) -> Self {
         Self::with_builder_config(pool, client, evm_config, Default::default())
     }
 
@@ -195,7 +192,7 @@ where
     /// Given build arguments including an Optimism client, transaction pool,
     /// and configuration, this function creates a transaction payload. Returns
     /// a result indicating success with the payload or an error in case of failure.
-    /// 
+    ///
     /// NOTE(powvt): This implementation of the Optimism PayloadBuilder includes some Sova
     /// specific differences. The primary differences are applying the revert state changes
     /// from the sentinel cache and also applying the Sova Bitcoin context
@@ -282,7 +279,7 @@ where
     }
 
     /// Computes the witness for the payload.
-    /// 
+    ///
     /// TODO(powvt): Deal with call to Bitcoin node here.
     /// Ideally that data is already in the attributes recieved from the sequencer.
     pub fn payload_witness(
@@ -372,7 +369,8 @@ where
         attributes: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
         // Fetch the current Bitcoin block info from the Bitcoin client
-        let bitcoin_block_info: SovaL1BlockInfo = match self.bitcoin_client.get_current_block_info() {
+        let bitcoin_block_info: SovaL1BlockInfo = match self.bitcoin_client.get_current_block_info()
+        {
             Ok(info) => info,
             Err(err) => {
                 warn!(target: "payload_builder", "Failed to get block info from BTC client: {}", err);
@@ -422,7 +420,10 @@ where
         args: BuildArguments<Self::Attributes, Self::BuiltPayload>,
     ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
         let pool = self.pool.clone();
-        self.build_payload(args, |attrs| self.best_transactions.best_transactions(pool.clone(), attrs))
+        self.build_payload(args, |attrs| {
+            self.best_transactions
+                .best_transactions(pool.clone(), attrs)
+        })
     }
 
     fn on_missing_payload(
@@ -446,9 +447,11 @@ where
             cancel: Default::default(),
             best_payload: None,
         };
-        self.build_payload(args, |_| NoopPayloadTransactions::<Pool::Transaction>::default())?
-            .into_payload()
-            .ok_or_else(|| PayloadBuilderError::MissingPayload)
+        self.build_payload(args, |_| {
+            NoopPayloadTransactions::<Pool::Transaction>::default()
+        })?
+        .into_payload()
+        .ok_or_else(|| PayloadBuilderError::MissingPayload)
     }
 }
 
