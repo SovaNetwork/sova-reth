@@ -177,11 +177,14 @@ impl BitcoinRpcPrecompile {
             }
         };
 
+        debug!("Enclave response: {:?}", response);
+
         // Parse response
         match response.json() {
             Ok(res) => Ok(res),
             Err(e) => {
                 warn!("WARNING: Failed to parse enclave response: {}", e);
+
                 Err(PrecompileError::Other(format!(
                     "Failed to parse response: {}",
                     e
