@@ -15,6 +15,9 @@ PROFILE ?= release
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS ?=
 
+# API key for network signing service
+SIGNING_SERVICE_API_KEY ?= api_key_here
+
 ##@ Help
 
 .PHONY: help
@@ -165,7 +168,7 @@ endef
 .PHONY: run-sova-regtest
 run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest and accompanying services
 	if [ "$(clean)" = "clean" ]; then $(MAKE) clean-data; fi
-	$(MAKE) build && ./target/release/sova-reth node \
+	$(MAKE) build && SIGNING_SERVICE_API_KEY=$(SIGNING_SERVICE_API_KEY) ./target/release/sova-reth node \
 	--chain dev \
 	--btc-network "regtest" \
 	--network-url "http://127.0.0.1" \
