@@ -132,7 +132,7 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::DecodeTransaction => self.decode_raw_transaction(input_data, gas_used),
             BitcoinMethod::CheckSignature => self.check_signature(input_data, gas_used),
             BitcoinMethod::ConvertAddress => self.convert_address(input_data, gas_used),
-            BitcoinMethod::VaultSpend => self.vault_spend(input, caller, gas_used),
+            BitcoinMethod::VaultSpend => self.network_spend(input, caller, gas_used),
         };
 
         if res.is_err() {
@@ -456,7 +456,7 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn vault_spend(&self, input: &[u8], caller: &Address, gas_used: u64) -> PrecompileResult {
+    fn network_spend(&self, input: &[u8], caller: &Address, gas_used: u64) -> PrecompileResult {
         // only the native bitcoin wrapper contract can call this method
         if caller != &UBTC_CONTRACT_ADDRESS {
             return Err(
