@@ -27,7 +27,9 @@ use reth_revm::{
 };
 use reth_tracing::tracing::{debug, info, warn};
 
-use crate::{BitcoinClient, WithInspector, L1_BLOCK_SATOSHI_SELECTOR};
+use sova_chainspec::L1_BLOCK_SATOSHI_SELECTOR;
+
+use crate::{BitcoinClient, WithInspector};
 
 /// A Sova block executor provider that can create executors using a strategy factory.
 #[derive(Clone, Debug)]

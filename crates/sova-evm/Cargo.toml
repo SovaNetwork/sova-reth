@@ -8,6 +8,7 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
+sova-chainspec.workspace = true
 sova-cli.workspace = true
 
 sova-sentinel-client.workspace = true

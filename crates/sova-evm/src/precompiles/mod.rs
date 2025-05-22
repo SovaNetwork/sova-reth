@@ -11,15 +11,17 @@ use std::{str::FromStr, sync::Arc};
 use reqwest::blocking::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 
-use alloy_primitives::Bytes;
+use alloy_primitives::{Address, Bytes};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
 use bitcoin::{
-    consensus::encode::deserialize, hashes::Hash, Address, Amount, Network, OutPoint, ScriptBuf,
-    Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+    consensus::encode::deserialize, hashes::Hash, Address as BtcAddress, Amount, Network, OutPoint,
+    ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
+
+use sova_chainspec::UBTC_CONTRACT_ADDRESS;
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -107,7 +109,7 @@ impl BitcoinRpcPrecompile {
         self.sequencer_mode = true;
     }
 
-    pub fn run(&self, input: &Bytes) -> PrecompileResult {
+    pub fn run(&self, input: &Bytes, caller: &Address) -> PrecompileResult {
         let method = BitcoinMethod::try_from(input).map_err(|e| {
             PrecompileError::Other(
                 "Invalid precompile method selector".to_string() + &e.to_string(),
@@ -130,7 +132,7 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::DecodeTransaction => self.decode_raw_transaction(input_data, gas_used),
             BitcoinMethod::CheckSignature => self.check_signature(input_data, gas_used),
             BitcoinMethod::ConvertAddress => self.convert_address(input_data, gas_used),
-            BitcoinMethod::VaultSpend => self.vault_spend(input, gas_used),
+            BitcoinMethod::VaultSpend => self.vault_spend(input, caller, gas_used),
         };
 
         if res.is_err() {
@@ -454,7 +456,14 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn vault_spend(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
+    fn vault_spend(&self, input: &[u8], caller: &Address, gas_used: u64) -> PrecompileResult {
+        // only the native bitcoin wrapper contract can call this method
+        if caller != &UBTC_CONTRACT_ADDRESS {
+            return Err(
+                PrecompileError::Other("Unauthorized caller for vaultSpend. Only the enshrined uBTC contract may call this precompile.".to_string())
+            );
+        }
+
         let decoded_input: DecodedInput = decode_input(input)?;
         let bitcoin_address = self.derive_btc_address(&decoded_input.signer)?;
 
@@ -578,7 +587,7 @@ impl BitcoinRpcPrecompile {
                         .as_u64()
                         .ok_or_else(|| PrecompileError::Other("Missing amount in output".into()))?;
 
-                    let address = Address::from_str(address_str)
+                    let address = BtcAddress::from_str(address_str)
                         .map_err(|e| PrecompileError::Other(format!("Invalid address: {:?}", e)))?
                         .require_network(self.network)
                         .map_err(|e| {

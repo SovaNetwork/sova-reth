@@ -1,15 +1,9 @@
-mod constants;
 mod evm;
 mod execute;
 mod inspector;
 mod precompiles;
 mod sova_revm;
 
-use constants::BTC_PRECOMPILE_ADDRESS;
-pub use constants::{
-    L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
-    L1_BLOCK_SATOSHI_SELECTOR,
-};
 use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::SovaBlockExecutorProvider;
 use inspector::SovaInspector;
@@ -46,6 +40,7 @@ use reth_tasks::TaskExecutor;
 
 use op_revm::OpSpecId;
 
+use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS};
 use sova_cli::SovaConfig;
 
 // Custom precompiles that include Bitcoin precompile
@@ -92,7 +87,7 @@ impl<CTX: ContextTr> PrecompileProvider<CTX> for CustomPrecompiles {
                 output: Bytes::new(),
             };
             // Call the Bitcoin precompile implementation
-            match precompile.run(&inputs.input) {
+            match precompile.run(&inputs.input, &inputs.caller_address) {
                 Ok(output) => {
                     let underflow = result.gas.record_cost(output.gas_used);
                     assert!(underflow, "Gas underflow is not possible");
