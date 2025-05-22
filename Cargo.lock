@@ -9478,6 +9478,7 @@ dependencies = [
  "revm",
  "serde",
  "serde_json",
+ "sova-chainspec",
  "sova-cli",
  "sova-sentinel-client",
  "sova-sentinel-proto",
@@ -9573,6 +9574,7 @@ dependencies = [
  "reth-tracing",
  "reth-transaction-pool",
  "revm",
+ "sova-chainspec",
  "sova-cli",
  "sova-evm",
 ]

@@ -46,13 +46,13 @@ pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
             ),
             // Sova L1Block contract
             (
-                Address::from_str(L1_BLOCK_CONTRACT_ADDRESS).unwrap(),
+                L1_BLOCK_CONTRACT_ADDRESS,
                 GenesisAccount::default()
                     .with_code(Some(Bytes::from_str(L1_BLOCK_CONTRACT_CODE).unwrap())),
             ),
             // Sova uBTC contract
             (
-                Address::from_str(UBTC_CONTRACT_ADDRESS).unwrap(),
+                UBTC_CONTRACT_ADDRESS,
                 GenesisAccount::default()
                     .with_code(Some(Bytes::from_str(UBTC_CONTRACT_CODE).unwrap()))
                     .with_storage(Some(ubtc_contract_storage()))

@@ -58,11 +58,9 @@ use revm::{
     state::Account,
 };
 
+use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
 use sova_cli::SovaConfig;
-use sova_evm::{
-    BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector, L1_BLOCK_CONTRACT_ADDRESS,
-    L1_BLOCK_CONTRACT_CALLER,
-};
+use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector};
 
 sol!(
     function setBitcoinBlockData(

@@ -4,8 +4,6 @@ mod storage_cache;
 
 use error::SlotProviderError;
 use provider::StorageSlotProvider;
-use reth_tasks::TaskExecutor;
-use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
 
 pub use provider::SlotProvider;
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
@@ -26,11 +24,13 @@ use reth_revm::{
     },
     Inspector, JournalEntry,
 };
+use reth_tasks::TaskExecutor;
 use reth_tracing::tracing::{debug, warn};
 
-use crate::{
-    precompiles::BitcoinMethod, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
-};
+use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT};
+use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
+
+use crate::precompiles::BitcoinMethod;
 
 /// Represents a storage change recorded during SSTORE operations
 #[derive(Debug, Clone)]
