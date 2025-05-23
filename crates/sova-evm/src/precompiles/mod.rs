@@ -146,22 +146,24 @@ impl BitcoinRpcPrecompile {
         let url = format!("{}/{}", self.network_utxos_url, endpoint);
 
         // Get API key from environment
-        let api_key = std::env::var("SIGNING_SERVICE_API_KEY").unwrap_or_default();
+        let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
 
         // Log warning if API key is missing
         if api_key.is_empty() {
-            warn!("WARNING: SIGNING_SERVICE_API_KEY environment variable is not set or empty");
+            warn!("WARNING: NETWORK_UTXOS_API_KEY environment variable is not set or empty");
         }
 
         let mut request = self.http_client.post(&url);
 
         // Add API key header if it exists
         if !api_key.is_empty() {
-            request = request.header("X-API-Key", api_key);
+            request = request.header("x-api-key", api_key);
         }
 
         // Add request payload
         request = request.json(payload);
+
+        debug!("request: {:?}", request);
 
         // Send request
         let response = match request.send() {
@@ -174,6 +176,8 @@ impl BitcoinRpcPrecompile {
                 )));
             }
         };
+
+        debug!("indexer response status: {}", response.status().is_success());
 
         // Parse response
         match response.json() {
@@ -385,9 +389,11 @@ impl BitcoinRpcPrecompile {
     }
 
     fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
+        // TODO(powvt): can this call fail and the tx execution still succeed?
         let request = serde_json::json!({ "evm_address": ethereum_address });
+        let response: serde_json::Value = self.call_network_utxos("derive-address", &request)?;
 
-        let response: serde_json::Value = self.call_network_utxos("derive_address", &request)?;
+        debug!("derive-address response: {:?}", response);
 
         response["btc_address"]
             .as_str()
