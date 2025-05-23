@@ -63,8 +63,7 @@ pub struct BitcoinRpcPrecompile {
     bitcoin_client: Arc<BitcoinClient>,
     network: Network,
     http_client: Arc<ReqwestClient>,
-    network_signing_url: String,
-    network_utxo_url: String,
+    network_utxos_url: String,
     sequencer_mode: bool,
 }
 
@@ -74,8 +73,7 @@ impl Default for BitcoinRpcPrecompile {
             bitcoin_client: Arc::new(BitcoinClient::default()),
             network: Network::Regtest,
             http_client: Arc::new(ReqwestClient::new()),
-            network_signing_url: String::new(),
-            network_utxo_url: String::new(),
+            network_utxos_url: String::new(),
             sequencer_mode: false,
         }
     }
@@ -85,22 +83,20 @@ impl BitcoinRpcPrecompile {
     pub fn new(
         bitcoin_client: Arc<BitcoinClient>,
         network: Network,
-        network_signing_url: String,
-        network_utxo_url: String,
+        network_utxos_url: String,
         sequencer_mode: bool,
     ) -> Result<Self, bitcoincore_rpc::Error> {
         // Check for API key at initialization
-        let api_key = std::env::var("SIGNING_SERVICE_API_KEY").unwrap_or_default();
+        let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
         if api_key.is_empty() && sequencer_mode {
-            warn!("WARNING: SIGNING_SERVICE_API_KEY env var not set for sequencer mode. Auth to signing service will fail.");
+            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set for sequencer mode. Auth to signing service will fail.");
         }
 
         Ok(Self {
             bitcoin_client,
             network,
             http_client: Arc::new(ReqwestClient::new()),
-            network_signing_url,
-            network_utxo_url,
+            network_utxos_url,
             sequencer_mode,
         })
     }
@@ -142,30 +138,32 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    fn call_enclave<T: serde::Serialize, R: serde::de::DeserializeOwned>(
+    fn call_network_utxos<T: serde::Serialize, R: serde::de::DeserializeOwned>(
         &self,
         endpoint: &str,
         payload: &T,
     ) -> Result<R, PrecompileError> {
-        let url = format!("{}/{}", self.network_signing_url, endpoint);
+        let url = format!("{}/{}", self.network_utxos_url, endpoint);
 
         // Get API key from environment
-        let api_key = std::env::var("SIGNING_SERVICE_API_KEY").unwrap_or_default();
+        let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
 
         // Log warning if API key is missing
         if api_key.is_empty() {
-            warn!("WARNING: SIGNING_SERVICE_API_KEY environment variable is not set or empty");
+            warn!("WARNING: NETWORK_UTXOS_API_KEY environment variable is not set or empty");
         }
 
         let mut request = self.http_client.post(&url);
 
         // Add API key header if it exists
         if !api_key.is_empty() {
-            request = request.header("X-API-Key", api_key);
+            request = request.header("x-api-key", api_key);
         }
 
         // Add request payload
         request = request.json(payload);
+
+        debug!("request: {:?}", request);
 
         // Send request
         let response = match request.send() {
@@ -179,7 +177,7 @@ impl BitcoinRpcPrecompile {
             }
         };
 
-        debug!("Enclave response: {:?}", response);
+        debug!("indexer response status: {}", response.status().is_success());
 
         // Parse response
         match response.json() {
@@ -187,42 +185,6 @@ impl BitcoinRpcPrecompile {
             Err(e) => {
                 warn!("WARNING: Failed to parse enclave response: {}", e);
 
-                Err(PrecompileError::Other(format!(
-                    "Failed to parse response: {}",
-                    e
-                )))
-            }
-        }
-    }
-
-    fn call_utxo_selection<T: serde::Serialize, R: serde::de::DeserializeOwned>(
-        &self,
-        endpoint: &str,
-        payload: &T,
-    ) -> Result<R, PrecompileError> {
-        let url = format!("{}/{}", self.network_utxo_url, endpoint);
-        let request = self
-            .http_client
-            .request(reqwest::Method::GET, &url)
-            .query(payload);
-
-        // Send request and log warning if it fails
-        let response = match request.send() {
-            Ok(resp) => resp,
-            Err(e) => {
-                warn!("WARNING: HTTP request to UTXO service failed: {}", e);
-                return Err(PrecompileError::Other(format!(
-                    "HTTP request failed: {}",
-                    e
-                )));
-            }
-        };
-
-        // Parse response and log warning if it fails
-        match response.json() {
-            Ok(res) => Ok(res),
-            Err(e) => {
-                warn!("WARNING: Failed to parse UTXO service response: {}", e);
                 Err(PrecompileError::Other(format!(
                     "Failed to parse response: {}",
                     e
@@ -426,17 +388,14 @@ impl BitcoinRpcPrecompile {
         Ok(PrecompileOutput::new(gas_used, Bytes::from(vec![1])))
     }
 
-    fn derive_btc_address(
-        &self,
-        ethereum_address_trimmed: &str,
-    ) -> Result<String, PrecompileError> {
-        let enclave_request = serde_json::json!({
-            "evm_address": ethereum_address_trimmed
-        });
+    fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
+        // TODO(powvt): can this call fail and the tx execution still succeed?
+        let request = serde_json::json!({ "evm_address": ethereum_address });
+        let response: serde_json::Value = self.call_network_utxos("derive-address", &request)?;
 
-        let response: serde_json::Value = self.call_enclave("derive_address", &enclave_request)?;
+        debug!("derive-address response: {:?}", response);
 
-        response["address"]
+        response["btc_address"]
             .as_str()
             .map(String::from)
             .ok_or_else(|| {
@@ -445,10 +404,9 @@ impl BitcoinRpcPrecompile {
     }
 
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        let ethereum_address_hex = hex::encode(input);
-        let ethereum_address_trimmed = ethereum_address_hex.trim_start_matches("0x");
-
-        let bitcoin_address = self.derive_btc_address(ethereum_address_trimmed)?;
+        let encoded = hex::encode(input);
+        let ethereum_address_hex = encoded.as_str();
+        let bitcoin_address = self.derive_btc_address(ethereum_address_hex)?;
 
         Ok(PrecompileOutput::new(
             gas_used,
@@ -465,21 +423,26 @@ impl BitcoinRpcPrecompile {
         }
 
         let decoded_input: DecodedInput = decode_input(input)?;
-        let bitcoin_address = self.derive_btc_address(&decoded_input.signer)?;
 
-        // === Get Spendable UTXOs for signer ===
-        let endpoint = format!(
-            "select-utxos/block/{}/address/{}/amount/{}",
-            decoded_input.block_height, bitcoin_address, decoded_input.amount
-        );
+        // get network spendable UTXOs
+        // TODO(powvt): use the block height from 6 blocks ago to ensure the spendables are confirmed.
+        // TODO(powvt): validate gas and amount params are correct here. Is this accounted for in UTXO selection service? I dont think so..
+        let utxo_request = serde_json::json!({
+            "block_height": decoded_input.block_height,
+            "target_amount": decoded_input.amount
+        });
 
-        let selected_utxos: UtxoSelectionResponse = self.call_utxo_selection(&endpoint, &())?;
+        let selected_utxos_resp: serde_json::Value =
+            self.call_network_utxos("select-utxos", &utxo_request)?;
+
+        let selected_utxos: Vec<UtxoUpdate> =
+            serde_json::from_value(selected_utxos_resp["selected_utxos"].clone())
+                .map_err(|e| PrecompileError::Other(format!("UTXO parse error: {}", e)))?;
 
         let inputs: Vec<SignTxInputData> = selected_utxos
-            .selected_utxos
-            .into_iter()
+            .iter()
             .map(|utxo| SignTxInputData {
-                txid: utxo.txid,
+                txid: utxo.txid.clone(),
                 vout: utxo.vout as u32,
                 amount: utxo.amount as u64,
             })
@@ -513,17 +476,17 @@ impl BitcoinRpcPrecompile {
             }));
         }
 
-        if self.sequencer_mode {
-            // === Sign Using Signers PK ===
+        let response: Vec<u8> = if self.sequencer_mode {
+            // sign using network pk
+            // TODO(powvt): add Auth/API key for this call to the signing endpoint on the sequencer.
 
             let sign_request = serde_json::json!({
-                "evm_address": decoded_input.signer,
                 "inputs": inputs,
                 "outputs": outputs,
             });
 
             let sign_response: serde_json::Value =
-                self.call_enclave("sign_transaction", &sign_request)?;
+                self.call_network_utxos("sign-transaction", &sign_request)?;
 
             let signed_tx_hex = sign_response["signed_tx"]
                 .as_str()
@@ -536,8 +499,6 @@ impl BitcoinRpcPrecompile {
                 ))
             })?;
 
-            // === Broadcast signed tx ===
-
             // Deserialize the signed Bitcoin transaction
             let signed_tx: bitcoin::Transaction = deserialize(&signed_tx_bytes).map_err(|e| {
                 PrecompileError::Other(format!(
@@ -549,9 +510,10 @@ impl BitcoinRpcPrecompile {
             // Broadcast the transaction
             let txid = self.broadcast_transaction(&signed_tx)?;
 
-            let response = self.format_txid_to_bytes32(txid);
-            Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
+            self.format_txid_to_bytes32(txid)
         } else {
+            // validator does not have access to network pk requests
+
             // NOTE(powvt): This conversion logic is duplicated in the signing service.
             // When the signing service receives a payload to be signed this same type conversion happens.
             // If the spent transaction type is ever modified it needs to be updated in both places.
@@ -609,8 +571,9 @@ impl BitcoinRpcPrecompile {
                 output: tx_outputs,
             };
 
-            let response = self.format_txid_to_bytes32(tx.txid());
-            Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
-        }
+            self.format_txid_to_bytes32(tx.txid())
+        };
+
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 }

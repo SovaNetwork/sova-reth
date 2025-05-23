@@ -146,8 +146,7 @@ impl MyEvmConfig {
         let bitcoin_precompile = BitcoinRpcPrecompile::new(
             bitcoin_client.clone(),
             config.bitcoin_config.network,
-            config.network_signing_url.clone(),
-            config.network_utxo_url.clone(),
+            config.network_utxos_url.clone(),
             config.sequencer_mode,
         )?;
 

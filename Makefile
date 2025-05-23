@@ -16,7 +16,7 @@ PROFILE ?= release
 CARGO_INSTALL_EXTRA_FLAGS ?=
 
 # API key for network signing service
-SIGNING_SERVICE_API_KEY ?= api_key_here
+NETWORK_UTXOS_API_KEY ?= indexer_api_key_here
 
 ##@ Help
 
@@ -168,14 +168,13 @@ endef
 .PHONY: run-sova-regtest
 run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest and accompanying services
 	if [ "$(clean)" = "clean" ]; then $(MAKE) clean-data; fi
-	$(MAKE) build && SIGNING_SERVICE_API_KEY=$(SIGNING_SERVICE_API_KEY) ./target/release/sova-reth node \
+	$(MAKE) build && NETWORK_UTXOS_API_KEY=$(NETWORK_UTXOS_API_KEY) ./target/release/sova-reth node \
 	--chain dev \
 	--btc-network "regtest" \
 	--network-url "http://127.0.0.1" \
 	--btc-rpc-username "user" \
 	--btc-rpc-password "password" \
-	--network-signing-url "http://127.0.0.1:5555" \
-	--network-utxo-url "http://127.0.0.1:5557" \
+	--network-utxos-url "http://127.0.0.1:3031" \
 	--sentinel-url "http://[::1]:50051" \
 	--sentinel-confirmation-threshold 6 \
 	--sequencer-mode \

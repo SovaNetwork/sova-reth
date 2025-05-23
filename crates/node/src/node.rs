@@ -72,8 +72,7 @@ impl SovaNode {
 
         let sova_config = SovaConfig::new(
             btc_config,
-            &args.network_signing_url,
-            &args.network_utxo_url,
+            &args.network_utxos_url,
             &args.sentinel_url,
             args.sentinel_confirmation_threshold,
             args.sequencer_mode,
