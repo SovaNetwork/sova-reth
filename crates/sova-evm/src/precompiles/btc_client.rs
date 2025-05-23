@@ -80,8 +80,8 @@ impl BitcoinClient {
         self.client.send_raw_transaction(tx)
     }
 
-    /// Used by the PayloadBuilder flow to snap show the Bitcoin
-    /// context at the time of block building. This fucntion returns:
+    /// Used by the PayloadBuilder flow to record the Bitcoin context
+    /// at the time of block building. This function returns:
     /// - current BTC block height
     /// - The blockhash in the block that is considered "confirmed" by the sentinel.
     ///     - For example, if the confirmation threshold on the sentinel is 6,
