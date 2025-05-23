@@ -25,13 +25,9 @@ pub struct SovaArgs {
     #[arg(long, default_value = "password")]
     pub btc_rpc_password: String,
 
-    /// CLI flag to indicate the network signing service url
-    #[arg(long, default_value = "http://127.0.0.1:5555")]
-    pub network_signing_url: String,
-
     /// CLI flag to indicate the network UTXO database url
-    #[arg(long, default_value = "http://127.0.0.1:5557")]
-    pub network_utxo_url: String,
+    #[arg(long, default_value = "http://127.0.0.1:3031")]
+    pub network_utxos_url: String,
 
     /// CLI flag to indicate the storage slot provider url
     #[arg(long, default_value = "http://[::1]:50051")]
@@ -105,8 +101,7 @@ impl Default for SovaArgs {
             network_url: "http://127.0.0.1".to_string(),
             btc_rpc_username: "user".to_string(),
             btc_rpc_password: "password".to_string(),
-            network_signing_url: "http://127.0.0.1:5555".to_string(),
-            network_utxo_url: "http://127.0.0.1:5557".to_string(),
+            network_utxos_url: "http://127.0.0.1:3031".to_string(),
             sentinel_url: "http://[::1]:50051".to_string(),
             sentinel_confirmation_threshold: 6,
             sequencer_mode: false,
