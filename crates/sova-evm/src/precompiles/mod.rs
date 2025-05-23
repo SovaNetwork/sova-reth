@@ -363,14 +363,10 @@ impl BitcoinRpcPrecompile {
         Ok(PrecompileOutput::new(gas_used, Bytes::from(vec![1])))
     }
 
-    fn derive_btc_address(
-        &self,
-        ethereum_address: &str,
-    ) -> Result<String, PrecompileError> {
+    fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
         let request = serde_json::json!({ "evm_address": ethereum_address });
 
-        let response: serde_json::Value = 
-            self.call_network_utxos("derive_address", &request)?;
+        let response: serde_json::Value = self.call_network_utxos("derive_address", &request)?;
 
         response["btc_address"]
             .as_str()
@@ -412,9 +408,9 @@ impl BitcoinRpcPrecompile {
         let selected_utxos_resp: serde_json::Value =
             self.call_network_utxos("select-utxos", &utxo_request)?;
 
-        let selected_utxos: Vec<UtxoUpdate> = serde_json::from_value(
-            selected_utxos_resp["selected_utxos"].clone(),
-        ).map_err(|e| PrecompileError::Other(format!("UTXO parse error: {}", e)))?;
+        let selected_utxos: Vec<UtxoUpdate> =
+            serde_json::from_value(selected_utxos_resp["selected_utxos"].clone())
+                .map_err(|e| PrecompileError::Other(format!("UTXO parse error: {}", e)))?;
 
         let inputs: Vec<SignTxInputData> = selected_utxos
             .iter()
@@ -453,9 +449,7 @@ impl BitcoinRpcPrecompile {
             }));
         }
 
-        let response: Vec<u8>;
-
-        if self.sequencer_mode {
+        let response: Vec<u8> = if self.sequencer_mode {
             // sign using network pk
             // TODO(powvt): add Auth/API key for this call to the signing endpoint on the sequencer.
 
@@ -489,7 +483,7 @@ impl BitcoinRpcPrecompile {
             // Broadcast the transaction
             let txid = self.broadcast_transaction(&signed_tx)?;
 
-            response = self.format_txid_to_bytes32(txid);
+            self.format_txid_to_bytes32(txid)
         } else {
             // validator does not have access to network pk requests
 
@@ -550,8 +544,8 @@ impl BitcoinRpcPrecompile {
                 output: tx_outputs,
             };
 
-            response = self.format_txid_to_bytes32(tx.txid());
-        }
+            self.format_txid_to_bytes32(tx.txid())
+        };
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
