@@ -86,6 +86,12 @@ impl BitcoinRpcPrecompile {
         network_utxos_url: String,
         sequencer_mode: bool,
     ) -> Result<Self, bitcoincore_rpc::Error> {
+        // Check for API key at initialization
+        let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
+        if api_key.is_empty() && sequencer_mode {
+            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set for sequencer mode. Auth to signing service will fail.");
+        }
+
         Ok(Self {
             bitcoin_client,
             network,
@@ -139,7 +145,22 @@ impl BitcoinRpcPrecompile {
     ) -> Result<R, PrecompileError> {
         let url = format!("{}/{}", self.network_utxos_url, endpoint);
 
+        // Get API key from environment
+        let api_key = std::env::var("SIGNING_SERVICE_API_KEY").unwrap_or_default();
+
+        // Log warning if API key is missing
+        if api_key.is_empty() {
+            warn!("WARNING: SIGNING_SERVICE_API_KEY environment variable is not set or empty");
+        }
+
         let mut request = self.http_client.post(&url);
+
+        // Add API key header if it exists
+        if !api_key.is_empty() {
+            request = request.header("X-API-Key", api_key);
+        }
+
+        // Add request payload
         request = request.json(payload);
 
         // Send request
