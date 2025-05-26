@@ -17,21 +17,19 @@ use bitcoincore_rpc::json::DecodeRawTransactionResult;
 pub struct DecodedInput {
     #[allow(dead_code)]
     pub method_selector: Vec<u8>,
-    pub signer: String,
-    pub amount: u64,
-    pub btc_gas_limit: u64,
     pub block_height: u64,
+    pub amount: u64,
     pub destination: String,
+    pub btc_gas_limit: u64,
 }
 
 pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
     let input_type = DynSolType::Tuple(vec![
         DynSolType::FixedBytes(4), // method selector
-        DynSolType::Address,       // signer address
-        DynSolType::Uint(64),      // amount
-        DynSolType::Uint(64),      // btcGasLimit
         DynSolType::Uint(64),      // block_height
+        DynSolType::Uint(64),      // amount
         DynSolType::String,        // destination
+        DynSolType::Uint(64),      // btcGasLimit
     ]);
 
     let decoded = input_type
@@ -41,11 +39,10 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
     if let DynSolValue::Tuple(values) = decoded {
         Ok(DecodedInput {
             method_selector: extract_fixed_bytes(&values[0], 4)?,
-            signer: extract_address(&values[1])?,
+            block_height: extract_uint(&values[1])?,
             amount: extract_uint(&values[2])?,
-            btc_gas_limit: extract_uint(&values[3])?,
-            block_height: extract_uint(&values[4])?,
-            destination: extract_string(&values[5])?,
+            destination: extract_string(&values[3])?,
+            btc_gas_limit: extract_uint(&values[4])?,
         })
     } else {
         Err(PrecompileError::other("Invalid input structure"))
@@ -61,14 +58,6 @@ fn extract_fixed_bytes(value: &DynSolValue, size: usize) -> Result<Vec<u8>, Prec
         }
     } else {
         Err(PrecompileError::other("Invalid fixed bytes"))
-    }
-}
-
-fn extract_address(value: &DynSolValue) -> Result<String, PrecompileError> {
-    if let DynSolValue::Address(addr) = value {
-        Ok(format!("{:?}", addr).trim_start_matches("0x").to_string())
-    } else {
-        Err(PrecompileError::other("Invalid address"))
     }
 }
 
