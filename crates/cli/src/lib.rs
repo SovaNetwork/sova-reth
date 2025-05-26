@@ -44,8 +44,7 @@ impl Default for BitcoinConfig {
 #[derive(Clone, Debug)]
 pub struct SovaConfig {
     pub bitcoin_config: Arc<BitcoinConfig>,
-    pub network_signing_url: String,
-    pub network_utxo_url: String,
+    pub network_utxos_url: String,
     pub sentinel_url: String,
     pub sentinel_confirmation_threshold: u8,
     pub sequencer_mode: bool,
@@ -54,16 +53,14 @@ pub struct SovaConfig {
 impl SovaConfig {
     pub fn new(
         bitcoin_config: BitcoinConfig,
-        network_signing_url: &str,
-        network_utxo_url: &str,
+        network_utxos_url: &str,
         sentinel_url: &str,
         sentinel_confirmation_threshold: u8,
         sequencer_mode: bool,
     ) -> Self {
         SovaConfig {
             bitcoin_config: Arc::new(bitcoin_config),
-            network_signing_url: network_signing_url.to_owned(),
-            network_utxo_url: network_utxo_url.to_owned(),
+            network_utxos_url: network_utxos_url.to_owned(),
             sentinel_url: sentinel_url.to_owned(),
             sentinel_confirmation_threshold,
             sequencer_mode,
@@ -75,8 +72,7 @@ impl Default for SovaConfig {
     fn default() -> Self {
         SovaConfig {
             bitcoin_config: Arc::new(BitcoinConfig::default()),
-            network_signing_url: String::new(),
-            network_utxo_url: String::new(),
+            network_utxos_url: String::new(),
             sentinel_url: String::new(),
             sentinel_confirmation_threshold: 6,
             sequencer_mode: false,
