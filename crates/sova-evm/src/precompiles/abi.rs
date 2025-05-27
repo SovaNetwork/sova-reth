@@ -39,10 +39,10 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
     if let DynSolValue::Tuple(values) = decoded {
         Ok(DecodedInput {
             method_selector: extract_fixed_bytes(&values[0], 4)?,
-            amount: extract_uint(&values[2])?,
-            btc_gas_limit: extract_uint(&values[3])?,
-            block_height: extract_uint(&values[4])?,
-            destination: extract_string(&values[5])?,
+            amount: extract_uint(&values[1])?,
+            btc_gas_limit: extract_uint(&values[2])?,
+            block_height: extract_uint(&values[3])?,
+            destination: extract_string(&values[4])?,
         })
     } else {
         Err(PrecompileError::other("Invalid input structure"))
