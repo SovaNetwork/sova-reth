@@ -9,17 +9,14 @@ pub use precompile_utils::BitcoinMethod;
 use std::{str::FromStr, sync::Arc};
 
 use reqwest::blocking::Client as ReqwestClient;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
-use bitcoin::{
-    consensus::encode::deserialize, hashes::Hash, Address as BtcAddress, Amount, Network, OutPoint,
-    ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
-};
+use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut, Txid};
 
 use sova_chainspec::UBTC_CONTRACT_ADDRESS;
 
@@ -49,13 +46,6 @@ struct UtxoUpdate {
     spent_txid: Option<String>,
     spent_at: Option<String>,
     spent_block: Option<i32>,
-}
-
-#[derive(Serialize)]
-struct SignTxInputData {
-    txid: String,
-    vout: u32,
-    amount: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -177,7 +167,10 @@ impl BitcoinRpcPrecompile {
             }
         };
 
-        debug!("indexer response status: {}", response.status().is_success());
+        debug!(
+            "indexer response status: {}",
+            response.status().is_success()
+        );
 
         // Parse response
         match response.json() {
@@ -424,154 +417,67 @@ impl BitcoinRpcPrecompile {
 
         let decoded_input: DecodedInput = decode_input(input)?;
 
-        // get network spendable UTXOs
-        // TODO(powvt): use the block height from 6 blocks ago to ensure the spendables are confirmed.
-        // TODO(powvt): validate gas and amount params are correct here. Is this accounted for in UTXO selection service? I dont think so..
-        let utxo_request = serde_json::json!({
+        let request = serde_json::json!({
             "block_height": decoded_input.block_height,
-            "target_amount": decoded_input.amount
+            "amount": decoded_input.amount,
+            "destination": decoded_input.destination,
+            "fee": decoded_input.btc_gas_limit,
         });
 
-        let selected_utxos_resp: serde_json::Value =
-            self.call_network_utxos("select-utxos", &utxo_request)?;
-
-        let selected_utxos: Vec<UtxoUpdate> =
-            serde_json::from_value(selected_utxos_resp["selected_utxos"].clone())
-                .map_err(|e| PrecompileError::Other(format!("UTXO parse error: {}", e)))?;
-
-        let inputs: Vec<SignTxInputData> = selected_utxos
-            .iter()
-            .map(|utxo| SignTxInputData {
-                txid: utxo.txid.clone(),
-                vout: utxo.vout as u32,
-                amount: utxo.amount as u64,
-            })
-            .collect();
-
-        let total_input: u64 = inputs.iter().map(|input| input.amount).sum();
-
-        // TODO(powvt): Add dynamic fee estimation
-        let fee = decoded_input.btc_gas_limit;
-        let total_withdrawn = decoded_input.amount + fee;
-
-        if total_input < total_withdrawn {
-            warn!("Insufficient funds for vault spend. Signer {}, total_input {}, requested amount {}", &decoded_input.signer, total_input, total_withdrawn);
-
-            return Err(PrecompileError::Other(
-                "Insufficient funds for vault spend".to_string(),
-            ));
-        }
-
-        let mut outputs = vec![serde_json::json!({
-            "address": decoded_input.destination,
-            "amount": decoded_input.amount,
-        })];
-
-        if total_input > total_withdrawn {
-            let change_amount = total_input - decoded_input.amount - fee;
-            let bitcoin_address = self.derive_btc_address(&decoded_input.signer)?;
-            outputs.push(serde_json::json!({
-                "address": bitcoin_address,
-                "amount": change_amount,
-            }));
-        }
-
         let response: Vec<u8> = if self.sequencer_mode {
-            // sign using network pk
-            // TODO(powvt): add Auth/API key for this call to the signing endpoint on the sequencer.
-
-            let sign_request = serde_json::json!({
-                "inputs": inputs,
-                "outputs": outputs,
-            });
+            info!("Sequencer signing and broadcasting Bitcoin transaction");
 
             let sign_response: serde_json::Value =
-                self.call_network_utxos("sign-transaction", &sign_request)?;
+                self.call_network_utxos("sign-transaction", &request)?;
 
             let signed_tx_hex = sign_response["signed_tx"]
                 .as_str()
                 .ok_or_else(|| PrecompileError::Other("Missing signed_tx in response".into()))?;
 
+            let txid_str = sign_response["txid"]
+                .as_str()
+                .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
+
             let signed_tx_bytes = hex::decode(signed_tx_hex).map_err(|e| {
-                PrecompileError::Other(format!(
-                    "Vault Spend Precompile: Failed to decode signed transaction into hex: {:?}",
-                    e
-                ))
+                PrecompileError::Other(format!("Failed to decode signed transaction: {:?}", e))
             })?;
 
-            // Deserialize the signed Bitcoin transaction
             let signed_tx: bitcoin::Transaction = deserialize(&signed_tx_bytes).map_err(|e| {
                 PrecompileError::Other(format!(
-                    "Vault Spend Precompile: Failed to deserialize signed Bitcoin transaction: {:?}",
+                    "Failed to deserialize signed Bitcoin transaction: {:?}",
                     e
                 ))
             })?;
 
-            // Broadcast the transaction
-            let txid = self.broadcast_transaction(&signed_tx)?;
+            let broadcast_txid = self.broadcast_transaction(&signed_tx)?;
+            info!("Broadcast result txid: {}", broadcast_txid);
+
+            let expected_txid = Txid::from_str(txid_str).map_err(|e| {
+                PrecompileError::Other(format!("Invalid txid from signing service: {:?}", e))
+            })?;
+
+            if broadcast_txid != expected_txid {
+                warn!(
+                    "Broadcast txid {} does not match indexer txid {}",
+                    broadcast_txid, expected_txid
+                );
+            }
+
+            self.format_txid_to_bytes32(expected_txid)
+        } else {
+            let prepare_response: serde_json::Value =
+                self.call_network_utxos("prepare-transaction", &request)?;
+
+            let txid_str = prepare_response["txid"]
+                .as_str()
+                .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
+
+            info!("Non-sequencer mode: received txid {}", txid_str);
+
+            let txid = Txid::from_str(txid_str)
+                .map_err(|e| PrecompileError::Other(format!("Invalid txid: {:?}", e)))?;
 
             self.format_txid_to_bytes32(txid)
-        } else {
-            // validator does not have access to network pk requests
-
-            // NOTE(powvt): This conversion logic is duplicated in the signing service.
-            // When the signing service receives a payload to be signed this same type conversion happens.
-            // If the spent transaction type is ever modified it needs to be updated in both places.
-
-            // Convert inputs to TxIn objects
-            let tx_inputs: Vec<TxIn> = inputs
-                .iter()
-                .map(|input| {
-                    let txid = Txid::from_str(&input.txid)
-                        .map_err(|e| PrecompileError::Other(format!("Invalid txid: {:?}", e)))?;
-                    let outpoint = OutPoint {
-                        txid,
-                        vout: input.vout,
-                    };
-
-                    Ok(TxIn {
-                        previous_output: outpoint,
-                        script_sig: ScriptBuf::new(),
-                        sequence: Sequence(u32::MAX),
-                        witness: Witness::default(),
-                    })
-                })
-                .collect::<Result<Vec<TxIn>, PrecompileError>>()?;
-
-            // Convert outputs to TxOut objects
-            let tx_outputs: Vec<TxOut> = outputs
-                .iter()
-                .map(|output| {
-                    let address_str = output["address"].as_str().ok_or_else(|| {
-                        PrecompileError::Other("Missing address in output".into())
-                    })?;
-                    let amount = output["amount"]
-                        .as_u64()
-                        .ok_or_else(|| PrecompileError::Other("Missing amount in output".into()))?;
-
-                    let address = BtcAddress::from_str(address_str)
-                        .map_err(|e| PrecompileError::Other(format!("Invalid address: {:?}", e)))?
-                        .require_network(self.network)
-                        .map_err(|e| {
-                            PrecompileError::Other(format!("Network mismatch: {:?}", e))
-                        })?;
-
-                    Ok(TxOut {
-                        value: Amount::from_sat(amount),
-                        script_pubkey: address.script_pubkey(),
-                    })
-                })
-                .collect::<Result<Vec<TxOut>, PrecompileError>>()?;
-
-            // Construct the transaction with the prepared inputs and outputs
-            let tx = Transaction {
-                version: bitcoin::transaction::Version::TWO,
-                lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
-                input: tx_inputs,
-                output: tx_outputs,
-            };
-
-            self.format_txid_to_bytes32(tx.txid())
         };
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
