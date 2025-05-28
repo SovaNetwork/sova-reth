@@ -9418,7 +9418,7 @@ dependencies = [
 
 [[package]]
 name = "sova-chainspec"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "alloy-genesis",
  "alloy-primitives",
@@ -9432,7 +9432,7 @@ dependencies = [
 
 [[package]]
 name = "sova-cli"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "bitcoin",
  "clap",
@@ -9444,7 +9444,7 @@ dependencies = [
 
 [[package]]
 name = "sova-evm"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -9488,7 +9488,7 @@ dependencies = [
 
 [[package]]
 name = "sova-node"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "alloy-consensus",
  "alloy-rpc-types-engine",
@@ -9537,7 +9537,7 @@ dependencies = [
 
 [[package]]
 name = "sova-payload"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -9581,7 +9581,7 @@ dependencies = [
 
 [[package]]
 name = "sova-reth"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "clap",
  "eyre",
@@ -9594,7 +9594,7 @@ dependencies = [
 
 [[package]]
 name = "sova-rpc"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -9663,7 +9663,7 @@ dependencies = [
 
 [[package]]
 name = "sova-txpool"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
