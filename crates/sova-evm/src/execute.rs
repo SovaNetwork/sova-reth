@@ -14,7 +14,7 @@ use alloy_primitives::{
 use reth_errors::RethError;
 use reth_evm::{
     block::{BlockExecutor, InternalBlockExecutionError},
-    execute::{BlockExecutionError, BlockExecutorProvider, Executor},
+    execute::{BlockExecutionError, Executor},
     ConfigureEvm, Database, Evm, EvmFactory, OnStateHook,
 };
 use reth_node_api::{BlockBody, NodePrimitives};
@@ -48,25 +48,25 @@ impl<F> SovaBlockExecutorProvider<F> {
     }
 }
 
-impl<F> BlockExecutorProvider for SovaBlockExecutorProvider<F>
-where
-    F: ConfigureEvm + 'static + WithInspector,
-{
-    type Primitives = F::Primitives;
+// impl<F> BlockExecutorProvider for SovaBlockExecutorProvider<F>
+// where
+//     F: ConfigureEvm + 'static + WithInspector,
+// {
+//     type Primitives = F::Primitives;
 
-    type Executor<DB: Database> = SovaBlockExecutor<F, DB>;
+//     type Executor<DB: Database> = SovaBlockExecutor<F, DB>;
 
-    fn executor<DB>(&self, db: DB) -> Self::Executor<DB>
-    where
-        DB: Database,
-    {
-        SovaBlockExecutor::new(
-            self.strategy_factory.clone(),
-            db,
-            self.bitcoin_client.clone(),
-        )
-    }
-}
+//     fn executor<DB>(&self, db: DB) -> Self::Executor<DB>
+//     where
+//         DB: Database,
+//     {
+//         SovaBlockExecutor::new(
+//             self.strategy_factory.clone(),
+//             db,
+//             self.bitcoin_client.clone(),
+//         )
+//     }
+// }
 
 /// A generic block executor that uses a [`BlockExecutor`] to
 /// execute blocks.

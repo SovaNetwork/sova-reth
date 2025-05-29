@@ -6,6 +6,7 @@ use error::SlotProviderError;
 use provider::StorageSlotProvider;
 
 pub use provider::SlotProvider;
+use revm::interpreter::CallInput;
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -146,7 +147,7 @@ impl SovaInspector {
         self.cache.broadcast_accessed_storage.0.clear();
 
         // Iterate through journal entries since last checkpoint and add to broadcast_accessed_storage cache
-        for entry in context.journal_ref().last_journal() {
+        for entry in context.journal_ref().journal() {
             if let JournalEntry::StorageChanged {
                 address,
                 key,
@@ -204,26 +205,39 @@ impl SovaInspector {
         }
         debug!("----- precompile call hook -----");
 
-        match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
-                debug!("-> Broadcast call hook");
+        match &inputs.input {
+            CallInput::Bytes(input) => {
+                match BitcoinMethod::try_from(input) {
+                    Ok(BitcoinMethod::BroadcastTransaction) => {
+                        debug!("-> Broadcast call hook");
 
-                // Process storage journal entries to find sstores before checking locks
-                self.process_storage_journal_entries(context);
+                        // Process storage journal entries to find sstores before checking locks
+                        self.process_storage_journal_entries(context);
 
-                // check locks
-                self.handle_lock_checks(context, inputs)
+                        // check locks
+                        self.handle_lock_checks(context, inputs)
+                    }
+                    Ok(_) => None, // Other methods we don't care about
+                    Err(err) => {
+                        // Return an error if we couldn't parse the method
+                        Some(Self::create_revert_outcome(
+                            format!("Invalid Bitcoin method: {}", err),
+                            inputs.gas_limit,
+                            inputs.return_memory_offset.clone(),
+                        ))
+                    }
+                }
             }
-            Ok(_) => None, // Other methods we don't care about
-            Err(err) => {
-                // Return an error if we couldn't parse the method
+            CallInput::SharedBuffer(_) => {
+                // TODO(deb): Handle shared buffer inputs
                 Some(Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    "Bitcoin precompile does not support shared buffer inputs".to_string(),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ))
             }
         }
+
     }
 
     /// Check to see if any of the broadcast storage slots are locked
@@ -390,27 +404,39 @@ impl SovaInspector {
         debug!("----- precompile call end hook -----");
 
         // Update the btc tx data cache
-        match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
-                debug!("-> Broadcast call end hook");
-                // only update if call was successful
-                if outcome.result.result != InstructionResult::Return {
-                    *outcome = Self::create_revert_outcome(
-                        "Broadcast btc precompile execution failed".to_string(),
-                        inputs.gas_limit,
-                        outcome.memory_offset.clone(),
-                    );
-                }
+        match &inputs.input {
+            CallInput::Bytes(input) => {
+                match BitcoinMethod::try_from(input) {
+                    Ok(BitcoinMethod::BroadcastTransaction) => {
+                        debug!("-> Broadcast call end hook");
+                        // only update if call was successful
+                        if outcome.result.result != InstructionResult::Return {
+                            *outcome = Self::create_revert_outcome(
+                                "Broadcast btc precompile execution failed".to_string(),
+                                inputs.gas_limit,
+                                outcome.memory_offset.clone(),
+                            );
+                        }
 
-                self.handle_cache_btc_data(context, inputs, outcome);
+                        self.handle_cache_btc_data(context, inputs, outcome);
+                    }
+                    Ok(_) => (), // Other methods we don't care about do nothing
+                    Err(err) => {
+                        *outcome = Self::create_revert_outcome(
+                            format!("Invalid Bitcoin method: {}", err),
+                            inputs.gas_limit,
+                            inputs.return_memory_offset.clone(),
+                        )
+                    }
+                }
             }
-            Ok(_) => (), // Other methods we don't care about do nothing
-            Err(err) => {
+            CallInput::SharedBuffer(_) => {
+                // TODO(deb): Handle shared buffer inputs
                 *outcome = Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    "Bitcoin precompile does not support shared buffer inputs".to_string(),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
-                )
+                );
             }
         }
     }

@@ -6,7 +6,7 @@ use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
     Address, Bytes, B256, U256,
 };
-use alloy_rlp::{BytesMut, Encodable};
+use alloy_rlp::BytesMut;
 use alloy_rpc_types_debug::ExecutionWitness;
 use alloy_rpc_types_engine::{PayloadAttributes, PayloadId};
 use alloy_sol_macro::sol;
@@ -36,7 +36,7 @@ use reth_optimism_payload_builder::{
     OpPayloadPrimitives,
 };
 use reth_optimism_primitives::transaction::OpTransaction;
-use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
+use reth_optimism_txpool::{estimated_da_size::DataAvailabilitySized, interop::{is_valid_interop, MaybeInteropTransaction}};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
@@ -60,7 +60,7 @@ use revm::{
 
 use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
 use sova_cli::SovaConfig;
-use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector};
+use sova_evm::{BitcoinClient, SovaEvmConfig, SovaL1BlockInfo, WithInspector};
 
 sol!(
     function setBitcoinBlockData(
@@ -71,7 +71,7 @@ sol!(
 
 /// Sova payload builder that extends the Optimism payload builder with Bitcoin integrations
 #[derive(Debug, Clone)]
-pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
+pub struct SovaPayloadBuilder<Pool, Client, Evm = SovaEvmConfig, Txs = ()> {
     /// The rollup's compute pending block configuration option.
     // TODO(clabby): Implement this feature.
     pub compute_pending_block: bool,
@@ -201,9 +201,8 @@ where
         best: impl Fn(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
     ) -> Result<BuildOutcome<OpBuiltPayload<N>>, PayloadBuilderError>
     where
-        Txs: PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
-        >,
+        Txs:
+            PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx>,
     {
         let BuildArguments {
             mut cached_reads,
@@ -506,9 +505,8 @@ where
     ) -> Result<BuildOutcomeKind<OpBuiltPayload<N>>, PayloadBuilderError>
     where
         ChainSpec: EthChainSpec + OpHardforks,
-        Txs: PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
-        >,
+        Txs:
+            PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx>,
     {
         let Self { best, evm_config } = self;
         debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number, "building new payload with Sova integration");
@@ -931,8 +929,7 @@ where
         info: &mut ExecutionInfo,
         builder: &mut impl BlockBuilder<Primitives = Evm::Primitives>,
         mut best_txs: impl PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>>
-                             + MaybeInteropTransaction,
+            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>> + OpPooledTx,
         >,
     ) -> Result<Option<()>, PayloadBuilderError> {
         let block_gas_limit = builder.evm_mut().block().gas_limit;
@@ -942,8 +939,15 @@ where
 
         while let Some(tx) = best_txs.next(()) {
             let interop = tx.interop_deadline();
+            let tx_da_size = tx.estimated_da_size();
             let tx = tx.into_consensus();
-            if info.is_tx_over_limits(tx.inner(), block_gas_limit, tx_da_limit, block_da_limit) {
+            if info.is_tx_over_limits(
+                tx_da_size,
+                block_gas_limit,
+                tx_da_limit,
+                block_da_limit,
+                tx.gas_limit(),
+            ) {
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
                 // the iterator before we can continue
@@ -996,7 +1000,7 @@ where
             // add gas used by the transaction to cumulative gas used, before creating the
             // receipt
             info.cumulative_gas_used += gas_used;
-            info.cumulative_da_bytes_used += tx.length() as u64;
+            info.cumulative_da_bytes_used += tx_da_size;
 
             // update add to total fees
             let miner_fee = tx

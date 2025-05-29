@@ -33,7 +33,7 @@ use reth_trie_db::MerklePatriciaTrie;
 
 use revm_context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
-use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
+use sova_evm::{BitcoinClient, SovaEvmConfig};
 use sova_rpc::{SovaEthApi, SovaEthApiBuilder};
 
 use crate::{engine::SovaEngineValidator, rpc::SovaEngineApiBuilder, SovaArgs};
@@ -135,6 +135,10 @@ impl SovaNode {
                         self.args.supervisor_safety_level,
                     ),
             )
+            .executor(SovaExecutorBuilder::new(
+                self.sova_config.clone(),
+                Arc::clone(&self.bitcoin_client),
+            ))
             .payload(BasicPayloadServiceBuilder::new(
                 SovaPayloadBuilder::new(
                     self.sova_config.clone(),
@@ -147,10 +151,6 @@ impl SovaNode {
                 disable_txpool_gossip,
                 disable_discovery_v4: !discovery_v4,
             })
-            .executor(SovaExecutorBuilder::new(
-                self.sova_config.clone(),
-                Arc::clone(&self.bitcoin_client),
-            ))
             .consensus(OpConsensusBuilder::default())
     }
 
@@ -425,7 +425,7 @@ impl<Txs> SovaPayloadBuilder<Txs> {
     }
 }
 
-impl<Node, Pool, Txs> PayloadBuilderBuilder<Node, Pool> for SovaPayloadBuilder<Txs>
+impl<Node, Pool, Txs, Evm> PayloadBuilderBuilder<Node, Pool, Evm> for SovaPayloadBuilder<Txs>
 where
     Node: FullNodeTypes<
         Types: NodeTypes<
@@ -434,20 +434,25 @@ where
             Primitives = OpPrimitives,
         >,
     >,
+    Evm: ConfigureEvm<
+            Primitives = PrimitivesTy<Node::Types>,
+            NextBlockEnvCtx = OpNextBlockEnvAttributes,
+        > + 'static,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
         + Unpin
         + 'static,
     Txs: OpPayloadTransactions<Pool::Transaction>,
     <Pool as TransactionPool>::Transaction: OpPooledTx,
 {
-    type PayloadBuilder = sova_payload::SovaPayloadBuilder<Pool, Node::Provider, MyEvmConfig, Txs>;
+    type PayloadBuilder = sova_payload::SovaPayloadBuilder<Pool, Node::Provider, SovaEvmConfig, Txs>;
 
     async fn build_payload_builder(
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
+        _evm_config: Evm,
     ) -> eyre::Result<Self::PayloadBuilder> {
-        let evm_config = MyEvmConfig::new(
+        let evm_config = SovaEvmConfig::new(
             &self.config,
             ctx.chain_spec(),
             self.bitcoin_client.clone(),
@@ -488,14 +493,13 @@ where
     Types: NodeTypes<ChainSpec = OpChainSpec, Primitives = OpPrimitives>,
     Node: FullNodeTypes<Types = Types>,
 {
-    type EVM = MyEvmConfig;
-    type Executor = SovaBlockExecutorProvider<MyEvmConfig>;
+    type EVM = SovaEvmConfig;
 
     async fn build_evm(
         self,
         ctx: &BuilderContext<Node>,
-    ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        let evm_config = MyEvmConfig::new(
+    ) -> eyre::Result<Self::EVM> {
+        let evm_config = SovaEvmConfig::new(
             &self.config,
             ctx.chain_spec(),
             self.bitcoin_client.clone(),
@@ -508,10 +512,7 @@ where
             )
         })?;
 
-        Ok((
-            evm_config.clone(),
-            SovaBlockExecutorProvider::new(evm_config, self.bitcoin_client),
-        ))
+        Ok(evm_config)
     }
 }
 

@@ -14,7 +14,8 @@ use reth_rpc_eth_api::{
     types::RpcTypes,
     RpcReceipt,
 };
-use reth_storage_api::{BlockReader, HeaderProvider};
+use reth_storage_api::{BlockReader, HeaderProvider, ProviderTx};
+use reth_transaction_pool::{PoolTransaction, TransactionPool};
 
 use super::{SovaEthApi, SovaNodeCore};
 
@@ -86,7 +87,11 @@ where
 
 impl<N> LoadBlock for SovaEthApi<N>
 where
-    Self: LoadPendingBlock + SpawnBlocking,
+    Self: LoadPendingBlock<
+            Pool: TransactionPool<
+                Transaction: PoolTransaction<Consensus = ProviderTx<Self::Provider>>,
+            >,
+        > + SpawnBlocking,
     N: SovaNodeCore,
 {
 }

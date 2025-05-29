@@ -10,6 +10,7 @@ use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 use precompiles::BitcoinRpcPrecompile;
 pub use precompiles::{BitcoinClient, SovaL1BlockInfo};
+use revm::{interpreter::CallInput, precompile::Precompiles};
 
 use std::{error::Error, sync::Arc};
 
@@ -23,7 +24,7 @@ use alloy_evm::{
 use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
 use alloy_primitives::{Address, Bytes};
 
-use reth_evm::{ConfigureEvm, InspectorFor};
+use reth_evm::{precompiles::PrecompilesMap, ConfigureEvm, InspectorFor};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes};
 use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
@@ -45,28 +46,34 @@ use sova_cli::SovaConfig;
 
 // Custom precompiles that include Bitcoin precompile
 #[derive(Clone, Default)]
-pub struct CustomPrecompiles {
+pub struct SovaPrecompiles {
     /// Standard Ethereum precompiles (prague)
-    pub standard: EthPrecompiles,
+    inner: EthPrecompiles,
     /// Bitcoin RPC precompile
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
 }
 
-impl CustomPrecompiles {
+impl SovaPrecompiles {
     pub fn new(bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>) -> Self {
         Self {
-            standard: EthPrecompiles::default(),
+            inner: EthPrecompiles::default(),
             bitcoin_rpc_precompile,
         }
     }
+
+    // Precompiles getter.
+    #[inline]
+    pub fn precompiles(&self) -> &'static Precompiles {
+        self.inner.precompiles
+    }
 }
 
-impl<CTX: ContextTr> PrecompileProvider<CTX> for CustomPrecompiles {
+impl<CTX: ContextTr> PrecompileProvider<CTX> for SovaPrecompiles {
     type Output = InterpreterResult;
 
     fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) -> bool {
         // Explicitly call the PrecompileProvider implementation for EthPrecompiles
-        <EthPrecompiles as PrecompileProvider<CTX>>::set_spec(&mut self.standard, spec)
+        <EthPrecompiles as PrecompileProvider<CTX>>::set_spec(&mut self.inner, spec)
     }
 
     fn run(
@@ -87,27 +94,33 @@ impl<CTX: ContextTr> PrecompileProvider<CTX> for CustomPrecompiles {
                 output: Bytes::new(),
             };
             // Call the Bitcoin precompile implementation
-            match precompile.run(&inputs.input, &inputs.caller_address) {
-                Ok(output) => {
-                    let underflow = result.gas.record_cost(output.gas_used);
-                    assert!(underflow, "Gas underflow is not possible");
-                    result.result = InstructionResult::Return;
-                    result.output = output.bytes;
-                }
-                Err(PrecompileError::Fatal(e)) => return Err(e),
-                Err(e) => {
-                    result.result = if e.is_oog() {
-                        InstructionResult::PrecompileOOG
-                    } else {
-                        InstructionResult::PrecompileError
-                    };
+            match &inputs.input {
+                CallInput::Bytes(input) => match precompile.run(input, &inputs.caller_address) {
+                    Ok(output) => {
+                        let underflow = result.gas.record_cost(output.gas_used);
+                        assert!(underflow, "Gas underflow is not possible");
+                        result.result = InstructionResult::Return;
+                        result.output = output.bytes;
+                    }
+                    Err(PrecompileError::Fatal(e)) => return Err(e),
+                    Err(e) => {
+                        result.result = if e.is_oog() {
+                            InstructionResult::PrecompileOOG
+                        } else {
+                            InstructionResult::PrecompileError
+                        };
+                    }
+                },
+                CallInput::SharedBuffer(_) => {
+                    // TODO(deb): Handle shared buffer inputs
+                    return Err("Bitcoin precompile does not support shared buffer inputs".into());
                 }
             }
 
             Ok(Some(result))
         } else {
             // Delegate to standard precompiles
-            self.standard
+            self.inner
                 .run(context, address, inputs, is_static, gas_limit)
         }
     }
@@ -115,19 +128,19 @@ impl<CTX: ContextTr> PrecompileProvider<CTX> for CustomPrecompiles {
     fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
         // Combine standard precompiles with Bitcoin precompile address
         Box::new(
-            self.standard
+            self.inner
                 .warm_addresses()
                 .chain(std::iter::once(BTC_PRECOMPILE_ADDRESS)),
         )
     }
 
     fn contains(&self, address: &Address) -> bool {
-        *address == BTC_PRECOMPILE_ADDRESS || self.standard.contains(address)
+        *address == BTC_PRECOMPILE_ADDRESS || self.inner.contains(address)
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct MyEvmConfig {
+pub struct SovaEvmConfig {
     /// Wrapper around optimism configuration
     inner: OpEvmConfig,
     /// EVM Factory
@@ -136,7 +149,7 @@ pub struct MyEvmConfig {
     inspector: Arc<RwLock<SovaInspector>>,
 }
 
-impl MyEvmConfig {
+impl SovaEvmConfig {
     pub fn new(
         config: &SovaConfig,
         chain_spec: Arc<OpChainSpec>,
@@ -172,7 +185,7 @@ impl MyEvmConfig {
     }
 }
 
-impl BlockExecutorFactory for MyEvmConfig {
+impl BlockExecutorFactory for SovaEvmConfig {
     type EvmFactory = SovaEvmFactory;
     type ExecutionCtx<'a> = OpBlockExecutionCtx;
     type Transaction = OpTransactionSigned;
@@ -184,7 +197,7 @@ impl BlockExecutorFactory for MyEvmConfig {
 
     fn create_executor<'a, DB, I>(
         &'a self,
-        evm: SovaEvm<&'a mut State<DB>, I, CustomPrecompiles>,
+        evm: SovaEvm<&'a mut State<DB>, I, PrecompilesMap>,
         ctx: OpBlockExecutionCtx,
     ) -> impl BlockExecutorFor<'a, Self, DB, I>
     where
@@ -201,7 +214,7 @@ impl BlockExecutorFactory for MyEvmConfig {
     }
 }
 
-impl ConfigureEvm for MyEvmConfig {
+impl ConfigureEvm for SovaEvmConfig {
     type Primitives = OpPrimitives;
     type Error = <OpEvmConfig as ConfigureEvm>::Error;
     type NextBlockEnvCtx = OpNextBlockEnvAttributes;
@@ -244,7 +257,7 @@ impl ConfigureEvm for MyEvmConfig {
     }
 }
 
-impl WithInspector for MyEvmConfig {
+impl WithInspector for SovaEvmConfig {
     fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
         &self.inspector
     }
