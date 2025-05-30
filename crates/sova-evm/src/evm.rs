@@ -248,7 +248,9 @@ impl EvmFactory for SovaEvmFactory {
         db: DB,
         input: EvmEnv<OpSpecId>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let custom_precompiles = PrecompilesMap::from_static(SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone()).precompiles());
+        let custom_precompiles = PrecompilesMap::from_static(
+            SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone()).precompiles(),
+        );
 
         SovaEvm {
             inner: Context::sova()
@@ -267,7 +269,9 @@ impl EvmFactory for SovaEvmFactory {
         input: EvmEnv<OpSpecId>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let custom_precompiles = PrecompilesMap::from_static(SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone()).precompiles());
+        let custom_precompiles = PrecompilesMap::from_static(
+            SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone()).precompiles(),
+        );
 
         SovaEvm {
             inner: Context::sova()

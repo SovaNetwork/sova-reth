@@ -444,7 +444,8 @@ where
     Txs: OpPayloadTransactions<Pool::Transaction>,
     <Pool as TransactionPool>::Transaction: OpPooledTx,
 {
-    type PayloadBuilder = sova_payload::SovaPayloadBuilder<Pool, Node::Provider, SovaEvmConfig, Txs>;
+    type PayloadBuilder =
+        sova_payload::SovaPayloadBuilder<Pool, Node::Provider, SovaEvmConfig, Txs>;
 
     async fn build_payload_builder(
         self,
@@ -495,10 +496,7 @@ where
 {
     type EVM = SovaEvmConfig;
 
-    async fn build_evm(
-        self,
-        ctx: &BuilderContext<Node>,
-    ) -> eyre::Result<Self::EVM> {
+    async fn build_evm(self, ctx: &BuilderContext<Node>) -> eyre::Result<Self::EVM> {
         let evm_config = SovaEvmConfig::new(
             &self.config,
             ctx.chain_spec(),

@@ -1,4 +1,4 @@
-use alloy_consensus::{TxType, transaction::Either};
+use alloy_consensus::{transaction::Either, TxType};
 use alloy_primitives::{Bytes, TxKind, U256};
 use alloy_rpc_types_eth::transaction::TransactionRequest;
 use op_revm::OpTransaction;

@@ -237,7 +237,6 @@ impl SovaInspector {
                 ))
             }
         }
-
     }
 
     /// Check to see if any of the broadcast storage slots are locked

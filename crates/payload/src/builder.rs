@@ -36,7 +36,10 @@ use reth_optimism_payload_builder::{
     OpPayloadPrimitives,
 };
 use reth_optimism_primitives::transaction::OpTransaction;
-use reth_optimism_txpool::{estimated_da_size::DataAvailabilitySized, interop::{is_valid_interop, MaybeInteropTransaction}};
+use reth_optimism_txpool::{
+    estimated_da_size::DataAvailabilitySized,
+    interop::{is_valid_interop, MaybeInteropTransaction},
+};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
