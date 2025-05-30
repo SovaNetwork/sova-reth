@@ -5,7 +5,6 @@ mod precompiles;
 mod sova_revm;
 
 use evm::{SovaEvm, SovaEvmFactory};
-pub use execute::SovaBlockExecutorProvider;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 use precompiles::BitcoinRpcPrecompile;
@@ -255,6 +254,29 @@ impl ConfigureEvm for SovaEvmConfig {
     ) -> OpBlockExecutionCtx {
         self.inner.context_for_next_block(parent, attributes)
     }
+
+    // fn executor<DB: reth_evm::Database>(
+    //     &self,
+    //     db: DB,
+    // ) -> reth_evm::execute::BasicBlockExecutor<&SovaEvmConfig, DB> {
+    //     SovaBlockExecutor::new(self, db, self.bitcoin_client.clone())
+    // }
+
+    // fn create_executor<'a, DB, I>(
+    //     &'a self,
+    //     evm: reth_evm::EvmFor<Self, &'a mut State<DB>, I>,
+    //     ctx: <Self::BlockExecutorFactory as BlockExecutorFactory>::ExecutionCtx<'a>,
+    // ) -> impl BlockExecutorFor<'a, Self::BlockExecutorFactory, DB, I>
+    // where
+    //     DB: reth_evm::Database,
+    //     I: InspectorFor<Self, &'a mut State<DB>> + 'a,
+    // {
+    //     SovaBlockExecutor::new(
+    //         self,
+    //         _,
+    //         self.bitcoin_client.clone(),
+    //     )
+    // }
 }
 
 impl WithInspector for SovaEvmConfig {

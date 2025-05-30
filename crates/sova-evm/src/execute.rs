@@ -31,23 +31,6 @@ use sova_chainspec::L1_BLOCK_SATOSHI_SELECTOR;
 
 use crate::{BitcoinClient, WithInspector};
 
-/// A Sova block executor provider that can create executors using a strategy factory.
-#[derive(Clone, Debug)]
-pub struct SovaBlockExecutorProvider<F> {
-    strategy_factory: F,
-    bitcoin_client: Arc<BitcoinClient>,
-}
-
-impl<F> SovaBlockExecutorProvider<F> {
-    /// Creates a new `SovaBlockExecutorProvider` with the given strategy factory.
-    pub const fn new(strategy_factory: F, bitcoin_client: Arc<BitcoinClient>) -> Self {
-        Self {
-            strategy_factory,
-            bitcoin_client,
-        }
-    }
-}
-
 // impl<F> BlockExecutorProvider for SovaBlockExecutorProvider<F>
 // where
 //     F: ConfigureEvm + 'static + WithInspector,
@@ -81,19 +64,19 @@ pub struct SovaBlockExecutor<F, DB> {
 }
 
 impl<F, DB: Database> SovaBlockExecutor<F, DB> {
-    /// Creates a new `SovaBlockExecutor` with the given strategy.
-    pub fn new(strategy_factory: F, db: DB, bitcoin_client: Arc<BitcoinClient>) -> Self {
-        let db = State::builder()
-            .with_database(db)
-            .with_bundle_update()
-            .without_state_clear()
-            .build();
-        Self {
-            strategy_factory,
-            db,
-            bitcoin_client,
-        }
-    }
+    // Creates a new `SovaBlockExecutor` with the given strategy.
+    // pub fn new(strategy_factory: F, db: DB, bitcoin_client: Arc<BitcoinClient>) -> Self {
+    //     let db = State::builder()
+    //         .with_database(db)
+    //         .with_bundle_update()
+    //         .without_state_clear()
+    //         .build();
+    //     Self {
+    //         strategy_factory,
+    //         db,
+    //         bitcoin_client,
+    //     }
+    // }
 }
 
 impl<F, DB> SovaBlockExecutor<F, DB>
