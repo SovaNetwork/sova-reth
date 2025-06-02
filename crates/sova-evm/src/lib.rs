@@ -5,6 +5,7 @@ mod precompiles;
 mod sova_revm;
 
 use evm::{SovaEvm, SovaEvmFactory};
+use execute::SovaBlockExecutor;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 use precompiles::BitcoinRpcPrecompile;
@@ -20,7 +21,7 @@ use alloy_evm::{
     block::{BlockExecutorFactory, BlockExecutorFor},
     EvmEnv,
 };
-use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
+use alloy_op_evm::OpBlockExecutionCtx;
 use alloy_primitives::{Address, Bytes};
 
 use reth_evm::{precompiles::PrecompilesMap, ConfigureEvm, InspectorFor};
@@ -139,13 +140,15 @@ impl<CTX: ContextTr> PrecompileProvider<CTX> for SovaPrecompiles {
 }
 
 #[derive(Clone, Debug)]
-pub struct SovaEvmConfig {
+pub struct SovaEvmConfig<I = SovaInspector> {
     /// Wrapper around optimism configuration
     inner: OpEvmConfig,
     /// EVM Factory
     evm_factory: SovaEvmFactory,
     /// Engine inspector used to track bitcoin precompile execution for double spends
-    inspector: Arc<RwLock<SovaInspector>>,
+    inspector: Arc<RwLock<I>>,
+    /// The bitcoin client
+    bitcoin_client: Arc<BitcoinClient>,
 }
 
 impl SovaEvmConfig {
@@ -175,6 +178,7 @@ impl SovaEvmConfig {
             inner: OpEvmConfig::optimism(chain_spec),
             evm_factory: SovaEvmFactory::new(bitcoin_precompile),
             inspector: Arc::new(RwLock::new(inspector)),
+            bitcoin_client,
         })
     }
 
@@ -204,11 +208,12 @@ impl BlockExecutorFactory for SovaEvmConfig {
         I: InspectorFor<Self, &'a mut State<DB>> + 'a,
         <DB as Database>::Error: Send + Sync + 'static,
     {
-        OpBlockExecutor::new(
+        SovaBlockExecutor::new(
             evm,
             ctx,
             self.inner.chain_spec().clone(),
             *self.inner.executor_factory.receipt_builder(),
+            self.bitcoin_client.clone(),
         )
     }
 }
@@ -254,29 +259,6 @@ impl ConfigureEvm for SovaEvmConfig {
     ) -> OpBlockExecutionCtx {
         self.inner.context_for_next_block(parent, attributes)
     }
-
-    // fn executor<DB: reth_evm::Database>(
-    //     &self,
-    //     db: DB,
-    // ) -> reth_evm::execute::BasicBlockExecutor<&SovaEvmConfig, DB> {
-    //     SovaBlockExecutor::new(self, db, self.bitcoin_client.clone())
-    // }
-
-    // fn create_executor<'a, DB, I>(
-    //     &'a self,
-    //     evm: reth_evm::EvmFor<Self, &'a mut State<DB>, I>,
-    //     ctx: <Self::BlockExecutorFactory as BlockExecutorFactory>::ExecutionCtx<'a>,
-    // ) -> impl BlockExecutorFor<'a, Self::BlockExecutorFactory, DB, I>
-    // where
-    //     DB: reth_evm::Database,
-    //     I: InspectorFor<Self, &'a mut State<DB>> + 'a,
-    // {
-    //     SovaBlockExecutor::new(
-    //         self,
-    //         _,
-    //         self.bitcoin_client.clone(),
-    //     )
-    // }
 }
 
 impl WithInspector for SovaEvmConfig {

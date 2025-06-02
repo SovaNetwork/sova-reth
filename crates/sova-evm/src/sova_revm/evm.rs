@@ -14,6 +14,7 @@ use crate::SovaPrecompiles;
 /// Sova EVM implementation.
 ///
 /// This is a wrapper type around the `revm` EVM with custom Bitcoin precompiles.
+#[derive(Debug)]
 pub struct SovaEvm<CTX, INSP, I = EthInstructions<EthInterpreter, CTX>, P = SovaPrecompiles>(
     pub Evm<CTX, INSP, I, P>,
 );

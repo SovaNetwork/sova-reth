@@ -45,7 +45,7 @@ pub struct StorageChange {
 }
 
 /// EVM engine inspector for enforcing storage slot locks
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SovaInspector {
     /// accessed storage cache
     pub cache: StorageCache,
