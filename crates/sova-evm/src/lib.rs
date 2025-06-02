@@ -81,7 +81,7 @@ where
 
     #[inline]
     fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) -> bool {
-        Self::new_with_spec(spec, self.bitcoin_rpc_precompile.clone());
+        *self = Self::new_with_spec(spec, self.bitcoin_rpc_precompile.clone());
         true
     }
 
