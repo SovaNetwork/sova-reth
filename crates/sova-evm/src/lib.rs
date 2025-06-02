@@ -131,14 +131,14 @@ where
     fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
         // Combine standard precompiles with Bitcoin precompile address
         Box::new(
-            <OpPrecompiles as PrecompileProvider<CTX>>::warm_addresses(&self)
+            <OpPrecompiles as PrecompileProvider<CTX>>::warm_addresses(self)
                 .chain(std::iter::once(BTC_PRECOMPILE_ADDRESS)),
         )
     }
 
     fn contains(&self, address: &Address) -> bool {
         *address == BTC_PRECOMPILE_ADDRESS
-            || <OpPrecompiles as PrecompileProvider<CTX>>::contains(&self, address)
+            || <OpPrecompiles as PrecompileProvider<CTX>>::contains(self, address)
     }
 }
 
