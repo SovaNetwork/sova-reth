@@ -46,7 +46,7 @@ use sova_cli::SovaConfig;
 // Custom precompiles that include Bitcoin precompile
 #[derive(Clone, Default, derive_more::Deref)]
 pub struct SovaPrecompiles {
-    /// Standard Ethereum precompiles (prague)
+    /// Standard Op precompiles
     #[deref]
     pub standard: OpPrecompiles,
     /// Bitcoin RPC precompile
