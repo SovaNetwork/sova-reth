@@ -18,12 +18,12 @@ use revm::{
 use crate::{
     precompiles::BitcoinRpcPrecompile,
     sova_revm::{DefaultSova, SovaBuilder, SovaContext},
-    CustomPrecompiles,
+    SovaPrecompiles,
 };
 
 /// Convenience wrapper for SovaEvm that implements Alloy's Evm trait
 /// https://github.com/alloy-rs/evm/blob/main/crates/op-evm/src/lib.rs#L42
-pub struct SovaEvm<DB: Database, I, P = CustomPrecompiles> {
+pub struct SovaEvm<DB: Database, I, P = SovaPrecompiles> {
     inner: crate::sova_revm::SovaEvm<
         SovaContext<DB>,
         I,
@@ -236,7 +236,7 @@ impl EvmFactory for SovaEvmFactory {
         db: DB,
         input: EvmEnv<OpSpecId>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let custom_precompiles = CustomPrecompiles::new(self.bitcoin_rpc_precompile.clone());
+        let custom_precompiles = SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone());
 
         SovaEvm {
             inner: Context::sova()
@@ -254,7 +254,7 @@ impl EvmFactory for SovaEvmFactory {
         input: EvmEnv<OpSpecId>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let custom_precompiles = CustomPrecompiles::new(self.bitcoin_rpc_precompile.clone());
+        let custom_precompiles = SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone());
 
         SovaEvm {
             inner: Context::sova()
