@@ -27,7 +27,7 @@ impl DefaultSova for SovaContext<EmptyDB> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{sova_revm::builder::SovaBuilder, CustomPrecompiles};
+    use crate::{sova_revm::builder::SovaBuilder, SovaPrecompiles};
     use revm::{
         inspector::{InspectEvm, NoOpInspector},
         ExecuteEvm,
@@ -37,8 +37,9 @@ mod test {
     fn default_run_sova() {
         let ctx = Context::sova();
         // convert to optimism context
-        let mut evm =
-            ctx.build_sova_op_with_inspector(NoOpInspector {}, CustomPrecompiles::default());
+        let mut evm = ctx
+            .build_sova_op_with_inspector(NoOpInspector {})
+            .with_precompiles(SovaPrecompiles::default());
         // execute
         let _ = evm.replay();
         // inspect

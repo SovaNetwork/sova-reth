@@ -5,8 +5,6 @@ use revm::{
     Context, Database, Inspector,
 };
 
-use crate::CustomPrecompiles;
-
 use super::evm::SovaEvm;
 
 /// Trait that allows for Sova EVM to be built from a context.
@@ -18,7 +16,6 @@ pub trait SovaBuilder: Sized {
     fn build_sova_op_with_inspector<INSP: Inspector<Self::Context>>(
         self,
         inspector: INSP,
-        precompiles: CustomPrecompiles,
     ) -> SovaEvm<Self::Context, INSP>;
 }
 
@@ -32,11 +29,7 @@ where
 {
     type Context = Self;
 
-    fn build_sova_op_with_inspector<INSP>(
-        self,
-        inspector: INSP,
-        precompiles: CustomPrecompiles,
-    ) -> SovaEvm<Self::Context, INSP> {
-        SovaEvm::new(self, inspector).with_precompiles(precompiles)
+    fn build_sova_op_with_inspector<INSP>(self, inspector: INSP) -> SovaEvm<Self::Context, INSP> {
+        SovaEvm::new(self, inspector)
     }
 }

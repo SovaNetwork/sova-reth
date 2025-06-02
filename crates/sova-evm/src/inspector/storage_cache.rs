@@ -82,7 +82,7 @@ pub struct BroadcastResult {
     pub block: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StorageCache {
     /// Bitcoin precompile address used for filtering calls to the broadcast tx method
     pub bitcoin_precompile_address: Address,
