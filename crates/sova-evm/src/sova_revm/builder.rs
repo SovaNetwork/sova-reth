@@ -5,7 +5,7 @@ use revm::{
     Context, Database, Inspector,
 };
 
-use crate::CustomPrecompiles;
+use crate::SovaPrecompiles;
 
 use super::evm::SovaEvm;
 
@@ -18,7 +18,7 @@ pub trait SovaBuilder: Sized {
     fn build_sova_op_with_inspector<INSP: Inspector<Self::Context>>(
         self,
         inspector: INSP,
-        precompiles: CustomPrecompiles,
+        precompiles: SovaPrecompiles,
     ) -> SovaEvm<Self::Context, INSP>;
 }
 
@@ -35,7 +35,7 @@ where
     fn build_sova_op_with_inspector<INSP>(
         self,
         inspector: INSP,
-        precompiles: CustomPrecompiles,
+        precompiles: SovaPrecompiles,
     ) -> SovaEvm<Self::Context, INSP> {
         SovaEvm::new(self, inspector).with_precompiles(precompiles)
     }

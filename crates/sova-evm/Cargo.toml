@@ -47,6 +47,7 @@ revm.workspace = true
 
 bitcoin.workspace = true
 bitcoincore-rpc.workspace = true
+derive_more.workspace = true
 eyre.workspace = true
 hex.workspace = true
 parking_lot.workspace = true

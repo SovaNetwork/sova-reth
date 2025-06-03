@@ -31,42 +31,58 @@ use reth_primitives::{SealedBlock, SealedHeader};
 use reth_revm::{
     context::Cfg,
     context_interface::ContextTr,
-    handler::{EthPrecompiles, PrecompileProvider},
+    handler::PrecompileProvider,
     interpreter::{Gas, InputsImpl, InstructionResult, InterpreterResult},
     precompile::PrecompileError,
     Database, State,
 };
 use reth_tasks::TaskExecutor;
 
-use op_revm::OpSpecId;
+use op_revm::{precompiles::OpPrecompiles, OpSpecId};
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS};
 use sova_cli::SovaConfig;
 
 // Custom precompiles that include Bitcoin precompile
-#[derive(Clone, Default)]
-pub struct CustomPrecompiles {
-    /// Standard Ethereum precompiles (prague)
-    pub standard: EthPrecompiles,
+#[derive(Clone, Default, derive_more::Deref)]
+pub struct SovaPrecompiles {
+    /// Standard Op precompiles
+    #[deref]
+    pub standard: OpPrecompiles,
     /// Bitcoin RPC precompile
     bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
 }
 
-impl CustomPrecompiles {
+impl SovaPrecompiles {
     pub fn new(bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>) -> Self {
         Self {
-            standard: EthPrecompiles::default(),
+            standard: OpPrecompiles::default(),
+            bitcoin_rpc_precompile,
+        }
+    }
+
+    #[inline]
+    pub fn new_with_spec(
+        spec: OpSpecId,
+        bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    ) -> Self {
+        Self {
+            standard: OpPrecompiles::new_with_spec(spec),
             bitcoin_rpc_precompile,
         }
     }
 }
 
-impl<CTX: ContextTr> PrecompileProvider<CTX> for CustomPrecompiles {
+impl<CTX> PrecompileProvider<CTX> for SovaPrecompiles
+where
+    CTX: ContextTr<Cfg: Cfg<Spec = OpSpecId>>,
+{
     type Output = InterpreterResult;
 
+    #[inline]
     fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) -> bool {
-        // Explicitly call the PrecompileProvider implementation for EthPrecompiles
-        <EthPrecompiles as PrecompileProvider<CTX>>::set_spec(&mut self.standard, spec)
+        *self = Self::new_with_spec(spec, self.bitcoin_rpc_precompile.clone());
+        true
     }
 
     fn run(
@@ -115,14 +131,14 @@ impl<CTX: ContextTr> PrecompileProvider<CTX> for CustomPrecompiles {
     fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
         // Combine standard precompiles with Bitcoin precompile address
         Box::new(
-            self.standard
-                .warm_addresses()
+            <OpPrecompiles as PrecompileProvider<CTX>>::warm_addresses(self)
                 .chain(std::iter::once(BTC_PRECOMPILE_ADDRESS)),
         )
     }
 
     fn contains(&self, address: &Address) -> bool {
-        *address == BTC_PRECOMPILE_ADDRESS || self.standard.contains(address)
+        *address == BTC_PRECOMPILE_ADDRESS
+            || <OpPrecompiles as PrecompileProvider<CTX>>::contains(self, address)
     }
 }
 
@@ -184,7 +200,7 @@ impl BlockExecutorFactory for MyEvmConfig {
 
     fn create_executor<'a, DB, I>(
         &'a self,
-        evm: SovaEvm<&'a mut State<DB>, I, CustomPrecompiles>,
+        evm: SovaEvm<&'a mut State<DB>, I, SovaPrecompiles>,
         ctx: OpBlockExecutionCtx,
     ) -> impl BlockExecutorFor<'a, Self, DB, I>
     where

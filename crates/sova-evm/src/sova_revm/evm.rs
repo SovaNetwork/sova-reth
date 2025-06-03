@@ -9,23 +9,23 @@ use revm::{
     Inspector,
 };
 
-use crate::CustomPrecompiles;
+use crate::SovaPrecompiles;
 
 /// Sova EVM implementation.
 ///
 /// This is a wrapper type around the `revm` EVM with custom Bitcoin precompiles.
-pub struct SovaEvm<CTX, INSP, I = EthInstructions<EthInterpreter, CTX>, P = CustomPrecompiles>(
+pub struct SovaEvm<CTX, INSP, I = EthInstructions<EthInterpreter, CTX>, P = SovaPrecompiles>(
     pub Evm<CTX, INSP, I, P>,
 );
 
 impl<CTX: ContextTr, INSP>
-    SovaEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, CustomPrecompiles>
+    SovaEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, SovaPrecompiles>
 {
     pub fn new(ctx: CTX, inspector: INSP) -> Self {
         Self(Evm {
             data: EvmData { ctx, inspector },
             instruction: EthInstructions::new_mainnet(),
-            precompiles: CustomPrecompiles::default(),
+            precompiles: SovaPrecompiles::default(),
         })
     }
 }
