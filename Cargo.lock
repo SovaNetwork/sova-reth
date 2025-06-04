@@ -9533,7 +9533,6 @@ dependencies = [
  "sova-evm",
  "sova-payload",
  "sova-rpc",
- "sova-txpool",
 ]
 
 [[package]]
@@ -9660,24 +9659,6 @@ dependencies = [
  "prost",
  "tonic",
  "tonic-build",
-]
-
-[[package]]
-name = "sova-txpool"
-version = "0.0.5"
-dependencies = [
- "alloy-consensus",
- "alloy-eips",
- "futures-util",
- "op-revm",
- "parking_lot",
- "reth-chainspec",
- "reth-optimism-evm",
- "reth-optimism-forks",
- "reth-optimism-node",
- "reth-primitives-traits",
- "reth-storage-api",
- "reth-transaction-pool",
 ]
 
 [[package]]
