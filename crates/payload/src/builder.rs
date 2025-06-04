@@ -64,7 +64,7 @@ use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector};
 
 sol!(
     function setBitcoinBlockData(
-        uint256 _blockHeight,
+        uint64 _blockHeight,
         bytes32 _blockHash
     );
 );
@@ -323,7 +323,7 @@ where
     pub fn create_bitcoin_data_deposit_tx(block_height: u64, block_hash: B256) -> Bytes {
         // Create the function call data for the setBitcoinBlockData method
         let call_data = setBitcoinBlockDataCall {
-            _blockHeight: U256::from(block_height),
+            _blockHeight: block_height,
             _blockHash: block_hash,
         };
 

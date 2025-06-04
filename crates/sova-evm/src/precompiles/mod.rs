@@ -417,6 +417,12 @@ impl BitcoinRpcPrecompile {
 
         let decoded_input: DecodedInput = decode_input(input)?;
 
+        debug!(
+            "Address {} is requesting a network spend",
+            decoded_input.caller
+        );
+
+        // TODO(powvt): Add `caller` to request here
         let request = serde_json::json!({
             "block_height": decoded_input.block_height,
             "amount": decoded_input.amount,
