@@ -25,7 +25,7 @@ pub struct SovaArgs {
     #[arg(long, default_value = "password")]
     pub btc_rpc_password: String,
 
-    /// CLI flag to indicate the network UTXO database url
+    /// CLI flag to indicate the network signing url
     #[arg(long, default_value = "http://127.0.0.1:3031")]
     pub network_utxos_url: String,
 
