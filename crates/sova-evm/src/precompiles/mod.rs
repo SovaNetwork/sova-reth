@@ -95,7 +95,7 @@ impl BitcoinRpcPrecompile {
         self.sequencer_mode = true;
     }
 
-    pub fn run(&self, input: &Bytes, caller: &Address) -> PrecompileResult {
+    pub fn run(&self, input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
         let method = BitcoinMethod::try_from(input).map_err(|e| {
             PrecompileError::Other(
                 "Invalid precompile method selector".to_string() + &e.to_string(),
@@ -118,7 +118,7 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::DecodeTransaction => self.decode_raw_transaction(input_data, gas_used),
             BitcoinMethod::CheckSignature => self.check_signature(input_data, gas_used),
             BitcoinMethod::ConvertAddress => self.convert_address(input_data, gas_used),
-            BitcoinMethod::VaultSpend => self.network_spend(input, caller, gas_used),
+            BitcoinMethod::VaultSpend => self.network_spend(input, precomp_caller, gas_used),
         };
 
         if res.is_err() {
@@ -407,27 +407,22 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn network_spend(&self, input: &[u8], caller: &Address, gas_used: u64) -> PrecompileResult {
+    fn network_spend(&self, input: &[u8], precomp_caller: &Address, gas_used: u64) -> PrecompileResult {
         // only the native bitcoin wrapper contract can call this method
-        if caller != &UBTC_CONTRACT_ADDRESS {
+        if precomp_caller != &UBTC_CONTRACT_ADDRESS {
             return Err(
-                PrecompileError::Other("Unauthorized caller for vaultSpend. Only the enshrined uBTC contract may call this precompile.".to_string())
+                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined UBTC contract may use network signing.".to_string())
             );
         }
 
         let decoded_input: DecodedInput = decode_input(input)?;
 
-        debug!(
-            "Address {} is requesting a network spend",
-            decoded_input.caller
-        );
-
-        // TODO(powvt): Add `caller` to request here
         let request = serde_json::json!({
             "block_height": decoded_input.block_height,
             "amount": decoded_input.amount,
             "destination": decoded_input.destination,
             "fee": decoded_input.btc_gas_limit,
+            "caller": decoded_input.caller, // msg.sender, data comes from contract
         });
 
         let response: Vec<u8> = if self.sequencer_mode {
