@@ -407,7 +407,12 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn network_spend(&self, input: &[u8], precomp_caller: &Address, gas_used: u64) -> PrecompileResult {
+    fn network_spend(
+        &self,
+        input: &[u8],
+        precomp_caller: &Address,
+        gas_used: u64,
+    ) -> PrecompileResult {
         // only the native bitcoin wrapper contract can call this method
         if precomp_caller != &UBTC_CONTRACT_ADDRESS {
             return Err(
