@@ -8,8 +8,7 @@ use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::SovaBlockExecutorProvider;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
-use precompiles::BitcoinRpcPrecompile;
-pub use precompiles::{BitcoinClient, SovaL1BlockInfo};
+pub use precompiles::{BitcoinClient, BitcoinRpcPrecompile, SovaL1BlockInfo};
 
 use std::{error::Error, sync::Arc};
 
@@ -103,7 +102,7 @@ where
                 output: Bytes::new(),
             };
             // Call the Bitcoin precompile implementation
-            match precompile.run(&inputs.input, &inputs.caller_address) {
+            match BitcoinRpcPrecompile::run(&inputs.input, &inputs.caller_address) {
                 Ok(output) => {
                     let underflow = result.gas.record_cost(output.gas_used);
                     assert!(underflow, "Gas underflow is not possible");

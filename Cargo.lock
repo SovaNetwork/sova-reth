@@ -9589,6 +9589,7 @@ dependencies = [
  "reth-optimism-cli",
  "reth-tracing",
  "sova-cli",
+ "sova-evm",
  "sova-node",
 ]
 
