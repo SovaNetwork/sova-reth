@@ -79,7 +79,7 @@ impl BitcoinRpcPrecompile {
         // Check for API key at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
         if api_key.is_empty() && sequencer_mode {
-            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set for sequencer mode. Auth to signing service will fail.");
+            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set for sequencer mode.");
         }
 
         Ok(Self {
@@ -89,10 +89,6 @@ impl BitcoinRpcPrecompile {
             network_utxos_url,
             sequencer_mode,
         })
-    }
-
-    pub fn sequencer_mode(&mut self) {
-        self.sequencer_mode = true;
     }
 
     pub fn run(&self, input: &Bytes, precomp_caller: &Address) -> PrecompileResult {

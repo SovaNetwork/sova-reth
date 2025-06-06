@@ -15,7 +15,7 @@ pub struct SovaArgs {
 
     // CLI flag to indicate the bitcoin rpc url
     #[arg(long, default_value = "http://127.0.0.1")]
-    pub network_url: String,
+    pub btc_network_url: String,
 
     /// CLI flag to indicate the bitcoin rpc username
     #[arg(long, default_value = "user")]
@@ -41,10 +41,6 @@ pub struct SovaArgs {
     ///       in the orchestration of running a validator.
     #[arg(long, default_value = "6")]
     pub sentinel_confirmation_threshold: u8,
-
-    /// enable sequencer mode, this is for validators who are able to process network signed transactions
-    #[arg(long, default_value = "false")]
-    pub sequencer_mode: bool,
 
     /// Endpoint for the sequencer mempool (can be both HTTP and WS)
     #[arg(long = "rollup.sequencer", visible_aliases = ["rollup.sequencer-http", "rollup.sequencer-ws"])]
@@ -98,13 +94,12 @@ impl Default for SovaArgs {
     fn default() -> Self {
         Self {
             btc_network: BitcoinNetwork::default(),
-            network_url: "http://127.0.0.1".to_string(),
+            btc_network_url: "http://127.0.0.1".to_string(),
             btc_rpc_username: "user".to_string(),
             btc_rpc_password: "password".to_string(),
             network_utxos_url: "http://127.0.0.1:3031".to_string(),
             sentinel_url: "http://[::1]:50051".to_string(),
             sentinel_confirmation_threshold: 6,
-            sequencer_mode: false,
             sequencer: None,
             disable_txpool_gossip: false,
             enable_genesis_walkback: false,

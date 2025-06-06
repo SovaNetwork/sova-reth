@@ -1,42 +1,34 @@
 use std::sync::Arc;
 
-use reth_evm::{ConfigureEvm, EvmFactory, EvmFactoryFor};
-use reth_node_api::{AddOnsContext, FullNodeComponents, NodeAddOns, NodeTypes, PrimitivesTy, TxTy};
+use reth_evm::ConfigureEvm;
+use reth_node_api::{FullNodeComponents, NodeTypes, PrimitivesTy, TxTy};
 use reth_node_builder::{
     components::{
         BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, PayloadBuilderBuilder,
     },
     node::FullNodeTypes,
-    rpc::{
-        EngineValidatorAddOn, EngineValidatorBuilder, EthApiBuilder, RethRpcAddOns, RpcAddOns,
-        RpcHandle,
-    },
-    BuilderContext, Node, NodeAdapter, NodeComponentsBuilder,
+    BuilderContext, DebugNode, Node, NodeAdapter, NodeComponentsBuilder,
 };
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_node::{
-    node::{OpConsensusBuilder, OpNetworkBuilder, OpPoolBuilder},
+    node::{OpAddOns, OpConsensusBuilder, OpNetworkBuilder, OpPoolBuilder},
     txpool::OpPooledTx,
-    OpEngineTypes, OpNextBlockEnvAttributes,
+    OpEngineTypes,
 };
 use reth_optimism_payload_builder::{
     builder::OpPayloadTransactions,
     config::{OpBuilderConfig, OpDAConfig},
 };
 use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
-use reth_optimism_rpc::OpEthApiError;
 
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
-use reth_rpc_eth_types::error::FromEvmError;
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
-use revm_context::TxEnv;
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
-use sova_rpc::{SovaEthApi, SovaEthApiBuilder};
 
-use crate::{engine::SovaEngineValidator, rpc::SovaEngineApiBuilder, SovaArgs};
+use crate::SovaArgs;
 
 /// Storage implementation for Sova
 pub type SovaStorage = EthStorage<OpTransactionSigned>;
@@ -65,7 +57,7 @@ impl SovaNode {
     pub fn new(args: SovaArgs) -> Result<Self, bitcoincore_rpc::Error> {
         let btc_config: BitcoinConfig = BitcoinConfig::new(
             args.btc_network.clone().into(),
-            &args.network_url,
+            &args.btc_network_url,
             &args.btc_rpc_username,
             &args.btc_rpc_password,
         );
@@ -75,7 +67,7 @@ impl SovaNode {
             &args.network_utxos_url,
             &args.sentinel_url,
             args.sentinel_confirmation_threshold,
-            args.sequencer_mode,
+            args.sequencer.is_some(),
         );
 
         let bitcoin_client = BitcoinClient::new(
@@ -179,16 +171,41 @@ where
         OpConsensusBuilder,
     >;
 
-    type AddOns = SovaAddOns<
-        NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>,
-    >;
+    type AddOns =
+        OpAddOns<NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>>;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components(self)
     }
 
     fn add_ons(&self) -> Self::AddOns {
-        SovaAddOns::default()
+        Self::AddOns::builder()
+            .with_sequencer(self.args.sequencer.clone())
+            .with_da_config(self.da_config.clone())
+            .with_enable_tx_conditional(self.args.enable_tx_conditional)
+            .build()
+    }
+}
+
+impl<N> DebugNode<N> for SovaNode
+where
+    N: FullNodeComponents<Types = Self>,
+{
+    type RpcBlock = alloy_rpc_types_eth::Block<op_alloy_consensus::OpTxEnvelope>;
+
+    fn rpc_to_primitive_block(rpc_block: Self::RpcBlock) -> reth_node_api::BlockTy<Self> {
+        let alloy_rpc_types_eth::Block {
+            header,
+            transactions,
+            ..
+        } = rpc_block;
+        reth_optimism_primitives::OpBlock {
+            header: header.inner,
+            body: reth_optimism_primitives::OpBlockBody {
+                transactions: transactions.into_transactions().collect(),
+                ..Default::default()
+            },
+        }
     }
 }
 
@@ -198,128 +215,6 @@ impl NodeTypes for SovaNode {
     type StateCommitment = MerklePatriciaTrie;
     type Storage = SovaStorage;
     type Payload = OpEngineTypes;
-}
-
-/// Custom AddOns for Sova
-#[derive(Debug)]
-pub struct SovaAddOns<N>
-where
-    N: FullNodeComponents,
-    SovaEthApiBuilder: EthApiBuilder<N>,
-{
-    pub inner: RpcAddOns<
-        N,
-        SovaEthApiBuilder,
-        SovaEngineValidatorBuilder,
-        SovaEngineApiBuilder<SovaEngineValidatorBuilder>,
-    >,
-}
-
-impl<N> Default for SovaAddOns<N>
-where
-    N: FullNodeComponents<Types: NodeTypes<Primitives = OpPrimitives>>,
-    SovaEthApiBuilder: EthApiBuilder<N>,
-{
-    fn default() -> Self {
-        Self::builder().build()
-    }
-}
-
-impl<N> SovaAddOns<N>
-where
-    N: FullNodeComponents<Types: NodeTypes<Primitives = OpPrimitives>>,
-    SovaEthApiBuilder: EthApiBuilder<N>,
-{
-    /// Build a [`SovaAddOns`] using [`SovaAddOnsBuilder`].
-    pub fn builder() -> SovaAddOnsBuilder {
-        SovaAddOnsBuilder::default()
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct SovaAddOnsBuilder;
-
-impl SovaAddOnsBuilder {
-    /// Builds an instance of [`SovaAddOns`].
-    pub fn build<N>(self) -> SovaAddOns<N>
-    where
-        N: FullNodeComponents<Types: NodeTypes<Primitives = OpPrimitives>>,
-        SovaEthApiBuilder: EthApiBuilder<N>,
-    {
-        // NOTE: In optimism this is where the sequencer is injected as an AddOn.
-        // Block producers on Sova commit to a specific BTC block context.
-
-        SovaAddOns {
-            inner: RpcAddOns::new(SovaEthApiBuilder, Default::default(), Default::default()),
-        }
-    }
-}
-
-impl<N> NodeAddOns<N> for SovaAddOns<N>
-where
-    N: FullNodeComponents<
-        Types: NodeTypes<
-            ChainSpec = OpChainSpec,
-            Primitives = OpPrimitives,
-            Storage = SovaStorage,
-            Payload = OpEngineTypes,
-        >,
-        Evm: ConfigureEvm<NextBlockEnvCtx = OpNextBlockEnvAttributes>,
-    >,
-    OpEthApiError: FromEvmError<N::Evm>,
-    <N::Pool as TransactionPool>::Transaction: OpPooledTx,
-    EvmFactoryFor<N::Evm>: EvmFactory<Tx = op_revm::OpTransaction<TxEnv>>,
-{
-    type Handle = RpcHandle<N, SovaEthApi<N>>;
-
-    async fn launch_add_ons(
-        self,
-        ctx: reth_node_api::AddOnsContext<'_, N>,
-    ) -> eyre::Result<Self::Handle> {
-        // No-op - no flashbots, no optimism sequencer
-        self.inner.launch_add_ons_with(ctx, |_, _, _| Ok(())).await
-    }
-}
-
-impl<N> RethRpcAddOns<N> for SovaAddOns<N>
-where
-    N: FullNodeComponents<
-        Types: NodeTypes<
-            ChainSpec = OpChainSpec,
-            Primitives = OpPrimitives,
-            Storage = SovaStorage,
-            Payload = OpEngineTypes,
-        >,
-        Evm: ConfigureEvm<NextBlockEnvCtx = OpNextBlockEnvAttributes>,
-    >,
-    OpEthApiError: FromEvmError<N::Evm>,
-    <<N as FullNodeComponents>::Pool as TransactionPool>::Transaction: OpPooledTx,
-    EvmFactoryFor<N::Evm>: EvmFactory<Tx = op_revm::OpTransaction<TxEnv>>,
-{
-    type EthApi = SovaEthApi<N>;
-
-    fn hooks_mut(&mut self) -> &mut reth_node_builder::rpc::RpcHooks<N, Self::EthApi> {
-        self.inner.hooks_mut()
-    }
-}
-
-impl<N> EngineValidatorAddOn<N> for SovaAddOns<N>
-where
-    N: FullNodeComponents<
-        Types: NodeTypes<
-            ChainSpec = OpChainSpec,
-            Primitives = OpPrimitives,
-            Payload = OpEngineTypes,
-        >,
-    >,
-    SovaEthApiBuilder: EthApiBuilder<N>,
-{
-    type Validator = SovaEngineValidator;
-
-    async fn engine_validator(&self, ctx: &AddOnsContext<'_, N>) -> eyre::Result<Self::Validator> {
-        SovaEngineValidatorBuilder::default().build(ctx).await
-    }
 }
 
 /// A Sova payload builder service
@@ -512,22 +407,5 @@ where
             evm_config.clone(),
             SovaBlockExecutorProvider::new(evm_config, self.bitcoin_client),
         ))
-    }
-}
-
-/// Builder for [`SovaEngineValidator`].
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct SovaEngineValidatorBuilder;
-
-impl<Node, Types> EngineValidatorBuilder<Node> for SovaEngineValidatorBuilder
-where
-    Types: NodeTypes<ChainSpec = OpChainSpec, Payload = OpEngineTypes, Primitives = OpPrimitives>,
-    Node: FullNodeComponents<Types = Types>,
-{
-    type Validator = SovaEngineValidator;
-
-    async fn build(self, ctx: &AddOnsContext<'_, Node>) -> eyre::Result<Self::Validator> {
-        Ok(SovaEngineValidator::new(ctx.config.chain.clone()))
     }
 }
