@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use reth_evm::ConfigureEvm;
-use reth_node_api::{AddOnsContext, FullNodeComponents, NodeTypes, PrimitivesTy, TxTy};
+use reth_node_api::{FullNodeComponents, NodeTypes, PrimitivesTy, TxTy};
 use reth_node_builder::{
     components::{
         BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, PayloadBuilderBuilder,
-    }, node::FullNodeTypes, rpc::EngineValidatorBuilder,
-    BuilderContext, DebugNode, Node, NodeAdapter, NodeComponentsBuilder
+    },
+    node::FullNodeTypes,
+    BuilderContext, DebugNode, Node, NodeAdapter, NodeComponentsBuilder,
 };
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_node::{
@@ -27,7 +28,7 @@ use reth_trie_db::MerklePatriciaTrie;
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
 
-use crate::{engine::SovaEngineValidator, SovaArgs};
+use crate::SovaArgs;
 
 /// Storage implementation for Sova
 pub type SovaStorage = EthStorage<OpTransactionSigned>;
@@ -193,7 +194,11 @@ where
     type RpcBlock = alloy_rpc_types_eth::Block<op_alloy_consensus::OpTxEnvelope>;
 
     fn rpc_to_primitive_block(rpc_block: Self::RpcBlock) -> reth_node_api::BlockTy<Self> {
-        let alloy_rpc_types_eth::Block { header, transactions, .. } = rpc_block;
+        let alloy_rpc_types_eth::Block {
+            header,
+            transactions,
+            ..
+        } = rpc_block;
         reth_optimism_primitives::OpBlock {
             header: header.inner,
             body: reth_optimism_primitives::OpBlockBody {
@@ -402,22 +407,5 @@ where
             evm_config.clone(),
             SovaBlockExecutorProvider::new(evm_config, self.bitcoin_client),
         ))
-    }
-}
-
-/// Builder for [`SovaEngineValidator`].
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct SovaEngineValidatorBuilder;
-
-impl<Node, Types> EngineValidatorBuilder<Node> for SovaEngineValidatorBuilder
-where
-    Types: NodeTypes<ChainSpec = OpChainSpec, Payload = OpEngineTypes, Primitives = OpPrimitives>,
-    Node: FullNodeComponents<Types = Types>,
-{
-    type Validator = SovaEngineValidator;
-
-    async fn build(self, ctx: &AddOnsContext<'_, Node>) -> eyre::Result<Self::Validator> {
-        Ok(SovaEngineValidator::new(ctx.config.chain.clone()))
     }
 }
