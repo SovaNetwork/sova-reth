@@ -129,7 +129,7 @@ fn parse_network(s: &str) -> Result<Network, &'static str> {
 /// Wrapper Bitcoin Network enum to allow for default derivation
 #[derive(Clone, Debug)]
 pub struct BitcoinNetwork {
-    network: Network,
+    pub network: Network,
 }
 
 impl Default for BitcoinNetwork {
@@ -149,5 +149,17 @@ impl From<Network> for BitcoinNetwork {
 impl From<BitcoinNetwork> for Network {
     fn from(network: BitcoinNetwork) -> Self {
         network.network
+    }
+}
+
+impl From<&str> for BitcoinNetwork {
+    fn from(s: &str) -> Self {
+        match parse_network(s) {
+            Ok(network) => BitcoinNetwork::from(network),
+            Err(err) => {
+                eprintln!("Error parsing network: {}", err);
+                BitcoinNetwork::default()
+            }
+        }
     }
 }

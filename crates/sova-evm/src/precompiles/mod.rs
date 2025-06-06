@@ -5,20 +5,26 @@ mod precompile_utils;
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
 pub use precompile_utils::BitcoinMethod;
+use revm::precompile::PrecompileWithAddress;
+use sova_cli::BitcoinConfig;
 
-use std::{str::FromStr, sync::Arc};
+use std::{env, str::FromStr, sync::Arc};
 
 use reqwest::blocking::Client as ReqwestClient;
 use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
+use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut, Txid};
 
-use sova_chainspec::UBTC_CONTRACT_ADDRESS;
+use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, UBTC_CONTRACT_ADDRESS};
+
+pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
+    PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -69,6 +75,21 @@ impl Default for BitcoinRpcPrecompile {
     }
 }
 
+#[derive(RlpDecodable, RlpEncodable, Debug)]
+pub struct BitcoinRpcPrecompileInput {
+    precompile_input: Bytes,
+    precomp_caller: Address,
+}
+
+impl BitcoinRpcPrecompileInput {
+    pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
+        Self {
+            precompile_input,
+            precomp_caller,
+        }
+    }
+}
+
 impl BitcoinRpcPrecompile {
     pub fn new(
         bitcoin_client: Arc<BitcoinClient>,
@@ -91,7 +112,50 @@ impl BitcoinRpcPrecompile {
         })
     }
 
-    pub fn run(&self, input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
+    pub fn from_env() -> Self {
+        // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
+        // to do this, we call this function once (for sanity check) after the env vars are set just before node start
+
+        let network = Network::from_str(&env::var("SOVA_BTC_NETWORK").unwrap()).unwrap();
+
+        let bitcoin_config = BitcoinConfig::new(
+            network,
+            &env::var("SOVA_BTC_NETWORK_URL").unwrap(),
+            &env::var("SOVA_BTC_RPC_USERNAME").unwrap(),
+            &env::var("SOVA_BTC_RPC_PASSWORD").unwrap(),
+        );
+
+        let bitcoin_client = Arc::new(
+            BitcoinClient::new(
+                &bitcoin_config,
+                env::var("SOVA_SENTINEL_CONFIRMATION_THRESHOLD")
+                    .unwrap()
+                    .parse::<u8>()
+                    .unwrap(),
+            )
+            .unwrap(),
+        );
+
+        let network_utxos_url = env::var("SOVA_NETWORK_UTXOS_URL").unwrap_or_default();
+        let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
+
+        BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode)
+            .expect("Failed to create BitcoinRpcPrecompile from environment")
+    }
+
+    // pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
+    pub fn run(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+        let BitcoinRpcPrecompileInput {
+            precompile_input,
+            precomp_caller,
+        } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
+            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {:?}", e)))?;
+
+        let input = &precompile_input;
+        let precomp_caller = &precomp_caller;
+
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+
         let method = BitcoinMethod::try_from(input).map_err(|e| {
             PrecompileError::Other(
                 "Invalid precompile method selector".to_string() + &e.to_string(),
@@ -110,11 +174,17 @@ impl BitcoinRpcPrecompile {
         }
 
         let res = match method {
-            BitcoinMethod::BroadcastTransaction => self.broadcast_btc_tx(input_data, gas_used),
-            BitcoinMethod::DecodeTransaction => self.decode_raw_transaction(input_data, gas_used),
-            BitcoinMethod::CheckSignature => self.check_signature(input_data, gas_used),
-            BitcoinMethod::ConvertAddress => self.convert_address(input_data, gas_used),
-            BitcoinMethod::VaultSpend => self.network_spend(input, precomp_caller, gas_used),
+            BitcoinMethod::BroadcastTransaction => {
+                btc_precompile.broadcast_btc_tx(input_data, gas_used)
+            }
+            BitcoinMethod::DecodeTransaction => {
+                btc_precompile.decode_raw_transaction(input_data, gas_used)
+            }
+            BitcoinMethod::CheckSignature => btc_precompile.check_signature(input_data, gas_used),
+            BitcoinMethod::ConvertAddress => btc_precompile.convert_address(input_data, gas_used),
+            BitcoinMethod::VaultSpend => {
+                btc_precompile.network_spend(input, precomp_caller, gas_used)
+            }
         };
 
         if res.is_err() {

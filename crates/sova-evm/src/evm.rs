@@ -1,11 +1,9 @@
 use core::ops::{Deref, DerefMut};
-use std::sync::Arc;
 
 use alloy_evm::{Database, Evm, EvmEnv, EvmFactory};
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use op_alloy_consensus::OpTxType;
 use op_revm::{OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
-use parking_lot::RwLock;
 use revm::{
     context::{BlockEnv, TxEnv},
     context_interface::result::{EVMError, ResultAndState},
@@ -16,7 +14,6 @@ use revm::{
 };
 
 use crate::{
-    precompiles::BitcoinRpcPrecompile,
     sova_revm::{DefaultSova, SovaBuilder, SovaContext},
     SovaPrecompiles,
 };
@@ -210,15 +207,11 @@ where
 /// Factory producing [`SovaEvm`]s.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
-pub struct SovaEvmFactory {
-    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
-}
+pub struct SovaEvmFactory {}
 
 impl SovaEvmFactory {
-    pub fn new(bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>) -> Self {
-        Self {
-            bitcoin_rpc_precompile,
-        }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -236,7 +229,7 @@ impl EvmFactory for SovaEvmFactory {
         db: DB,
         input: EvmEnv<OpSpecId>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let sova_precompiles = SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone());
+        let sova_precompiles = SovaPrecompiles::new();
 
         SovaEvm {
             inner: Context::sova()
@@ -254,7 +247,7 @@ impl EvmFactory for SovaEvmFactory {
         input: EvmEnv<OpSpecId>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let sova_precompiles = SovaPrecompiles::new(self.bitcoin_rpc_precompile.clone());
+        let sova_precompiles = SovaPrecompiles::new();
 
         SovaEvm {
             inner: Context::sova()

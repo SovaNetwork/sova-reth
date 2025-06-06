@@ -35,6 +35,7 @@ alloy-dyn-abi.workspace = true
 alloy-eips.workspace = true
 alloy-evm.workspace = true
 alloy-primitives.workspace = true
+alloy-rlp.workspace = true
 alloy-sol-types.workspace = true
 
 alloy-op-evm.workspace = true
@@ -56,3 +57,4 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tonic.workspace = true
+once_cell.workspace = true
