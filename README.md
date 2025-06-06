@@ -40,15 +40,14 @@ make build
 
 # run in devnet mode using Bitcoin regtest
 make run-sova-regtest
+
+# run in devnet mode using Bitcoin regtest, use fresh data directory
+make run-sova-regtest clean=clean
 ```
 
-## Running a Validator
+## Running a Node
 
-### For Operators (WIP)
-
-Operators can join the Testnet by staking Testnet Sova and syncing the historical chain data. For more information on how to join the Testnet as an operator view our [Operator Guide]() in the docs. This guide will run you through starting a VM, installing the EigenLayer CLI, registering as an operator, and running the Sova validator.
-
-### Devnet
+### Devnet/ Testnet
 
 For testing sova-reth in a devnet environment, it is recommended to use [running-sova](https://github.com/SovaNetwork/running-sova). This will orchestrate the deployment of all the auxiliary services need for local development.
 
@@ -56,7 +55,13 @@ For testing sova-reth in a devnet environment, it is recommended to use [running
 
 The Bitcoin precompiles are found at address 0x999 and accept a bytes payload along with a 4 bytes method identifier. The method identifier specifies the bitcoin rpc call that should be called with the payload data.
 
-For more information on how to use the precompiles see this [section](https://docs.sova.io/developers/bitcoin-precompiles) in the docs.
+For more information on how to use the precompiles see the [docs](https://docs.sova.io/developers/bitcoin-precompiles).
+
+## Bitcoin Finality
+
+The Sova EVM engine is preloaded with an engine 'inspector'. REVM inspector [docs](https://docs.rs/revm-inspector/6.0.0/revm_inspector/trait.Inspector.html). For Sova's use case, the job of the engine inspector is to check the finality of Bitcoin transactions which are associated with specific smart contract slot changes. The inspector uses an speciaized database to track all of the slots that are associated with Bitcoin transactions waiting to be confirmed. We call this database the [sentinel](https://github.com/SovaNetwork/sova-sentinel). Accompanying these services is a full Bitcoin node which the sentinel does read operations from to determine if certain slots can be finalized or not. If a slot is finalized, EVM engine execution proceeds without revert, otherwise if the tx cannot be confirmed on Bitcoin before the configured timeout period, the slot is reverted to the previous value on Sova reflecting the Bitcoin state.
+
+The inspector uses a revert slot storage cache to easily apply slot reverts during block execution and block building. We call this the simulation run and happen prior to the actual block execution run where db state is updated and finalized. In the simulation run all block txs are run through the Sova EVM and the inspector stores slot reverts in its cache. Them after all txs are executed, the revert cache is applied the the nodes db. That happens prior to 'actual' block execution so that Sova state always follows Bitcoin state.
 
 ## License
 
