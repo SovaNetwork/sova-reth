@@ -16,7 +16,7 @@ static ALLOC: reth_cli_util::allocator::Allocator = reth_cli_util::allocator::ne
 fn set_env_for_sova(args: SovaArgs) {
     // Set environment variables for Sova
     env::set_var("SOVA_BTC_NETWORK", args.btc_network.network.to_string());
-    env::set_var("SOVA_BTC_NETWORK_URL", args.network_url);
+    env::set_var("SOVA_BTC_NETWORK_URL", args.btc_network_url);
     env::set_var("SOVA_BTC_RPC_USERNAME", args.btc_rpc_username);
     env::set_var("SOVA_BTC_RPC_PASSWORD", args.btc_rpc_password);
     env::set_var("SOVA_NETWORK_UTXOS_URL", args.network_utxos_url);
@@ -25,7 +25,7 @@ fn set_env_for_sova(args: SovaArgs) {
         "SOVA_SENTINEL_CONFIRMATION_THRESHOLD",
         args.sentinel_confirmation_threshold.to_string(),
     );
-    env::set_var("SOVA_SEQUENCER_MODE", args.sequencer_mode.to_string());
+    env::set_var("SOVA_SEQUENCER_MODE", args.sequencer.is_some().to_string());
 }
 
 fn main() {
