@@ -13,7 +13,6 @@ members = [
     "crates/cli",
     "crates/node",
     "crates/payload",
-    "crates/rpc",
     "crates/sova-evm",
 ]
 default-members = ["bin/sova/"]
@@ -26,7 +25,6 @@ sova-cli = { path = "crates/cli" }
 sova-evm = { path = "crates/sova-evm" }
 sova-node = { path = "crates/node" }
 sova-payload = { path = "crates/payload" }
-sova-rpc = { path = "crates/rpc" }
 
 # sova external
 sova-sentinel-client = { git = "https://github.com/SovaNetwork/sova-sentinel.git", rev = "56eab845eb9df85cff2d859da0ed4bd16b1dd9e6" }
