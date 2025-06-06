@@ -5,6 +5,7 @@ mod precompile_utils;
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
 pub use precompile_utils::BitcoinMethod;
+use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
 use std::{env, str::FromStr, sync::Arc};
@@ -13,13 +14,17 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
+use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut, Txid};
 
-use sova_chainspec::UBTC_CONTRACT_ADDRESS;
+use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, UBTC_CONTRACT_ADDRESS};
+
+pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
+    PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -66,6 +71,21 @@ impl Default for BitcoinRpcPrecompile {
             http_client: Arc::new(ReqwestClient::new()),
             network_utxos_url: String::new(),
             sequencer_mode: false,
+        }
+    }
+}
+
+#[derive(RlpDecodable, RlpEncodable, Debug)]
+pub struct BitcoinRpcPrecompileInput {
+    precompile_input: Bytes,
+    precomp_caller: Address,
+}
+
+impl BitcoinRpcPrecompileInput {
+    pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
+        Self {
+            precompile_input,
+            precomp_caller,
         }
     }
 }
@@ -117,7 +137,7 @@ impl BitcoinRpcPrecompile {
         );
 
         let network_utxos_url = env::var("SOVA_NETWORK_UTXOS_URL").unwrap_or_default();
-        let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").map_or(false, |v| v == "true");
+        let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
 
         BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode)
             .expect("Failed to create BitcoinRpcPrecompile from environment")
@@ -127,7 +147,17 @@ impl BitcoinRpcPrecompile {
         self.sequencer_mode = true;
     }
 
-    pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
+    // pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
+    pub fn run(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+        let BitcoinRpcPrecompileInput {
+            precompile_input,
+            precomp_caller,
+        } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
+            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {:?}", e)))?;
+
+        let input = &precompile_input;
+        let precomp_caller = &precomp_caller;
+
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         let method = BitcoinMethod::try_from(input).map_err(|e| {

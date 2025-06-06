@@ -363,9 +363,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "1.0.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70b98b99c1dcfbe74d7f0b31433ff215e7d1555e367d90e62db904f3c9d4ff53"
+checksum = "a326d47106039f38b811057215a92139f46eef7983a4b77b10930a0ea5685b1e"
 dependencies = [
  "alloy-rlp",
  "bytes",
@@ -9452,12 +9452,14 @@ dependencies = [
  "alloy-evm",
  "alloy-op-evm",
  "alloy-primitives",
+ "alloy-rlp",
  "alloy-sol-types",
  "bitcoin",
  "bitcoincore-rpc",
  "derive_more",
  "eyre",
  "hex",
+ "once_cell",
  "op-alloy-consensus",
  "op-revm",
  "parking_lot",

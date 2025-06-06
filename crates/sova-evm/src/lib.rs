@@ -8,7 +8,9 @@ use evm::{SovaEvm, SovaEvmFactory};
 pub use execute::SovaBlockExecutorProvider;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
+use once_cell::race::OnceBox;
 pub use precompiles::{BitcoinClient, BitcoinRpcPrecompile, SovaL1BlockInfo};
+use revm::{handler::EthPrecompiles, precompile::Precompiles, primitives::hardfork::SpecId};
 
 use std::{error::Error, sync::Arc};
 
@@ -20,7 +22,7 @@ use alloy_evm::{
     EvmEnv,
 };
 use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
-use alloy_primitives::{Address, Bytes};
+use alloy_primitives::Address;
 
 use reth_evm::{ConfigureEvm, InspectorFor};
 use reth_optimism_chainspec::OpChainSpec;
@@ -31,43 +33,58 @@ use reth_revm::{
     context::Cfg,
     context_interface::ContextTr,
     handler::PrecompileProvider,
-    interpreter::{Gas, InputsImpl, InstructionResult, InterpreterResult},
-    precompile::PrecompileError,
+    interpreter::{InputsImpl, InterpreterResult},
     Database, State,
 };
 use reth_tasks::TaskExecutor;
 
-use op_revm::{precompiles::OpPrecompiles, OpSpecId};
+use op_revm::{
+    precompiles::{fjord, granite, isthmus},
+    OpSpecId,
+};
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS};
 use sova_cli::SovaConfig;
 
+use crate::precompiles::{BitcoinRpcPrecompileInput, SOVA_BITCOIN_PRECOMPILE};
+
 // Custom precompiles that include Bitcoin precompile
-#[derive(Clone, Default, derive_more::Deref)]
+#[derive(Clone, Default)]
 pub struct SovaPrecompiles {
-    /// Standard Op precompiles
-    #[deref]
-    pub standard: OpPrecompiles,
-    /// Bitcoin RPC precompile
-    bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
+    pub inner: EthPrecompiles,
+    pub spec: OpSpecId,
 }
 
 impl SovaPrecompiles {
-    pub fn new(bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>) -> Self {
-        Self {
-            standard: OpPrecompiles::default(),
-            bitcoin_rpc_precompile,
-        }
+    pub fn new() -> Self {
+        Self::new_with_spec(OpSpecId::ISTHMUS)
     }
 
     #[inline]
-    pub fn new_with_spec(
-        spec: OpSpecId,
-        bitcoin_rpc_precompile: Arc<RwLock<BitcoinRpcPrecompile>>,
-    ) -> Self {
+    pub fn new_with_spec(spec: OpSpecId) -> Self {
+        let global_precompiles = match spec {
+            spec @ (OpSpecId::BEDROCK
+            | OpSpecId::REGOLITH
+            | OpSpecId::CANYON
+            | OpSpecId::ECOTONE) => Precompiles::new(spec.into_eth_spec().into()),
+            OpSpecId::FJORD => fjord(),
+            OpSpecId::GRANITE | OpSpecId::HOLOCENE => granite(),
+            OpSpecId::ISTHMUS | OpSpecId::INTEROP | OpSpecId::OSAKA => isthmus(),
+        };
+
+        static INSTANCE: OnceBox<Precompiles> = OnceBox::new();
+        let precompiles = INSTANCE.get_or_init(|| {
+            let mut precompiles = global_precompiles.clone();
+            precompiles.extend([SOVA_BITCOIN_PRECOMPILE]);
+            Box::new(precompiles)
+        });
+
         Self {
-            standard: OpPrecompiles::new_with_spec(spec),
-            bitcoin_rpc_precompile,
+            inner: EthPrecompiles {
+                precompiles,
+                spec: SpecId::default(),
+            },
+            spec,
         }
     }
 }
@@ -80,7 +97,7 @@ where
 
     #[inline]
     fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) -> bool {
-        *self = Self::new_with_spec(spec, self.bitcoin_rpc_precompile.clone());
+        *self = Self::new_with_spec(spec);
         true
     }
 
@@ -92,52 +109,29 @@ where
         is_static: bool,
         gas_limit: u64,
     ) -> Result<Option<Self::Output>, String> {
-        if *address == BTC_PRECOMPILE_ADDRESS {
-            // Handle Bitcoin precompile
-            let precompile = self.bitcoin_rpc_precompile.write();
-
-            let mut result = InterpreterResult {
-                result: InstructionResult::Return,
-                gas: Gas::new(gas_limit),
-                output: Bytes::new(),
-            };
-            // Call the Bitcoin precompile implementation
-            match BitcoinRpcPrecompile::run(&inputs.input, &inputs.caller_address) {
-                Ok(output) => {
-                    let underflow = result.gas.record_cost(output.gas_used);
-                    assert!(underflow, "Gas underflow is not possible");
-                    result.result = InstructionResult::Return;
-                    result.output = output.bytes;
-                }
-                Err(PrecompileError::Fatal(e)) => return Err(e),
-                Err(e) => {
-                    result.result = if e.is_oog() {
-                        InstructionResult::PrecompileOOG
-                    } else {
-                        InstructionResult::PrecompileError
-                    };
-                }
-            }
-
-            Ok(Some(result))
-        } else {
-            // Delegate to standard precompiles
-            self.standard
-                .run(context, address, inputs, is_static, gas_limit)
-        }
+        let inputs = InputsImpl {
+            target_address: inputs.target_address,
+            caller_address: inputs.caller_address,
+            input: if *address == BTC_PRECOMPILE_ADDRESS {
+                let input =
+                    BitcoinRpcPrecompileInput::new(inputs.input.clone(), inputs.caller_address);
+                alloy_rlp::encode(input).to_vec().into()
+            } else {
+                inputs.input.clone()
+            },
+            call_value: inputs.call_value,
+        };
+        self.inner
+            .run(context, address, &inputs, is_static, gas_limit)
     }
 
     fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
         // Combine standard precompiles with Bitcoin precompile address
-        Box::new(
-            <OpPrecompiles as PrecompileProvider<CTX>>::warm_addresses(self)
-                .chain(std::iter::once(BTC_PRECOMPILE_ADDRESS)),
-        )
+        self.inner.warm_addresses()
     }
 
     fn contains(&self, address: &Address) -> bool {
-        *address == BTC_PRECOMPILE_ADDRESS
-            || <OpPrecompiles as PrecompileProvider<CTX>>::contains(self, address)
+        self.inner.contains(address)
     }
 }
 
@@ -155,16 +149,8 @@ impl MyEvmConfig {
     pub fn new(
         config: &SovaConfig,
         chain_spec: Arc<OpChainSpec>,
-        bitcoin_client: Arc<BitcoinClient>,
         task_executor: TaskExecutor,
     ) -> Result<Self, Box<dyn Error>> {
-        let bitcoin_precompile = BitcoinRpcPrecompile::new(
-            bitcoin_client.clone(),
-            config.bitcoin_config.network,
-            config.network_utxos_url.clone(),
-            config.sequencer_mode,
-        )?;
-
         let inspector = SovaInspector::new(
             BTC_PRECOMPILE_ADDRESS,
             vec![BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS],
@@ -173,10 +159,9 @@ impl MyEvmConfig {
         )
         .map_err(|e| Box::new(e) as Box<dyn Error>)?;
 
-        let bitcoin_precompile = Arc::new(RwLock::new(bitcoin_precompile));
         Ok(Self {
             inner: OpEvmConfig::optimism(chain_spec),
-            evm_factory: SovaEvmFactory::new(bitcoin_precompile),
+            evm_factory: SovaEvmFactory::new(),
             inspector: Arc::new(RwLock::new(inspector)),
         })
     }

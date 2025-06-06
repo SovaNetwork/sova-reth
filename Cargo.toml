@@ -125,6 +125,7 @@ futures-util = { version = "0.3", default-features = false }
 hex = "0.4.3"
 jsonrpsee = "0.24.9"
 jsonrpsee-types = "0.24.9"
+once_cell = { version = "1.19", default-features = false, features = ["critical-section"] }
 parking_lot = "0.12"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
 serde = "1"

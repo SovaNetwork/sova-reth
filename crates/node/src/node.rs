@@ -447,18 +447,15 @@ where
         ctx: &BuilderContext<Node>,
         pool: Pool,
     ) -> eyre::Result<Self::PayloadBuilder> {
-        let evm_config = MyEvmConfig::new(
-            &self.config,
-            ctx.chain_spec(),
-            self.bitcoin_client.clone(),
-            ctx.task_executor().clone(),
-        )
-        .map_err(|e| {
-            eyre::eyre!(
-                "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
-                e
-            )
-        })?;
+        let evm_config =
+            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
+                |e| {
+                    eyre::eyre!(
+                        "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
+                        e
+                    )
+                },
+            )?;
 
         self.build(evm_config, ctx, pool)
     }
@@ -495,18 +492,15 @@ where
         self,
         ctx: &BuilderContext<Node>,
     ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        let evm_config = MyEvmConfig::new(
-            &self.config,
-            ctx.chain_spec(),
-            self.bitcoin_client.clone(),
-            ctx.task_executor().clone(),
-        )
-        .map_err(|e| {
-            eyre::eyre!(
-                "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
-                e
-            )
-        })?;
+        let evm_config =
+            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
+                |e| {
+                    eyre::eyre!(
+                        "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
+                        e
+                    )
+                },
+            )?;
 
         Ok((
             evm_config.clone(),
