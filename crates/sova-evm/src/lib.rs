@@ -4,13 +4,17 @@ mod inspector;
 mod precompiles;
 mod sova_revm;
 
+use alloy_evm::Database as Alloy_Database;
 use evm::{SovaEvm, SovaEvmFactory};
-pub use execute::SovaBlockExecutorProvider;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 use once_cell::race::OnceBox;
 pub use precompiles::{BitcoinClient, BitcoinRpcPrecompile, SovaL1BlockInfo};
-use revm::{handler::EthPrecompiles, precompile::Precompiles, primitives::hardfork::SpecId};
+use reth_errors::BlockExecutionError;
+use revm::{
+    handler::EthPrecompiles, interpreter::CallInput, precompile::Precompiles,
+    primitives::hardfork::SpecId,
+};
 
 use std::{error::Error, sync::Arc};
 
@@ -24,7 +28,7 @@ use alloy_evm::{
 use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
 use alloy_primitives::Address;
 
-use reth_evm::{ConfigureEvm, InspectorFor};
+use reth_evm::{execute::Executor, precompiles::PrecompilesMap, ConfigureEvm, InspectorFor};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes};
 use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
@@ -46,7 +50,10 @@ use op_revm::{
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS};
 use sova_cli::SovaConfig;
 
-use crate::precompiles::{BitcoinRpcPrecompileInput, SOVA_BITCOIN_PRECOMPILE};
+use crate::{
+    execute::SovaBlockExecutor,
+    precompiles::{BitcoinRpcPrecompileInput, SOVA_BITCOIN_PRECOMPILE},
+};
 
 // Custom precompiles that include Bitcoin precompile
 #[derive(Clone, Default)]
@@ -87,6 +94,11 @@ impl SovaPrecompiles {
             spec,
         }
     }
+
+    #[inline]
+    pub fn into_precompiles_map(self) -> PrecompilesMap {
+        PrecompilesMap::from(self.inner)
+    }
 }
 
 impl<CTX> PrecompileProvider<CTX> for SovaPrecompiles
@@ -111,11 +123,19 @@ where
     ) -> Result<Option<Self::Output>, String> {
         let inputs = InputsImpl {
             target_address: inputs.target_address,
+            bytecode_address: inputs.bytecode_address,
             caller_address: inputs.caller_address,
             input: if *address == BTC_PRECOMPILE_ADDRESS {
-                let input =
-                    BitcoinRpcPrecompileInput::new(inputs.input.clone(), inputs.caller_address);
-                alloy_rlp::encode(input).to_vec().into()
+                let precompile_input = match &inputs.input {
+                    CallInput::Bytes(bytes) => bytes.clone(),
+                    CallInput::SharedBuffer(_) => {
+                        return Err(
+                            "SharedBuffer is not supported for Bitcoin precompile".to_string()
+                        )
+                    }
+                };
+                let input = BitcoinRpcPrecompileInput::new(precompile_input, inputs.caller_address);
+                CallInput::Bytes(alloy_rlp::encode(input).to_vec().into())
             } else {
                 inputs.input.clone()
             },
@@ -136,7 +156,7 @@ where
 }
 
 #[derive(Clone, Debug)]
-pub struct MyEvmConfig {
+pub struct SovaEvmConfig {
     /// Wrapper around optimism configuration
     inner: OpEvmConfig,
     /// EVM Factory
@@ -145,7 +165,7 @@ pub struct MyEvmConfig {
     inspector: Arc<RwLock<SovaInspector>>,
 }
 
-impl MyEvmConfig {
+impl SovaEvmConfig {
     pub fn new(
         config: &SovaConfig,
         chain_spec: Arc<OpChainSpec>,
@@ -172,7 +192,7 @@ impl MyEvmConfig {
     }
 }
 
-impl BlockExecutorFactory for MyEvmConfig {
+impl BlockExecutorFactory for SovaEvmConfig {
     type EvmFactory = SovaEvmFactory;
     type ExecutionCtx<'a> = OpBlockExecutionCtx;
     type Transaction = OpTransactionSigned;
@@ -184,7 +204,7 @@ impl BlockExecutorFactory for MyEvmConfig {
 
     fn create_executor<'a, DB, I>(
         &'a self,
-        evm: SovaEvm<&'a mut State<DB>, I, SovaPrecompiles>,
+        evm: SovaEvm<&'a mut State<DB>, I, PrecompilesMap>,
         ctx: OpBlockExecutionCtx,
     ) -> impl BlockExecutorFor<'a, Self, DB, I>
     where
@@ -201,7 +221,7 @@ impl BlockExecutorFactory for MyEvmConfig {
     }
 }
 
-impl ConfigureEvm for MyEvmConfig {
+impl ConfigureEvm for SovaEvmConfig {
     type Primitives = OpPrimitives;
     type Error = <OpEvmConfig as ConfigureEvm>::Error;
     type NextBlockEnvCtx = OpNextBlockEnvAttributes;
@@ -242,9 +262,29 @@ impl ConfigureEvm for MyEvmConfig {
     ) -> OpBlockExecutionCtx {
         self.inner.context_for_next_block(parent, attributes)
     }
+
+    fn executor<DB: Alloy_Database>(
+        &self,
+        db: DB,
+    ) -> impl Executor<DB, Primitives = Self::Primitives, Error = BlockExecutionError> {
+        SovaBlockExecutor::new(self, db)
+    }
+
+    fn batch_executor<DB: Alloy_Database>(
+        &self,
+        db: DB,
+    ) -> impl Executor<DB, Primitives = Self::Primitives, Error = BlockExecutionError> {
+        SovaBlockExecutor::new(self, db)
+    }
 }
 
-impl WithInspector for MyEvmConfig {
+impl WithInspector for SovaEvmConfig {
+    fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
+        &self.inspector
+    }
+}
+
+impl WithInspector for &SovaEvmConfig {
     fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
         &self.inspector
     }

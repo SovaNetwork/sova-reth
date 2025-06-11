@@ -95,7 +95,7 @@ where
     type Inspector = INSP;
 
     fn set_inspector(&mut self, inspector: Self::Inspector) {
-        self.0.data.inspector = inspector;
+        self.0.inspector = inspector;
     }
 
     fn inspect_replay(&mut self) -> Self::Output {
@@ -127,8 +127,8 @@ where
 {
     fn transact_system_call(
         &mut self,
-        data: revm::primitives::Bytes,
         system_contract_address: revm::primitives::Address,
+        data: revm::primitives::Bytes,
     ) -> Self::Output {
         self.set_tx(CTX::Tx::new_system_tx(data, system_contract_address));
         let mut h = OpHandler::<_, _, EthFrame<_, _, _>>::new();

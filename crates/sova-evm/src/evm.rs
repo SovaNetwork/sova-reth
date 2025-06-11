@@ -4,6 +4,7 @@ use alloy_evm::{Database, Evm, EvmEnv, EvmFactory};
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use op_alloy_consensus::OpTxType;
 use op_revm::{OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
+use reth_evm::precompiles::PrecompilesMap;
 use revm::{
     context::{BlockEnv, TxEnv},
     context_interface::result::{EVMError, ResultAndState},
@@ -20,7 +21,7 @@ use crate::{
 
 /// Convenience wrapper for SovaEvm that implements Alloy's Evm trait
 /// https://github.com/alloy-rs/evm/blob/main/crates/op-evm/src/lib.rs#L42
-pub struct SovaEvm<DB: Database, I, P = SovaPrecompiles> {
+pub struct SovaEvm<DB: Database, I, P = PrecompilesMap> {
     inner: crate::sova_revm::SovaEvm<
         SovaContext<DB>,
         I,
@@ -52,17 +53,17 @@ where
 
     /// Provides a reference to the EVM context.
     pub const fn ctx(&self) -> &SovaContext<DB> {
-        &self.inner.0.data.ctx
+        &self.inner.0.ctx
     }
 
     /// Provides a mutable reference to the EVM context.
     pub fn ctx_mut(&mut self) -> &mut SovaContext<DB> {
-        &mut self.inner.0.data.ctx
+        &mut self.inner.0.ctx
     }
 
     /// Provides a mutable reference to the EVM inspector.
     pub fn inspector_mut(&mut self) -> &mut I {
-        &mut self.inner.0.data.inspector
+        &mut self.inner.0.inspector
     }
 }
 
@@ -93,6 +94,8 @@ where
     type Error = EVMError<DB::Error, OpTransactionError>;
     type HaltReason = OpHaltReason;
     type Spec = OpSpecId;
+    type Precompiles = P;
+    type Inspector = I;
 
     fn block(&self) -> &BlockEnv {
         &self.block
@@ -194,13 +197,29 @@ where
             cfg: cfg_env,
             journaled_state,
             ..
-        } = self.inner.0.data.ctx;
+        } = self.inner.0.ctx;
 
         (journaled_state.database, EvmEnv { block_env, cfg_env })
     }
 
     fn set_inspector_enabled(&mut self, enabled: bool) {
         self.inspect = enabled;
+    }
+
+    fn precompiles(&self) -> &Self::Precompiles {
+        &self.inner.0.precompiles
+    }
+
+    fn precompiles_mut(&mut self) -> &mut Self::Precompiles {
+        &mut self.inner.0.precompiles
+    }
+
+    fn inspector(&self) -> &Self::Inspector {
+        &self.inner.0.inspector
+    }
+
+    fn inspector_mut(&mut self) -> &mut Self::Inspector {
+        &mut self.inner.0.inspector
     }
 }
 
@@ -223,13 +242,14 @@ impl EvmFactory for SovaEvmFactory {
         EVMError<DBError, OpTransactionError>;
     type HaltReason = OpHaltReason;
     type Spec = OpSpecId;
+    type Precompiles = PrecompilesMap;
 
     fn create_evm<DB: Database>(
         &self,
         db: DB,
         input: EvmEnv<OpSpecId>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let sova_precompiles = SovaPrecompiles::new();
+        let sova_precompiles = SovaPrecompiles::new().into_precompiles_map();
 
         SovaEvm {
             inner: Context::sova()
@@ -247,7 +267,7 @@ impl EvmFactory for SovaEvmFactory {
         input: EvmEnv<OpSpecId>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let sova_precompiles = SovaPrecompiles::new();
+        let sova_precompiles = SovaPrecompiles::new().into_precompiles_map();
 
         SovaEvm {
             inner: Context::sova()

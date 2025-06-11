@@ -6,6 +6,7 @@ use error::SlotProviderError;
 use provider::StorageSlotProvider;
 
 pub use provider::SlotProvider;
+use revm::interpreter::CallInput;
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -146,7 +147,7 @@ impl SovaInspector {
         self.cache.broadcast_accessed_storage.0.clear();
 
         // Iterate through journal entries since last checkpoint and add to broadcast_accessed_storage cache
-        for entry in context.journal_ref().last_journal() {
+        for entry in context.journal_ref().journal() {
             if let JournalEntry::StorageChanged {
                 address,
                 key,
@@ -204,7 +205,18 @@ impl SovaInspector {
         }
         debug!("----- precompile call hook -----");
 
-        match BitcoinMethod::try_from(&inputs.input) {
+        let precompile_input = match &inputs.input {
+            CallInput::Bytes(bytes) => bytes.clone(),
+            CallInput::SharedBuffer(_) => {
+                return Some(Self::create_revert_outcome(
+                    "SharedBuffer is not supported for Bitcoin precompile".to_string(),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                ));
+            }
+        };
+
+        match BitcoinMethod::try_from(&precompile_input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call hook");
 
@@ -389,8 +401,20 @@ impl SovaInspector {
         }
         debug!("----- precompile call end hook -----");
 
+        let precompile_input = match &inputs.input {
+            CallInput::Bytes(bytes) => bytes.clone(),
+            CallInput::SharedBuffer(_) => {
+                *outcome = Self::create_revert_outcome(
+                    "SharedBuffer is not supported for Bitcoin precompile".to_string(),
+                    inputs.gas_limit,
+                    inputs.return_memory_offset.clone(),
+                );
+                return;
+            }
+        };
+
         // Update the btc tx data cache
-        match BitcoinMethod::try_from(&inputs.input) {
+        match BitcoinMethod::try_from(&precompile_input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call end hook");
                 // only update if call was successful

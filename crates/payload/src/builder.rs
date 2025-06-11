@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use alloy_consensus::{Transaction, Typed2718};
+use alloy_consensus::{BlockHeader, Transaction, Typed2718};
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
     Address, Bytes, B256, U256,
 };
-use alloy_rlp::{BytesMut, Encodable};
+use alloy_rlp::BytesMut;
 use alloy_rpc_types_debug::ExecutionWitness;
 use alloy_rpc_types_engine::{PayloadAttributes, PayloadId};
 use alloy_sol_macro::sol;
@@ -16,7 +16,7 @@ use reth_basic_payload_builder::{
     is_better_payload, BuildArguments, BuildOutcome, BuildOutcomeKind, MissingPayloadBehaviour,
     PayloadBuilder, PayloadConfig,
 };
-use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates};
+use reth_chain_state::{ExecutedBlock, ExecutedBlockWithTrieUpdates, ExecutedTrieUpdates};
 use reth_chainspec::{ChainSpecProvider, EthChainSpec};
 use reth_errors::{BlockExecutionError, BlockValidationError, RethError};
 use reth_evm::{
@@ -36,11 +36,16 @@ use reth_optimism_payload_builder::{
     OpPayloadPrimitives,
 };
 use reth_optimism_primitives::transaction::OpTransaction;
-use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
+use reth_optimism_txpool::{
+    estimated_da_size::DataAvailabilitySized,
+    interop::{is_valid_interop, MaybeInteropTransaction},
+};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
-use reth_primitives_traits::{NodePrimitives, SealedHeader, SignedTransaction, TxTy};
+use reth_primitives_traits::{
+    HeaderTy, NodePrimitives, SealedHeader, SealedHeaderFor, SignedTransaction, TxTy,
+};
 use reth_provider::{StateProvider, StateProviderFactory};
 use reth_revm::{
     cancelled::CancelOnDrop,
@@ -60,7 +65,7 @@ use revm::{
 
 use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
 use sova_cli::SovaConfig;
-use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector};
+use sova_evm::{BitcoinClient, SovaEvmConfig, SovaL1BlockInfo, WithInspector};
 
 sol!(
     function setBitcoinBlockData(
@@ -71,7 +76,7 @@ sol!(
 
 /// Sova payload builder that extends the Optimism payload builder with Bitcoin integrations
 #[derive(Debug, Clone)]
-pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
+pub struct SovaPayloadBuilder<Pool, Client, Evm = SovaEvmConfig, Txs = ()> {
     /// The rollup's compute pending block configuration option.
     // TODO(clabby): Implement this feature.
     pub compute_pending_block: bool,
@@ -201,9 +206,8 @@ where
         best: impl Fn(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
     ) -> Result<BuildOutcome<OpBuiltPayload<N>>, PayloadBuilderError>
     where
-        Txs: PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
-        >,
+        Txs:
+            PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx>,
     {
         let BuildArguments {
             mut cached_reads,
@@ -282,7 +286,7 @@ where
     /// Ideally that data is already in the attributes recieved from the sequencer.
     pub fn payload_witness(
         &self,
-        parent: SealedHeader,
+        parent: SealedHeader<N::BlockHeader>,
         attributes: OpPayloadAttributes,
     ) -> Result<ExecutionWitness, PayloadBuilderError> {
         // NOTE(powvt): NOT injecting Bitcoion data into attributes here
@@ -339,7 +343,7 @@ where
             // Target the L1Block contract
             to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
             // Dont mint Sova
-            mint: 0.into(),
+            mint: 0u128,
             // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
             value: U256::ZERO,
             // Gas limit for the call
@@ -437,7 +441,7 @@ where
     // system txs, hence on_missing_payload we return [MissingPayloadBehaviour::AwaitInProgress].
     fn build_empty_payload(
         &self,
-        config: PayloadConfig<Self::Attributes>,
+        config: PayloadConfig<Self::Attributes, N::BlockHeader>,
     ) -> Result<Self::BuiltPayload, PayloadBuilderError> {
         let args = BuildArguments {
             config,
@@ -506,12 +510,11 @@ where
     ) -> Result<BuildOutcomeKind<OpBuiltPayload<N>>, PayloadBuilderError>
     where
         ChainSpec: EthChainSpec + OpHardforks,
-        Txs: PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
-        >,
+        Txs:
+            PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx> + OpPooledTx>,
     {
         let Self { best, evm_config } = self;
-        debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number, "building new payload with Sova integration");
+        debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number(), "building new payload with Sova integration");
 
         let mut db = State::builder()
             .with_database(db)
@@ -524,7 +527,10 @@ where
             timestamp: ctx.attributes().timestamp(),
             suggested_fee_recipient: ctx.attributes().suggested_fee_recipient(),
             prev_randao: ctx.attributes().prev_randao(),
-            gas_limit: ctx.attributes().gas_limit.unwrap_or(ctx.parent().gas_limit),
+            gas_limit: ctx
+                .attributes()
+                .gas_limit
+                .unwrap_or(ctx.parent().gas_limit()),
             parent_beacon_block_root: ctx.attributes().parent_beacon_block_root(),
             extra_data: ctx.extra_data()?,
         };
@@ -687,7 +693,7 @@ where
 
             // Update sentinel locks for Bitcoin broadcasts in this block
             // locks are to be applied to the next block
-            let locked_block_num: u64 = block.number + 1;
+            let locked_block_num: u64 = block.number() + 1;
             inspector
                 .update_sentinel_locks(locked_block_num)
                 .map_err(|err| {
@@ -706,7 +712,7 @@ where
         let execution_outcome = ExecutionOutcome::new(
             db.take_bundle(),
             vec![execution_result.receipts],
-            block.number,
+            block.number(),
             Vec::new(),
         );
 
@@ -717,7 +723,7 @@ where
                 execution_output: Arc::new(execution_outcome),
                 hashed_state: Arc::new(hashed_state),
             },
-            trie: Arc::new(trie_updates),
+            trie: ExecutedTrieUpdates::Present(Arc::new(trie_updates)),
         };
 
         let payload = OpBuiltPayload::new(
@@ -785,7 +791,8 @@ pub struct SovaPayloadBuilderCtx<Evm: ConfigureEvm, N: NodePrimitives, ChainSpec
     /// The chainspec
     pub chain_spec: Arc<ChainSpec>,
     /// How to build the payload.
-    pub config: PayloadConfig<OpPayloadBuilderAttributes<TxTy<Evm::Primitives>>>,
+    pub config:
+        PayloadConfig<OpPayloadBuilderAttributes<TxTy<Evm::Primitives>>, HeaderTy<Evm::Primitives>>,
     /// Marker to check whether the job has been cancelled.
     pub cancel: CancelOnDrop,
     /// The currently best payload.
@@ -799,7 +806,7 @@ where
     ChainSpec: EthChainSpec + OpHardforks,
 {
     /// Returns the parent block the payload will be build on.
-    pub fn parent(&self) -> &SealedHeader {
+    pub fn parent(&self) -> &SealedHeaderFor<Evm::Primitives> {
         &self.config.parent_header
     }
 
@@ -865,7 +872,7 @@ where
                     gas_limit: self
                         .attributes()
                         .gas_limit
-                        .unwrap_or(self.parent().gas_limit),
+                        .unwrap_or(self.parent().gas_limit()),
                     parent_beacon_block_root: self.attributes().parent_beacon_block_root(),
                     extra_data: self.extra_data()?,
                 },
@@ -931,8 +938,7 @@ where
         info: &mut ExecutionInfo,
         builder: &mut impl BlockBuilder<Primitives = Evm::Primitives>,
         mut best_txs: impl PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>>
-                             + MaybeInteropTransaction,
+            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>> + OpPooledTx,
         >,
     ) -> Result<Option<()>, PayloadBuilderError> {
         let block_gas_limit = builder.evm_mut().block().gas_limit;
@@ -942,8 +948,15 @@ where
 
         while let Some(tx) = best_txs.next(()) {
             let interop = tx.interop_deadline();
+            let tx_da_size = tx.estimated_da_size();
             let tx = tx.into_consensus();
-            if info.is_tx_over_limits(tx.inner(), block_gas_limit, tx_da_limit, block_da_limit) {
+            if info.is_tx_over_limits(
+                tx_da_size,
+                block_gas_limit,
+                tx_da_limit,
+                block_da_limit,
+                tx.gas_limit(),
+            ) {
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
                 // the iterator before we can continue
@@ -996,7 +1009,7 @@ where
             // add gas used by the transaction to cumulative gas used, before creating the
             // receipt
             info.cumulative_gas_used += gas_used;
-            info.cumulative_da_bytes_used += tx.length() as u64;
+            info.cumulative_da_bytes_used += tx_da_size;
 
             // update add to total fees
             let miner_fee = tx
