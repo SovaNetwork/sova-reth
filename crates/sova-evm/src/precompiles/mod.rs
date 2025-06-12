@@ -23,8 +23,10 @@ use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, T
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, UBTC_CONTRACT_ADDRESS};
 
-pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
-    PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
+pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress = PrecompileWithAddress(
+    BTC_PRECOMPILE_ADDRESS,
+    BitcoinRpcPrecompile::bitcoin_rpc_precompile_adapter,
+);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -56,7 +58,7 @@ struct UtxoUpdate {
 
 #[derive(Clone, Debug)]
 pub struct BitcoinRpcPrecompile {
-    bitcoin_client: Arc<BitcoinClient>,
+    pub bitcoin_client: Arc<BitcoinClient>,
     network: Network,
     http_client: Arc<ReqwestClient>,
     network_utxos_url: String,
@@ -192,6 +194,14 @@ impl BitcoinRpcPrecompile {
         }
 
         res
+    }
+
+    fn bitcoin_rpc_precompile_adapter(input: &[u8], gas_limit: u64) -> PrecompileResult {
+        // Deserialize the input to BitcoinRpcPrecompileInput
+        let bytes = alloy_primitives::Bytes::copy_from_slice(input);
+
+        // Call the run method with the precompile input and gas limit
+        Self::run(&bytes, gas_limit)
     }
 
     fn call_network_utxos<T: serde::Serialize, R: serde::de::DeserializeOwned>(
