@@ -6,7 +6,7 @@ use error::SlotProviderError;
 use provider::StorageSlotProvider;
 
 pub use provider::SlotProvider;
-use revm::interpreter::CallInput;
+use revm::{context::LocalContextTr, interpreter::CallInput};
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -205,16 +205,15 @@ impl SovaInspector {
         }
         debug!("----- precompile call hook -----");
 
-        let precompile_input = match &inputs.input {
-            CallInput::Bytes(bytes) => bytes.clone(),
-            CallInput::SharedBuffer(_) => {
-                return Some(Self::create_revert_outcome(
-                    "SharedBuffer is not supported for Bitcoin precompile".to_string(),
-                    inputs.gas_limit,
-                    inputs.return_memory_offset.clone(),
-                ));
-            }
-        };
+        let precompile_input: Bytes = match &inputs.input {
+            CallInput::Bytes(bytes) => bytes.to_vec(),
+            CallInput::SharedBuffer(range) => context
+                .local()
+                .shared_memory_buffer_slice(range.clone())
+                .map(|slice| slice.to_vec())
+                .unwrap_or_default(),
+        }
+        .into();
 
         match BitcoinMethod::try_from(&precompile_input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
@@ -401,17 +400,15 @@ impl SovaInspector {
         }
         debug!("----- precompile call end hook -----");
 
-        let precompile_input = match &inputs.input {
-            CallInput::Bytes(bytes) => bytes.clone(),
-            CallInput::SharedBuffer(_) => {
-                *outcome = Self::create_revert_outcome(
-                    "SharedBuffer is not supported for Bitcoin precompile".to_string(),
-                    inputs.gas_limit,
-                    inputs.return_memory_offset.clone(),
-                );
-                return;
-            }
-        };
+        let precompile_input: Bytes = match &inputs.input {
+            CallInput::Bytes(bytes) => bytes.to_vec(),
+            CallInput::SharedBuffer(range) => context
+                .local()
+                .shared_memory_buffer_slice(range.clone())
+                .map(|slice| slice.to_vec())
+                .unwrap_or_default(),
+        }
+        .into();
 
         // Update the btc tx data cache
         match BitcoinMethod::try_from(&precompile_input) {

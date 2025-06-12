@@ -645,11 +645,10 @@ where
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {
-            let exec_tx_attrs = ctx.best_transaction_attributes(builder.evm_mut().block());
-            let exec_txs = best(exec_tx_attrs);
+            let best_txs = best(ctx.best_transaction_attributes(builder.evm_mut().block()));
 
             if ctx
-                .execute_best_transactions(&mut info, &mut builder, exec_txs)?
+                .execute_best_transactions(&mut info, &mut builder, best_txs)?
                 .is_some()
             {
                 warn!("Payload Builder: build cancelled");
@@ -726,6 +725,8 @@ where
             trie: ExecutedTrieUpdates::Present(Arc::new(trie_updates)),
         };
 
+        let no_tx_pool = ctx.attributes().no_tx_pool;
+
         let payload = OpBuiltPayload::new(
             ctx.payload_id(),
             sealed_block,
@@ -733,7 +734,7 @@ where
             Some(executed),
         );
 
-        if ctx.attributes().no_tx_pool {
+        if no_tx_pool {
             // if `no_tx_pool` is set only transactions from the payload attributes will be included
             // in the payload. In other words, the payload is deterministic and we can
             // freeze it once we've successfully built it.

@@ -12,8 +12,8 @@ use once_cell::race::OnceBox;
 pub use precompiles::{BitcoinClient, BitcoinRpcPrecompile, SovaL1BlockInfo};
 use reth_errors::BlockExecutionError;
 use revm::{
-    handler::EthPrecompiles, interpreter::CallInput, precompile::Precompiles,
-    primitives::hardfork::SpecId,
+    context::LocalContextTr, handler::EthPrecompiles, interpreter::CallInput,
+    precompile::Precompiles, primitives::hardfork::SpecId,
 };
 
 use std::{error::Error, sync::Arc};
@@ -127,13 +127,15 @@ where
             caller_address: inputs.caller_address,
             input: if *address == BTC_PRECOMPILE_ADDRESS {
                 let precompile_input = match &inputs.input {
-                    CallInput::Bytes(bytes) => bytes.clone(),
-                    CallInput::SharedBuffer(_) => {
-                        return Err(
-                            "SharedBuffer is not supported for Bitcoin precompile".to_string()
-                        )
-                    }
-                };
+                    CallInput::Bytes(bytes) => bytes.to_vec(),
+                    CallInput::SharedBuffer(range) => context
+                        .local()
+                        .shared_memory_buffer_slice(range.clone())
+                        .map(|slice| slice.to_vec())
+                        .unwrap_or_default(),
+                }
+                .into();
+                // let precompile_input: Bytes = precompile_input.into();
                 let input = BitcoinRpcPrecompileInput::new(precompile_input, inputs.caller_address);
                 CallInput::Bytes(alloy_rlp::encode(input).to_vec().into())
             } else {
