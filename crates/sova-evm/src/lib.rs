@@ -11,6 +11,7 @@ pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChang
 use once_cell::race::OnceBox;
 pub use precompiles::{BitcoinClient, BitcoinRpcPrecompile, SovaL1BlockInfo};
 use reth_errors::BlockExecutionError;
+use reth_tracing::tracing::debug;
 use revm::{
     context::LocalContextTr, handler::EthPrecompiles, interpreter::CallInput,
     precompile::Precompiles, primitives::hardfork::SpecId,
@@ -56,7 +57,7 @@ use crate::{
 };
 
 // Custom precompiles that include Bitcoin precompile
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SovaPrecompiles {
     pub inner: EthPrecompiles,
     pub spec: OpSpecId,
@@ -96,8 +97,14 @@ impl SovaPrecompiles {
     }
 
     #[inline]
-    pub fn into_precompiles_map(self) -> PrecompilesMap {
-        PrecompilesMap::from(self.inner)
+    pub fn precompiles(self) -> PrecompilesMap {
+        PrecompilesMap::from_static(self.inner.precompiles)
+    }
+}
+
+impl Default for SovaPrecompiles {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -132,7 +139,7 @@ where
                         .local()
                         .shared_memory_buffer_slice(range.clone())
                         .map(|slice| slice.to_vec())
-                        .unwrap_or_default(),
+                        .unwrap(),
                 }
                 .into();
                 // let precompile_input: Bytes = precompile_input.into();

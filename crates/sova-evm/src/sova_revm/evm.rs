@@ -1,4 +1,3 @@
-use reth_evm::precompiles::PrecompilesMap;
 use revm::{
     context::{ContextSetters, ContextTr, Evm},
     handler::{
@@ -15,7 +14,7 @@ use crate::SovaPrecompiles;
 /// Sova EVM implementation.
 ///
 /// This is a wrapper type around the `revm` EVM with custom Bitcoin precompiles.
-pub struct SovaEvm<CTX, INSP, I = EthInstructions<EthInterpreter, CTX>, P = PrecompilesMap>(
+pub struct SovaEvm<CTX, INSP, I = EthInstructions<EthInterpreter, CTX>, P = SovaPrecompiles>(
     pub Evm<CTX, INSP, I, P>,
 );
 

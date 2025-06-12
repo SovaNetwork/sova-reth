@@ -211,7 +211,7 @@ impl SovaInspector {
                 .local()
                 .shared_memory_buffer_slice(range.clone())
                 .map(|slice| slice.to_vec())
-                .unwrap_or_default(),
+                .unwrap(),
         }
         .into();
 
@@ -406,7 +406,7 @@ impl SovaInspector {
                 .local()
                 .shared_memory_buffer_slice(range.clone())
                 .map(|slice| slice.to_vec())
-                .unwrap_or_default(),
+                .unwrap(),
         }
         .into();
 

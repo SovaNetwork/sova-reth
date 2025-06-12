@@ -21,7 +21,7 @@ use crate::{
 
 /// Convenience wrapper for SovaEvm that implements Alloy's Evm trait
 /// https://github.com/alloy-rs/evm/blob/main/crates/op-evm/src/lib.rs#L42
-pub struct SovaEvm<DB: Database, I, P = PrecompilesMap> {
+pub struct SovaEvm<DB: Database, I, P = SovaPrecompiles> {
     inner: crate::sova_revm::SovaEvm<
         SovaContext<DB>,
         I,
@@ -235,7 +235,7 @@ impl SovaEvmFactory {
 }
 
 impl EvmFactory for SovaEvmFactory {
-    type Evm<DB: Database, I: Inspector<SovaContext<DB>>> = SovaEvm<DB, I>;
+    type Evm<DB: Database, I: Inspector<SovaContext<DB>>> = SovaEvm<DB, I, Self::Precompiles>;
     type Context<DB: Database> = SovaContext<DB>;
     type Tx = OpTransaction<TxEnv>;
     type Error<DBError: core::error::Error + Send + Sync + 'static> =
@@ -249,14 +249,15 @@ impl EvmFactory for SovaEvmFactory {
         db: DB,
         input: EvmEnv<OpSpecId>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let sova_precompiles = SovaPrecompiles::new().into_precompiles_map();
+        let sova_precompiles = SovaPrecompiles::new().precompiles();
 
         SovaEvm {
             inner: Context::sova()
                 .with_db(db)
                 .with_block(input.block_env)
                 .with_cfg(input.cfg_env)
-                .build_sova_op_with_inspector(NoOpInspector {}, sova_precompiles),
+                .build_sova_op_with_inspector(NoOpInspector {})
+                .with_precompiles(sova_precompiles),
             inspect: false,
         }
     }
@@ -267,14 +268,15 @@ impl EvmFactory for SovaEvmFactory {
         input: EvmEnv<OpSpecId>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let sova_precompiles = SovaPrecompiles::new().into_precompiles_map();
+        let sova_precompiles = SovaPrecompiles::new().precompiles();
 
         SovaEvm {
             inner: Context::sova()
                 .with_db(db)
                 .with_block(input.block_env)
                 .with_cfg(input.cfg_env)
-                .build_sova_op_with_inspector(inspector, sova_precompiles),
+                .build_sova_op_with_inspector(inspector)
+                .with_precompiles(sova_precompiles),
             inspect: true,
         }
     }

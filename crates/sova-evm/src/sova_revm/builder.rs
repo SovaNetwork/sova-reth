@@ -1,5 +1,4 @@
 use op_revm::{transaction::OpTxTr, L1BlockInfo, OpSpecId};
-use reth_evm::precompiles::PrecompilesMap;
 use revm::{
     context::{Cfg, JournalOutput, JournalTr},
     context_interface::Block,
@@ -17,7 +16,6 @@ pub trait SovaBuilder: Sized {
     fn build_sova_op_with_inspector<INSP: Inspector<Self::Context>>(
         self,
         inspector: INSP,
-        precompiles: PrecompilesMap,
     ) -> SovaEvm<Self::Context, INSP>;
 }
 
@@ -31,11 +29,7 @@ where
 {
     type Context = Self;
 
-    fn build_sova_op_with_inspector<INSP>(
-        self,
-        inspector: INSP,
-        precompiles: PrecompilesMap,
-    ) -> SovaEvm<Self::Context, INSP> {
-        SovaEvm::new(self, inspector).with_precompiles(precompiles)
+    fn build_sova_op_with_inspector<INSP>(self, inspector: INSP) -> SovaEvm<Self::Context, INSP> {
+        SovaEvm::new(self, inspector)
     }
 }
