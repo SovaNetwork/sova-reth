@@ -84,8 +84,8 @@ impl BitcoinMethod {
         match selector_value {
             0x00000001 => Ok(Self::BroadcastTransaction),
             0x00000002 => Ok(Self::DecodeTransaction),
-            0x00000004 => Ok(Self::ConvertAddress),
-            0x00000005 => Ok(Self::VaultSpend),
+            0x00000003 => Ok(Self::ConvertAddress),
+            0x00000004 => Ok(Self::VaultSpend),
             _ => Err(MethodError::UnknownSelector(selector_value)),
         }
     }
@@ -154,8 +154,8 @@ mod tests {
                 BitcoinMethod::BroadcastTransaction,
             ),
             ([0x00, 0x00, 0x00, 0x02], BitcoinMethod::DecodeTransaction),
-            ([0x00, 0x00, 0x00, 0x04], BitcoinMethod::ConvertAddress),
-            ([0x00, 0x00, 0x00, 0x05], BitcoinMethod::VaultSpend),
+            ([0x00, 0x00, 0x00, 0x03], BitcoinMethod::ConvertAddress),
+            ([0x00, 0x00, 0x00, 0x04], BitcoinMethod::VaultSpend),
         ];
 
         // Test parsing from byte arrays to method variants
