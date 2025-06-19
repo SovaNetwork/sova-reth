@@ -40,13 +40,13 @@ impl BitcoinMethod {
     fn gas_config(&self) -> GasConfig {
         match self {
             Self::BroadcastTransaction => GasConfig {
-                limit: 100_000,
-                base_cost: 21_000,
+                limit: 30_000,
+                base_cost: 30_000,
                 cost_per_byte: 0,
             },
             Self::DecodeTransaction => GasConfig {
-                limit: 150_000,
-                base_cost: 4_000,
+                limit: 3_000_000,
+                base_cost: 3_000,
                 cost_per_byte: 3,
             },
             Self::ConvertAddress => GasConfig {
@@ -55,8 +55,8 @@ impl BitcoinMethod {
                 cost_per_byte: 0,
             },
             Self::VaultSpend => GasConfig {
-                limit: 25_000,
-                base_cost: 25_000,
+                limit: 30_000,
+                base_cost: 30_000,
                 cost_per_byte: 0,
             },
         }
