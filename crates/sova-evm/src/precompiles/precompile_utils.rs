@@ -23,16 +23,12 @@ pub enum BitcoinMethod {
     /// Selector: 0x00000002
     DecodeTransaction,
 
-    /// Checks Bitcoin transaction signature
-    /// Selector: 0x00000003
-    CheckSignature,
-
     /// Converts Ethereum address to Bitcoin address
-    /// Selector: 0x00000004
+    /// Selector: 0x00000003
     ConvertAddress,
 
     /// Creates, signs, and broadcasts a Bitcoin transaction from a specified signer
-    /// Selector: 0x00000005
+    /// Selector: 0x00000004
     VaultSpend,
 }
 
@@ -51,11 +47,6 @@ impl BitcoinMethod {
             Self::DecodeTransaction => GasConfig {
                 limit: 150_000,
                 base_cost: 4_000,
-                cost_per_byte: 3,
-            },
-            Self::CheckSignature => GasConfig {
-                limit: 100_000,
-                base_cost: 6_000,
                 cost_per_byte: 3,
             },
             Self::ConvertAddress => GasConfig {
@@ -93,7 +84,6 @@ impl BitcoinMethod {
         match selector_value {
             0x00000001 => Ok(Self::BroadcastTransaction),
             0x00000002 => Ok(Self::DecodeTransaction),
-            0x00000003 => Ok(Self::CheckSignature),
             0x00000004 => Ok(Self::ConvertAddress),
             0x00000005 => Ok(Self::VaultSpend),
             _ => Err(MethodError::UnknownSelector(selector_value)),
@@ -164,7 +154,6 @@ mod tests {
                 BitcoinMethod::BroadcastTransaction,
             ),
             ([0x00, 0x00, 0x00, 0x02], BitcoinMethod::DecodeTransaction),
-            ([0x00, 0x00, 0x00, 0x03], BitcoinMethod::CheckSignature),
             ([0x00, 0x00, 0x00, 0x04], BitcoinMethod::ConvertAddress),
             ([0x00, 0x00, 0x00, 0x05], BitcoinMethod::VaultSpend),
         ];
@@ -196,9 +185,8 @@ mod tests {
                 BitcoinMethod::BroadcastTransaction
                     if selector_bytes == [0x00, 0x00, 0x00, 0x01] => {}
                 BitcoinMethod::DecodeTransaction if selector_bytes == [0x00, 0x00, 0x00, 0x02] => {}
-                BitcoinMethod::CheckSignature if selector_bytes == [0x00, 0x00, 0x00, 0x03] => {}
-                BitcoinMethod::ConvertAddress if selector_bytes == [0x00, 0x00, 0x00, 0x04] => {}
-                BitcoinMethod::VaultSpend if selector_bytes == [0x00, 0x00, 0x00, 0x05] => {}
+                BitcoinMethod::ConvertAddress if selector_bytes == [0x00, 0x00, 0x00, 0x03] => {}
+                BitcoinMethod::VaultSpend if selector_bytes == [0x00, 0x00, 0x00, 0x04] => {}
                 _ => panic!(
                     "Unexpected method variant for selector {:?}",
                     selector_bytes
