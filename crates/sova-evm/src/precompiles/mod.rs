@@ -19,7 +19,7 @@ use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
-use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut, Txid};
+use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, UBTC_CONTRACT_ADDRESS};
 
@@ -180,7 +180,6 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::DecodeTransaction => {
                 btc_precompile.decode_raw_transaction(input_data, gas_used)
             }
-            BitcoinMethod::CheckSignature => btc_precompile.check_signature(input_data, gas_used),
             BitcoinMethod::ConvertAddress => btc_precompile.convert_address(input_data, gas_used),
             BitcoinMethod::VaultSpend => {
                 btc_precompile.network_spend(input, precomp_caller, gas_used)
@@ -417,34 +416,6 @@ impl BitcoinRpcPrecompile {
             gas_used,
             Bytes::from(encoded_data.to_vec()),
         ))
-    }
-
-    fn check_signature(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileError::Other("Failed to deserialize Bitcoin transaction".into())
-        })?;
-
-        let mut spent = |outpoint: &OutPoint| -> Option<TxOut> {
-            match self
-                .bitcoin_client
-                .get_raw_transaction(&outpoint.txid, None)
-            {
-                Ok(prev_tx) => prev_tx
-                    .output
-                    .get(outpoint.vout as usize)
-                    .map(|output| TxOut {
-                        value: output.value,
-                        script_pubkey: output.script_pubkey.clone(),
-                    }),
-                Err(_) => None,
-            }
-        };
-
-        tx.verify(&mut spent).map_err(|e| {
-            PrecompileError::Other(format!("Transaction verification failed: {:?}", e))
-        })?;
-
-        Ok(PrecompileOutput::new(gas_used, Bytes::from(vec![1])))
     }
 
     fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
