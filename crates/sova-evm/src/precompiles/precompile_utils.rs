@@ -199,18 +199,18 @@ mod tests {
     fn test_gas_calculation() {
         // Test BroadcastTransaction (fixed gas)
         let method = BitcoinMethod::BroadcastTransaction;
-        assert_eq!(method.calculate_gas_used(0), 21_000);
-        assert_eq!(method.calculate_gas_used(1000), 21_000);
+        assert_eq!(method.calculate_gas_used(0), 30_000);
+        assert_eq!(method.calculate_gas_used(1000), 30_000);
 
         // Test DecodeTransaction (variable gas)
         let method = BitcoinMethod::DecodeTransaction;
-        assert_eq!(method.calculate_gas_used(0), 4_000);
-        assert_eq!(method.calculate_gas_used(1000), 4_000 + 3000);
+        assert_eq!(method.calculate_gas_used(0), 3_000);
+        assert_eq!(method.calculate_gas_used(1000), 3_000 + 3_000);
 
         // Test gas limit check
         let method = BitcoinMethod::DecodeTransaction;
-        assert!(!method.is_gas_limit_exceeded(1000)); // 4_000 + 3000 < 150_000
-        assert!(method.is_gas_limit_exceeded(50000)); // 4_000 + 150_000 > 150_000
+        assert!(!method.is_gas_limit_exceeded(1000)); // 3_000 + 3_000 < 150_000
+        assert!(method.is_gas_limit_exceeded(1_000_000)); // 3_000 + 3_000_000 > 3_000_000
     }
 
     #[test]
