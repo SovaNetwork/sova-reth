@@ -301,6 +301,8 @@ impl BitcoinRpcPrecompile {
     ) -> Result<String, PrecompileError> {
         let master_xpub = self.get_master_xpub()?;
 
+        debug!("master_xpub: {}", master_xpub);
+
         // Convert EVM address to BIP32 derivation path
         let path = Self::evm_address_to_btc_derivation_path(evm_address)?;
 
@@ -529,6 +531,7 @@ impl BitcoinRpcPrecompile {
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
         // Parse the 20-byte Ethereum address from input
         if input.len() != 20 {
+            warn!("Precompile::convert_address::Input must be exactly 20 bytes");
             return Err(PrecompileError::Other(
                 "Input must be exactly 20 bytes".to_string(),
             ));
@@ -538,6 +541,8 @@ impl BitcoinRpcPrecompile {
         evm_address.copy_from_slice(input);
 
         let bitcoin_address = self.derive_btc_address_deterministic(&evm_address)?;
+
+        debug!("bitcoin_address: {}", bitcoin_address);
 
         Ok(PrecompileOutput::new(
             gas_used,
