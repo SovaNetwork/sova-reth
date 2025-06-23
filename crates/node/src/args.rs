@@ -29,6 +29,13 @@ pub struct SovaArgs {
     #[arg(long, default_value = "http://127.0.0.1:3031")]
     pub network_utxos_url: String,
 
+    /// CLI flag for the BIP32 master xpub used by the native Bitcoin wrapper
+    #[arg(
+        long,
+        default_value = "tpubD6NzVbkrYhZ4XgiXtGrdW5XDAPFCL9h7we1vwNCpn8tGbBcgfVYjXyhWo4E1xkh56hjod1RhGjxbaTLV3X4FyWuejifB9jusQ46QzG87VKp"
+    )]
+    pub network_master_xpub: String,
+
     /// CLI flag to indicate the storage slot provider url
     #[arg(long, default_value = "http://[::1]:50051")]
     pub sentinel_url: String,
@@ -98,6 +105,7 @@ impl Default for SovaArgs {
             btc_rpc_username: "user".to_string(),
             btc_rpc_password: "password".to_string(),
             network_utxos_url: "http://127.0.0.1:3031".to_string(),
+            network_master_xpub: "tpubD6NzVbkrYhZ4XgiXtGrdW5XDAPFCL9h7we1vwNCpn8tGbBcgfVYjXyhWo4E1xkh56hjod1RhGjxbaTLV3X4FyWuejifB9jusQ46QzG87VKp".to_string(),
             sentinel_url: "http://[::1]:50051".to_string(),
             sentinel_confirmation_threshold: 6,
             sequencer: None,
