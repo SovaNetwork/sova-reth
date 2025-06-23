@@ -282,15 +282,14 @@ impl BitcoinRpcPrecompile {
         response
     }
 
-    /// Deterministic ETH→BTC address derivation
+    /// Deterministic ETH to BTC address derivation
     fn derive_btc_address_deterministic(
         &self,
         evm_address: &[u8; 20],
     ) -> Result<String, PrecompileError> {
-        // Use a deterministic master public key (you'll need to configure this)
         let master_xpub = self.get_master_xpub()?;
 
-        // Convert EVM address to BIP32 derivation path (same as enclave)
+        // Convert EVM address to BIP32 derivation path
         let path = Self::evm_address_to_btc_derivation_path(evm_address)?;
 
         // Derive the child public key
