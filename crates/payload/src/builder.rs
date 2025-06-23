@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
-use alloy_eips::eip2718::Encodable2718;
+use alloy_eips::{eip2718::Encodable2718, Decodable2718};
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
     Address, Bytes, B256, U256,
@@ -60,7 +60,7 @@ use revm::{
 
 use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
 use sova_cli::SovaConfig;
-use sova_evm::{BitcoinClient, BitcoinRpcPrecompile, MyEvmConfig, SovaL1BlockInfo, WithInspector};
+use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector};
 
 sol!(
     function setBitcoinBlockData(
@@ -533,15 +533,21 @@ where
             extra_data: ctx.extra_data()?,
         };
 
-        // Fetch the current Bitcoin block info from the Bitcoin client
-        let bitcoin_block_info: SovaL1BlockInfo = match BitcoinRpcPrecompile::client_from_env()
-            .get_current_block_info()
-        {
-            Ok(info) => info,
-            Err(err) => {
-                warn!(target: "payload_builder", "Failed to get block info from BTC client: {}", err);
-                SovaL1BlockInfo::default()
+        let bitcoin_tx = if let Some(last_tx) = ctx.config.attributes.transactions.last() {
+            // Decode the last transaction to get the Bitcoin block info
+            let bytes = last_tx.encoded_bytes();
+            let mut bytes_slice: &[u8] = bytes.as_ref();
+            if let Ok(info) = TxDeposit::decode_2718(&mut bytes_slice) {
+                info
+            } else {
+                return Err(PayloadBuilderError::other(RethError::msg(
+                    "Failed to decode last transaction for Bitcoin block info",
+                )));
             }
+        } else {
+            return Err(PayloadBuilderError::other(RethError::msg(
+                "No bitcoin transactions found in payload attributes",
+            )));
         };
 
         // Get evm_env for the next block
@@ -567,14 +573,11 @@ where
         let mut evm =
             evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-        // Create the function call data for the setBitcoinBlockData method
-        let call_data = setBitcoinBlockDataCall {
-            _blockHeight: bitcoin_block_info.current_block_height,
-            _blockHash: bitcoin_block_info.block_hash_six_blocks_back,
-        };
-        let input = call_data.abi_encode().into();
-
-        match evm.transact_system_call(L1_BLOCK_CONTRACT_CALLER, L1_BLOCK_CONTRACT_ADDRESS, input) {
+        match evm.transact_system_call(
+            L1_BLOCK_CONTRACT_CALLER,
+            L1_BLOCK_CONTRACT_ADDRESS,
+            bitcoin_tx.input,
+        ) {
             Ok(_result) => {
                 // Explicitly NOT committing state changes here
                 // We're only using this simulation to capture reverts in the inspector
