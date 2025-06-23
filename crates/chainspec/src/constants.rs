@@ -296,16 +296,16 @@ pub fn sova_btc_contract_storage() -> BTreeMap<B256, B256> {
             .unwrap(),
     );
 
-    // Set Slot 0: Pack all the initialized variables
-    // minDepositAmount (8 bytes, 10,000) +
-    // maxDepositAmount (8 bytes, 100,000,000,000) +
-    // maxGasLimitAmount (8 bytes, 50,000,000) +
-    // _paused (1 byte, false)
     let slot_2_bytes = [0u8; 32];
     let mut slot_2 = slot_2_bytes;
-    slot_2[31] = 2; // Slot 2 in the last byte
+    slot_2[31] = 2;
 
     sova_btc_storage.insert(
+        // Set Slot 2: Pack all the initialized variables
+        // minDepositAmount (8 bytes, 10,000) +
+        // maxDepositAmount (8 bytes, 100,000,000,000) +
+        // maxGasLimitAmount (8 bytes, 50,000,000) +
+        // _paused (1 byte, false)
         B256::new(slot_2), // Slot 2
         B256::from_str("0x00000000000000000000000002faf080000000174876e8000000000000002710")
             .unwrap(),
