@@ -1043,3 +1043,56 @@ where
         Ok(None)
     }
 }
+
+// unit test for txDeposit
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use alloy_primitives::B256;
+
+    #[test]
+    fn test_bitcoin_tx_decoding() {
+        let call_data = setBitcoinBlockDataCall {
+            _blockHeight: 5,
+            _blockHash: B256::from_slice(&[0x01; 32]),
+        };
+
+        // Generate the ABI-encoded function call
+        let input: Bytes = call_data.abi_encode().into();
+
+        // Create a system transaction
+        let deposit_tx = TxDeposit {
+            // Unique identifier for this deposit's source
+            source_hash: B256::ZERO,
+            // Designated system account
+            from: L1_BLOCK_CONTRACT_CALLER,
+            // Target the L1Block contract
+            to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
+            // Dont mint Sova
+            mint: 0.into(),
+            // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
+            value: U256::ZERO,
+            // Gas limit for the call
+            gas_limit: 250_000,
+            // Not a system tx, post regolith this is not a thing
+            is_system_transaction: false,
+            // ABI-encoded function call
+            input: input.clone(),
+        };
+        // Create a buffer to hold the encoded transaction
+        let mut buffer = BytesMut::new();
+
+        // Encode the transaction according to EIP-2718
+        // This adds the transaction type byte (0x7E for Deposit) followed by RLP encoding
+        deposit_tx.encode_2718(&mut buffer);
+
+        // Convert to Bytes
+        let encoded: Bytes = buffer.freeze().into();
+
+        let bitcoin_tx = TxDeposit::decode_2718(&mut encoded.as_ref()).unwrap();
+
+        assert_eq!(bitcoin_tx.input, input);
+        assert_eq!(bitcoin_tx.from, L1_BLOCK_CONTRACT_CALLER);
+    }
+}
