@@ -308,7 +308,6 @@ impl BitcoinRpcPrecompile {
     }
 
     fn get_master_xpub(&self) -> Result<Xpub, PrecompileError> {
-        // Use the struct field that was already set from the environment
         if self.network_master_xpub.is_empty() {
             return Err(PrecompileError::Other(
                 "SOVA_NETWORK_MASTER_XPUB not configured".to_string(),
