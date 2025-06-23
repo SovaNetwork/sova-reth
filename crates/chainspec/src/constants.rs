@@ -304,7 +304,7 @@ pub fn sova_btc_contract_storage() -> BTreeMap<B256, B256> {
     let slot_2_bytes = [0u8; 32];
     let mut slot_2 = slot_2_bytes;
     slot_2[31] = 2; // Slot 2 in the last byte
-    
+
     sova_btc_storage.insert(
         B256::new(slot_2), // Slot 2
         B256::from_str("0x00000000000000000000000002faf080000000174876e8000000000000002710")

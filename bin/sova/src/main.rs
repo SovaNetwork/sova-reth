@@ -20,7 +20,6 @@ fn set_env_for_sova(args: SovaArgs) {
     env::set_var("SOVA_BTC_RPC_USERNAME", args.btc_rpc_username);
     env::set_var("SOVA_BTC_RPC_PASSWORD", args.btc_rpc_password);
     env::set_var("SOVA_NETWORK_UTXOS_URL", args.network_utxos_url);
-    env::set_var("SOVA_NETWORK_MASTER_XPUB", args.network_master_xpub);
     env::set_var("SOVA_SENTINEL_URL", args.sentinel_url);
     env::set_var(
         "SOVA_SENTINEL_CONFIRMATION_THRESHOLD",

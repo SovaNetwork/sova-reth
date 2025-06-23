@@ -573,19 +573,19 @@ where
         let mut evm =
             evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-        // match evm.transact_system_call(
-        //     L1_BLOCK_CONTRACT_CALLER,
-        //     L1_BLOCK_CONTRACT_ADDRESS,
-        //     bitcoin_tx.input,
-        // ) {
-        //     Ok(_result) => {
-        //         // Explicitly NOT committing state changes here
-        //         // We're only using this simulation to capture reverts in the inspector
-        //     }
-        //     Err(_err) => {
-        //         // we dont really care about the error here, we just want to capture the revert
-        //     }
-        // };
+        match evm.transact_system_call(
+            L1_BLOCK_CONTRACT_CALLER,
+            L1_BLOCK_CONTRACT_ADDRESS,
+            bitcoin_tx.input,
+        ) {
+            Ok(_result) => {
+                // Explicitly NOT committing state changes here
+                // We're only using this simulation to capture reverts in the inspector
+            }
+            Err(_err) => {
+                // we dont really care about the error here, we just want to capture the revert
+            }
+        };
 
         // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
         while let Some(pool_tx) = sim_txs.next(()) {
