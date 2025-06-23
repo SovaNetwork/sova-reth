@@ -19,13 +19,7 @@ use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
-use bitcoin::{
-    bip32::{ChildNumber, DerivationPath, Xpub},
-    consensus::encode::deserialize,
-    hashes::Hash,
-    key::Secp256k1,
-    Address as BtcAddress, Network, PublicKey, Txid,
-};
+use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
 
@@ -66,7 +60,6 @@ pub struct BitcoinRpcPrecompile {
     network: Network,
     http_client: Arc<ReqwestClient>,
     network_utxos_url: String,
-    network_master_xpub: String,
     sequencer_mode: bool,
 }
 
@@ -77,7 +70,6 @@ impl Default for BitcoinRpcPrecompile {
             network: Network::Regtest,
             http_client: Arc::new(ReqwestClient::new()),
             network_utxos_url: String::new(),
-            network_master_xpub: String::new(),
             sequencer_mode: false,
         }
     }
@@ -103,7 +95,6 @@ impl BitcoinRpcPrecompile {
         bitcoin_client: Arc<BitcoinClient>,
         network: Network,
         network_utxos_url: String,
-        network_master_xpub: String,
         sequencer_mode: bool,
     ) -> Result<Self, bitcoincore_rpc::Error> {
         // Check for env vars at initialization
@@ -117,7 +108,6 @@ impl BitcoinRpcPrecompile {
             network,
             http_client: Arc::new(ReqwestClient::new()),
             network_utxos_url,
-            network_master_xpub,
             sequencer_mode,
         })
     }
@@ -160,18 +150,10 @@ impl BitcoinRpcPrecompile {
 
         let network_utxos_url = env::var("SOVA_NETWORK_UTXOS_URL").unwrap_or_default();
 
-        let network_master_xpub = env::var("SOVA_NETWORK_MASTER_XPUB").unwrap_or_default();
-
         let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
 
-        BitcoinRpcPrecompile::new(
-            bitcoin_client,
-            network,
-            network_utxos_url,
-            network_master_xpub,
-            sequencer_mode,
-        )
-        .expect("Failed to create BitcoinRpcPrecompile from environment")
+        BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode)
+            .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
     // pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
@@ -292,83 +274,6 @@ impl BitcoinRpcPrecompile {
         let mut response = Vec::with_capacity(32);
         response.extend_from_slice(&bytes);
         response
-    }
-
-    /// Deterministic ETH to BTC address derivation
-    fn derive_btc_address_deterministic(
-        &self,
-        evm_address: &[u8; 20],
-    ) -> Result<String, PrecompileError> {
-        let master_xpub = self.get_master_xpub()?;
-
-        // Convert EVM address to BIP32 derivation path
-        let path = Self::evm_address_to_btc_derivation_path(evm_address)?;
-
-        // Derive the child public key
-        let secp = Secp256k1::new();
-        let child_xpub = master_xpub
-            .derive_pub(&secp, &path)
-            .map_err(|e| PrecompileError::Other(format!("BIP32 derivation failed: {}", e)))?;
-
-        // Convert to Bitcoin address
-        let public_key = PublicKey::new(child_xpub.public_key);
-        let address = BtcAddress::p2wpkh(&public_key, self.network)
-            .map_err(|e| PrecompileError::Other(format!("Address generation failed: {}", e)))?;
-
-        Ok(address.to_string())
-    }
-
-    fn get_master_xpub(&self) -> Result<Xpub, PrecompileError> {
-        if self.network_master_xpub.is_empty() {
-            return Err(PrecompileError::Other(
-                "SOVA_NETWORK_MASTER_XPUB not configured".to_string(),
-            ));
-        }
-
-        Xpub::from_str(&self.network_master_xpub)
-            .map_err(|e| PrecompileError::Other(format!("Invalid master xpub: {}", e)))
-    }
-
-    fn evm_address_to_btc_derivation_path(
-        evm_address: &[u8; 20],
-    ) -> Result<DerivationPath, PrecompileError> {
-        let path = DerivationPath::from(vec![
-            ChildNumber::from_hardened_idx(44)
-                .map_err(|e| PrecompileError::Other(e.to_string()))?, // Purpose: BIP44
-            ChildNumber::from_hardened_idx(0).map_err(|e| PrecompileError::Other(e.to_string()))?, // Coin type: Bitcoin
-            // Split into 4 byte chunks to fit the entire eth address
-            ChildNumber::from(
-                ((evm_address[0] as u32) << 24)
-                    | ((evm_address[1] as u32) << 16)
-                    | ((evm_address[2] as u32) << 8)
-                    | (evm_address[3] as u32),
-            ),
-            ChildNumber::from(
-                ((evm_address[4] as u32) << 24)
-                    | ((evm_address[5] as u32) << 16)
-                    | ((evm_address[6] as u32) << 8)
-                    | (evm_address[7] as u32),
-            ),
-            ChildNumber::from(
-                ((evm_address[8] as u32) << 24)
-                    | ((evm_address[9] as u32) << 16)
-                    | ((evm_address[10] as u32) << 8)
-                    | (evm_address[11] as u32),
-            ),
-            ChildNumber::from(
-                ((evm_address[12] as u32) << 24)
-                    | ((evm_address[13] as u32) << 16)
-                    | ((evm_address[14] as u32) << 8)
-                    | (evm_address[15] as u32),
-            ),
-            ChildNumber::from(
-                ((evm_address[16] as u32) << 24)
-                    | ((evm_address[17] as u32) << 16)
-                    | ((evm_address[18] as u32) << 8)
-                    | (evm_address[19] as u32),
-            ),
-        ]);
-        Ok(path)
     }
 
     fn broadcast_transaction(
@@ -526,18 +431,25 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
+    fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
+        // TODO(powvt): can this call fail and the tx execution still succeed?
+        let request = serde_json::json!({ "evm_address": ethereum_address });
+        let response: serde_json::Value = self.call_network_utxos("derive-address", &request)?;
+
+        debug!("derive-address response: {:?}", response);
+
+        response["btc_address"]
+            .as_str()
+            .map(String::from)
+            .ok_or_else(|| {
+                PrecompileError::Other("Failed to extract Bitcoin address from response".into())
+            })
+    }
+
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        // Parse the 20-byte Ethereum address from input
-        if input.len() != 20 {
-            return Err(PrecompileError::Other(
-                "Input must be exactly 20 bytes".to_string(),
-            ));
-        }
-
-        let mut evm_address = [0u8; 20];
-        evm_address.copy_from_slice(input);
-
-        let bitcoin_address = self.derive_btc_address_deterministic(&evm_address)?;
+        let encoded = hex::encode(input);
+        let ethereum_address_hex = encoded.as_str();
+        let bitcoin_address = self.derive_btc_address(ethereum_address_hex)?;
 
         Ok(PrecompileOutput::new(
             gas_used,
