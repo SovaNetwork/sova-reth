@@ -27,7 +27,7 @@ use bitcoin::{
     Address as BtcAddress, Network, PublicKey, Txid,
 };
 
-use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, UBTC_CONTRACT_ADDRESS};
+use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
 
 pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
     PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
@@ -540,9 +540,9 @@ impl BitcoinRpcPrecompile {
         gas_used: u64,
     ) -> PrecompileResult {
         // only the native bitcoin wrapper contract can call this method
-        if precomp_caller != &UBTC_CONTRACT_ADDRESS {
+        if precomp_caller != &SOVA_BTC_CONTRACT_ADDRESS {
             return Err(
-                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined UBTC contract may use network signing.".to_string())
+                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined SovaBTC contract may use network signing.".to_string())
             );
         }
 
