@@ -112,20 +112,23 @@ impl BitcoinRpcPrecompile {
         })
     }
 
-    pub fn from_env() -> Self {
-        // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
-        // to do this, we call this function once (for sanity check) after the env vars are set just before node start
-
+    pub fn config_from_env() -> BitcoinConfig {
         let network = Network::from_str(&env::var("SOVA_BTC_NETWORK").unwrap()).unwrap();
-
-        let bitcoin_config = BitcoinConfig::new(
+        BitcoinConfig::new(
             network,
             &env::var("SOVA_BTC_NETWORK_URL").unwrap(),
             &env::var("SOVA_BTC_RPC_USERNAME").unwrap(),
             &env::var("SOVA_BTC_RPC_PASSWORD").unwrap(),
-        );
+        )
+    }
 
-        let bitcoin_client = Arc::new(
+    pub fn client_from_env() -> Arc<BitcoinClient> {
+        // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
+        // to do this, we call this function once (for sanity check) after the env vars are set just before node start
+
+        let bitcoin_config = BitcoinRpcPrecompile::config_from_env();
+
+        Arc::new(
             BitcoinClient::new(
                 &bitcoin_config,
                 env::var("SOVA_SENTINEL_CONFIRMATION_THRESHOLD")
@@ -134,7 +137,16 @@ impl BitcoinRpcPrecompile {
                     .unwrap(),
             )
             .unwrap(),
-        );
+        )
+    }
+
+    pub fn from_env() -> Self {
+        // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
+        // to do this, we call this function once (for sanity check) after the env vars are set just before node start
+
+        let network = Network::from_str(&env::var("SOVA_BTC_NETWORK").unwrap()).unwrap();
+
+        let bitcoin_client = BitcoinRpcPrecompile::client_from_env();
 
         let network_utxos_url = env::var("SOVA_NETWORK_UTXOS_URL").unwrap_or_default();
         let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
