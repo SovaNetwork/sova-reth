@@ -21,7 +21,7 @@ use reth_tracing::tracing::{debug, info, warn};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
-use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, UBTC_CONTRACT_ADDRESS};
+use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
 
 pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
     PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
@@ -97,10 +97,10 @@ impl BitcoinRpcPrecompile {
         network_utxos_url: String,
         sequencer_mode: bool,
     ) -> Result<Self, bitcoincore_rpc::Error> {
-        // Check for API key at initialization
+        // Check for env vars at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
         if api_key.is_empty() && sequencer_mode {
-            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set for sequencer mode.");
+            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set. Required for sequencer mode.");
         }
 
         Ok(Self {
@@ -149,6 +149,7 @@ impl BitcoinRpcPrecompile {
         let bitcoin_client = BitcoinRpcPrecompile::client_from_env();
 
         let network_utxos_url = env::var("SOVA_NETWORK_UTXOS_URL").unwrap_or_default();
+
         let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
 
         BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode)
@@ -466,9 +467,9 @@ impl BitcoinRpcPrecompile {
         gas_used: u64,
     ) -> PrecompileResult {
         // only the native bitcoin wrapper contract can call this method
-        if precomp_caller != &UBTC_CONTRACT_ADDRESS {
+        if precomp_caller != &SOVA_BTC_CONTRACT_ADDRESS {
             return Err(
-                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined UBTC contract may use network signing.".to_string())
+                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined SovaBTC contract may use network signing.".to_string())
             );
         }
 
