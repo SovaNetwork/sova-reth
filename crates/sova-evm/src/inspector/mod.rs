@@ -401,7 +401,6 @@ impl SovaInspector {
                     }
                     None => {
                         // Keep the existing outcome
-                        return;
                     }
                 }
             }
