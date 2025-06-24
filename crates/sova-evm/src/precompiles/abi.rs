@@ -99,7 +99,7 @@ sol! {
 
     struct Input {
         bytes32 prev_tx_hash;
-        uint256 output_index;
+        uint32 output_index;
         bytes script_sig;
         bytes[] witness;
     }
@@ -166,7 +166,7 @@ fn encode_input(input: &GetRawTransactionResultVin) -> Result<Input, PrecompileE
 
     Ok(Input {
         prev_tx_hash: FixedBytes::from(reversed_prev_tx_hash),
-        output_index: U256::from(output_index),
+        output_index,
         script_sig: script_sig_hex,
         witness: txin_witness,
     })

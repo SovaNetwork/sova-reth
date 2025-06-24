@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use alloy_consensus::{BlockHeader, Transaction, Typed2718};
-use alloy_eips::eip2718::Encodable2718;
+use alloy_eips::{eip2718::Encodable2718, Decodable2718};
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
     Address, Bytes, B256, U256,
@@ -244,7 +244,12 @@ where
         };
 
         // Inject Bitcoin data
-        if let Err(err) = self.inject_bitcoin_data_to_payload_attrs(&mut op_payload_attrs) {
+        if let Err(err) =
+            SovaPayloadBuilder::<Pool, Client, Evm, T>::inject_bitcoin_data_to_payload_attrs(
+                &self.bitcoin_client,
+                &mut op_payload_attrs,
+            )
+        {
             warn!(target: "payload_builder", "Failed to inject Bitcoin data: {}", err);
             // Continue with payload building even if Bitcoin data injection fails
         }
@@ -367,12 +372,11 @@ where
 
     /// Inject Bitcoin data into a new block via a deposit transaction
     pub fn inject_bitcoin_data_to_payload_attrs(
-        &self,
+        bitcoin_client: &BitcoinClient,
         attributes: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
         // Fetch the current Bitcoin block info from the Bitcoin client
-        let bitcoin_block_info: SovaL1BlockInfo = match self.bitcoin_client.get_current_block_info()
-        {
+        let bitcoin_block_info: SovaL1BlockInfo = match bitcoin_client.get_current_block_info() {
             Ok(info) => info,
             Err(err) => {
                 warn!(target: "payload_builder", "Failed to get block info from BTC client: {}", err);
@@ -535,6 +539,23 @@ where
             extra_data: ctx.extra_data()?,
         };
 
+        let bitcoin_tx = if let Some(last_tx) = ctx.config.attributes.transactions.last() {
+            // Decode the last transaction to get the Bitcoin block info
+            let bytes = last_tx.encoded_bytes();
+            let mut bytes_slice: &[u8] = bytes.as_ref();
+            if let Ok(info) = TxDeposit::decode_2718(&mut bytes_slice) {
+                info
+            } else {
+                return Err(PayloadBuilderError::other(RethError::msg(
+                    "Failed to decode last transaction for Bitcoin block info",
+                )));
+            }
+        } else {
+            return Err(PayloadBuilderError::other(RethError::msg(
+                "No bitcoin transactions found in payload attributes",
+            )));
+        };
+
         // Get evm_env for the next block
         let evm_env = ctx
             .evm_config
@@ -557,6 +578,20 @@ where
         // Create EVM with inspector
         let mut evm =
             evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+
+        match evm.transact_system_call(
+            L1_BLOCK_CONTRACT_CALLER,
+            L1_BLOCK_CONTRACT_ADDRESS,
+            bitcoin_tx.input,
+        ) {
+            Ok(_result) => {
+                // Explicitly NOT committing state changes here
+                // We're only using this simulation to capture reverts in the inspector
+            }
+            Err(_err) => {
+                // we dont really care about the error here, we just want to capture the revert
+            }
+        };
 
         // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
         while let Some(pool_tx) = sim_txs.next(()) {
@@ -1020,5 +1055,58 @@ where
         }
 
         Ok(None)
+    }
+}
+
+// unit test for txDeposit
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use alloy_primitives::B256;
+
+    #[test]
+    fn test_bitcoin_tx_decoding() {
+        let call_data = setBitcoinBlockDataCall {
+            _blockHeight: 5,
+            _blockHash: B256::from_slice(&[0x01; 32]),
+        };
+
+        // Generate the ABI-encoded function call
+        let input: Bytes = call_data.abi_encode().into();
+
+        // Create a system transaction
+        let deposit_tx = TxDeposit {
+            // Unique identifier for this deposit's source
+            source_hash: B256::ZERO,
+            // Designated system account
+            from: L1_BLOCK_CONTRACT_CALLER,
+            // Target the L1Block contract
+            to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
+            // Dont mint Sova
+            mint: 0.into(),
+            // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
+            value: U256::ZERO,
+            // Gas limit for the call
+            gas_limit: 250_000,
+            // Not a system tx, post regolith this is not a thing
+            is_system_transaction: false,
+            // ABI-encoded function call
+            input: input.clone(),
+        };
+        // Create a buffer to hold the encoded transaction
+        let mut buffer = BytesMut::new();
+
+        // Encode the transaction according to EIP-2718
+        // This adds the transaction type byte (0x7E for Deposit) followed by RLP encoding
+        deposit_tx.encode_2718(&mut buffer);
+
+        // Convert to Bytes
+        let encoded: Bytes = buffer.freeze().into();
+
+        let bitcoin_tx = TxDeposit::decode_2718(&mut encoded.as_ref()).unwrap();
+
+        assert_eq!(bitcoin_tx.input, input);
+        assert_eq!(bitcoin_tx.from, L1_BLOCK_CONTRACT_CALLER);
     }
 }

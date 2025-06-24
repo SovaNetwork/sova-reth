@@ -23,17 +23,21 @@ pub enum BitcoinMethod {
     /// Selector: 0x00000002
     DecodeTransaction,
 
-    /// Checks Bitcoin transaction signature
-    /// Selector: 0x00000003
-    CheckSignature,
-
     /// Converts Ethereum address to Bitcoin address
-    /// Selector: 0x00000004
+    /// Selector: 0x00000003
     ConvertAddress,
 
     /// Creates, signs, and broadcasts a Bitcoin transaction from a specified signer
-    /// Selector: 0x00000005
+    /// Selector: 0x00000004
     VaultSpend,
+
+    /// Locks the SSTORES touched in the current transaction BEFORE the LockSlots method is called
+    /// Selector: 0x00000005
+    LockSlots,
+
+    /// Performs all lock-checks for touched slots BEFORE the LockSlots method is called
+    /// Selector: 0x00000006
+    CheckLocks,
 }
 
 impl BitcoinMethod {
@@ -44,18 +48,13 @@ impl BitcoinMethod {
     fn gas_config(&self) -> GasConfig {
         match self {
             Self::BroadcastTransaction => GasConfig {
-                limit: 100_000,
-                base_cost: 21_000,
+                limit: 30_000,
+                base_cost: 30_000,
                 cost_per_byte: 0,
             },
             Self::DecodeTransaction => GasConfig {
-                limit: 150_000,
-                base_cost: 4_000,
-                cost_per_byte: 3,
-            },
-            Self::CheckSignature => GasConfig {
-                limit: 100_000,
-                base_cost: 6_000,
+                limit: 3_000_000,
+                base_cost: 3_000,
                 cost_per_byte: 3,
             },
             Self::ConvertAddress => GasConfig {
@@ -64,8 +63,18 @@ impl BitcoinMethod {
                 cost_per_byte: 0,
             },
             Self::VaultSpend => GasConfig {
-                limit: 25_000,
-                base_cost: 25_000,
+                limit: 30_000,
+                base_cost: 30_000,
+                cost_per_byte: 0,
+            },
+            Self::LockSlots => GasConfig {
+                limit: 10_000,
+                base_cost: 10_000,
+                cost_per_byte: 0,
+            },
+            Self::CheckLocks => GasConfig {
+                limit: 10_000,
+                base_cost: 10_000,
                 cost_per_byte: 0,
             },
         }
@@ -93,9 +102,10 @@ impl BitcoinMethod {
         match selector_value {
             0x00000001 => Ok(Self::BroadcastTransaction),
             0x00000002 => Ok(Self::DecodeTransaction),
-            0x00000003 => Ok(Self::CheckSignature),
-            0x00000004 => Ok(Self::ConvertAddress),
-            0x00000005 => Ok(Self::VaultSpend),
+            0x00000003 => Ok(Self::ConvertAddress),
+            0x00000004 => Ok(Self::VaultSpend),
+            0x00000005 => Ok(Self::LockSlots),
+            0x00000006 => Ok(Self::CheckLocks),
             _ => Err(MethodError::UnknownSelector(selector_value)),
         }
     }
@@ -164,9 +174,10 @@ mod tests {
                 BitcoinMethod::BroadcastTransaction,
             ),
             ([0x00, 0x00, 0x00, 0x02], BitcoinMethod::DecodeTransaction),
-            ([0x00, 0x00, 0x00, 0x03], BitcoinMethod::CheckSignature),
-            ([0x00, 0x00, 0x00, 0x04], BitcoinMethod::ConvertAddress),
-            ([0x00, 0x00, 0x00, 0x05], BitcoinMethod::VaultSpend),
+            ([0x00, 0x00, 0x00, 0x03], BitcoinMethod::ConvertAddress),
+            ([0x00, 0x00, 0x00, 0x04], BitcoinMethod::VaultSpend),
+            ([0x00, 0x00, 0x00, 0x05], BitcoinMethod::LockSlots),
+            ([0x00, 0x00, 0x00, 0x06], BitcoinMethod::CheckLocks),
         ];
 
         // Test parsing from byte arrays to method variants
@@ -196,9 +207,10 @@ mod tests {
                 BitcoinMethod::BroadcastTransaction
                     if selector_bytes == [0x00, 0x00, 0x00, 0x01] => {}
                 BitcoinMethod::DecodeTransaction if selector_bytes == [0x00, 0x00, 0x00, 0x02] => {}
-                BitcoinMethod::CheckSignature if selector_bytes == [0x00, 0x00, 0x00, 0x03] => {}
-                BitcoinMethod::ConvertAddress if selector_bytes == [0x00, 0x00, 0x00, 0x04] => {}
-                BitcoinMethod::VaultSpend if selector_bytes == [0x00, 0x00, 0x00, 0x05] => {}
+                BitcoinMethod::ConvertAddress if selector_bytes == [0x00, 0x00, 0x00, 0x03] => {}
+                BitcoinMethod::VaultSpend if selector_bytes == [0x00, 0x00, 0x00, 0x04] => {}
+                BitcoinMethod::LockSlots if selector_bytes == [0x00, 0x00, 0x00, 0x05] => {}
+                BitcoinMethod::CheckLocks if selector_bytes == [0x00, 0x00, 0x00, 0x06] => {}
                 _ => panic!(
                     "Unexpected method variant for selector {:?}",
                     selector_bytes
@@ -211,18 +223,18 @@ mod tests {
     fn test_gas_calculation() {
         // Test BroadcastTransaction (fixed gas)
         let method = BitcoinMethod::BroadcastTransaction;
-        assert_eq!(method.calculate_gas_used(0), 21_000);
-        assert_eq!(method.calculate_gas_used(1000), 21_000);
+        assert_eq!(method.calculate_gas_used(0), 30_000);
+        assert_eq!(method.calculate_gas_used(1000), 30_000);
 
         // Test DecodeTransaction (variable gas)
         let method = BitcoinMethod::DecodeTransaction;
-        assert_eq!(method.calculate_gas_used(0), 4_000);
-        assert_eq!(method.calculate_gas_used(1000), 4_000 + 3000);
+        assert_eq!(method.calculate_gas_used(0), 3_000);
+        assert_eq!(method.calculate_gas_used(1000), 3_000 + 3_000);
 
         // Test gas limit check
         let method = BitcoinMethod::DecodeTransaction;
-        assert!(!method.is_gas_limit_exceeded(1000)); // 4_000 + 3000 < 150_000
-        assert!(method.is_gas_limit_exceeded(50000)); // 4_000 + 150_000 > 150_000
+        assert!(!method.is_gas_limit_exceeded(1000)); // 3_000 + 3_000 < 150_000
+        assert!(method.is_gas_limit_exceeded(1_000_000)); // 3_000 + 3_000_000 > 3_000_000
     }
 
     #[test]

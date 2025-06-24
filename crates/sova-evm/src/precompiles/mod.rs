@@ -19,9 +19,9 @@ use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
-use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, OutPoint, TxOut, Txid};
+use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
-use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, UBTC_CONTRACT_ADDRESS};
+use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
 
 pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress = PrecompileWithAddress(
     BTC_PRECOMPILE_ADDRESS,
@@ -99,10 +99,10 @@ impl BitcoinRpcPrecompile {
         network_utxos_url: String,
         sequencer_mode: bool,
     ) -> Result<Self, bitcoincore_rpc::Error> {
-        // Check for API key at initialization
+        // Check for env vars at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
         if api_key.is_empty() && sequencer_mode {
-            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set for sequencer mode.");
+            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set. Required for sequencer mode.");
         }
 
         Ok(Self {
@@ -114,20 +114,23 @@ impl BitcoinRpcPrecompile {
         })
     }
 
-    pub fn from_env() -> Self {
-        // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
-        // to do this, we call this function once (for sanity check) after the env vars are set just before node start
-
+    pub fn config_from_env() -> BitcoinConfig {
         let network = Network::from_str(&env::var("SOVA_BTC_NETWORK").unwrap()).unwrap();
-
-        let bitcoin_config = BitcoinConfig::new(
+        BitcoinConfig::new(
             network,
             &env::var("SOVA_BTC_NETWORK_URL").unwrap(),
             &env::var("SOVA_BTC_RPC_USERNAME").unwrap(),
             &env::var("SOVA_BTC_RPC_PASSWORD").unwrap(),
-        );
+        )
+    }
 
-        let bitcoin_client = Arc::new(
+    pub fn client_from_env() -> Arc<BitcoinClient> {
+        // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
+        // to do this, we call this function once (for sanity check) after the env vars are set just before node start
+
+        let bitcoin_config = BitcoinRpcPrecompile::config_from_env();
+
+        Arc::new(
             BitcoinClient::new(
                 &bitcoin_config,
                 env::var("SOVA_SENTINEL_CONFIRMATION_THRESHOLD")
@@ -136,9 +139,19 @@ impl BitcoinRpcPrecompile {
                     .unwrap(),
             )
             .unwrap(),
-        );
+        )
+    }
+
+    pub fn from_env() -> Self {
+        // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
+        // to do this, we call this function once (for sanity check) after the env vars are set just before node start
+
+        let network = Network::from_str(&env::var("SOVA_BTC_NETWORK").unwrap()).unwrap();
+
+        let bitcoin_client = BitcoinRpcPrecompile::client_from_env();
 
         let network_utxos_url = env::var("SOVA_NETWORK_UTXOS_URL").unwrap_or_default();
+
         let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
 
         BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode)
@@ -182,11 +195,13 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::DecodeTransaction => {
                 btc_precompile.decode_raw_transaction(input_data, gas_used)
             }
-            BitcoinMethod::CheckSignature => btc_precompile.check_signature(input_data, gas_used),
             BitcoinMethod::ConvertAddress => btc_precompile.convert_address(input_data, gas_used),
             BitcoinMethod::VaultSpend => {
                 btc_precompile.network_spend(input, precomp_caller, gas_used)
             }
+            // LockSlots and CheckLocks methods are triggers for the inspector
+            // They are NOT precompile functions
+            _ => PrecompileResult::Ok(PrecompileOutput::new(0, Bytes::new())),
         };
 
         if res.is_err() {
@@ -429,34 +444,6 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn check_signature(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
-            PrecompileError::Other("Failed to deserialize Bitcoin transaction".into())
-        })?;
-
-        let mut spent = |outpoint: &OutPoint| -> Option<TxOut> {
-            match self
-                .bitcoin_client
-                .get_raw_transaction(&outpoint.txid, None)
-            {
-                Ok(prev_tx) => prev_tx
-                    .output
-                    .get(outpoint.vout as usize)
-                    .map(|output| TxOut {
-                        value: output.value,
-                        script_pubkey: output.script_pubkey.clone(),
-                    }),
-                Err(_) => None,
-            }
-        };
-
-        tx.verify(&mut spent).map_err(|e| {
-            PrecompileError::Other(format!("Transaction verification failed: {:?}", e))
-        })?;
-
-        Ok(PrecompileOutput::new(gas_used, Bytes::from(vec![1])))
-    }
-
     fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
         // TODO(powvt): can this call fail and the tx execution still succeed?
         let request = serde_json::json!({ "evm_address": ethereum_address });
@@ -490,9 +477,9 @@ impl BitcoinRpcPrecompile {
         gas_used: u64,
     ) -> PrecompileResult {
         // only the native bitcoin wrapper contract can call this method
-        if precomp_caller != &UBTC_CONTRACT_ADDRESS {
+        if precomp_caller != &SOVA_BTC_CONTRACT_ADDRESS {
             return Err(
-                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined UBTC contract may use network signing.".to_string())
+                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined SovaBTC contract may use network signing.".to_string())
             );
         }
 
