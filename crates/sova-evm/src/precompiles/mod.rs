@@ -196,6 +196,8 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::VaultSpend => {
                 btc_precompile.network_spend(input, precomp_caller, gas_used)
             }
+            // LockSlots and CheckLocks methods are triggers for the inspector
+            // They are NOT precompile functions
             _ => PrecompileResult::Ok(PrecompileOutput::new(0, Bytes::new())),
         };
 

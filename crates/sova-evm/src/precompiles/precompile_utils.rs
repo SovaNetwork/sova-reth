@@ -31,7 +31,7 @@ pub enum BitcoinMethod {
     /// Selector: 0x00000004
     VaultSpend,
 
-    /// Locks the SSTORES touched during the current transaction
+    /// Locks the SSTORES touched in the current transaction BEFORE the LockSlots method is called
     /// Selector: 0x00000005
     LockSlots,
 
