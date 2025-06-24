@@ -35,7 +35,7 @@ pub enum BitcoinMethod {
     /// Selector: 0x00000005
     LockSlots,
 
-    /// Performs all lock-checks for touched slots
+    /// Performs all lock-checks for touched slots BEFORE the LockSlots method is called
     /// Selector: 0x00000006
     CheckLocks,
 }
