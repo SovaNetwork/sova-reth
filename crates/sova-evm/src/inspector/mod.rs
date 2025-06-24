@@ -365,33 +365,15 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
-        let method = BitcoinMethod::try_from(&inputs.input);
-
-        // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
-        if inputs.target_address != self.cache.bitcoin_precompile_address
-            && method == Ok(BitcoinMethod::CheckLocks)
-        {
-            // CHECK LOCKS FOR ANY SSTORE IN ANY TX
-            // Process storage journal entries before checking locks
-            self.process_storage_journal_entries(context);
-
-            match self.handle_lock_checks(context, inputs) {
-                Some(revert_outcome) => {
-                    // Replace outcome with revert_outcome
-                    *outcome = revert_outcome;
-                    // clear checkpoint after reverting
-                    self.checkpoint = None;
-                }
-                None => {
-                    // Keep the existing outcome
-                    return;
-                }
-            }
+        // intercept all BTC broadcast precompile calls and check locks
+        if inputs.target_address != self.cache.bitcoin_precompile_address {
+            return;
         }
+
         debug!("----- precompile call end hook -----");
 
         // Lock the slots for the given transaction
-        match method {
+        match BitcoinMethod::try_from(&inputs.input) {
             Ok(BitcoinMethod::LockSlots) => {
                 debug!("-> LockSlots call end hook");
                 // only update if call was successful
@@ -404,6 +386,23 @@ impl SovaInspector {
                 }
 
                 self.handle_lock_slots(context, inputs, outcome);
+            }
+            Ok(BitcoinMethod::CheckLocks) => {
+                // CHECK LOCKS FOR ANY SSTORE IN ANY TX
+                // Process storage journal entries before checking locks
+                self.process_storage_journal_entries(context);
+
+                match self.handle_lock_checks(context, inputs) {
+                    Some(revert_outcome) => {
+                        // Replace outcome with revert_outcome
+                        *outcome = revert_outcome;
+                        // clear checkpoint after reverting
+                        self.checkpoint = None;
+                    }
+                    None => {
+                        // Keep the existing outcome
+                    }
+                }
             }
             Ok(_) => (), // Other methods we don't care about do nothing
             Err(err) => {
