@@ -143,9 +143,9 @@ impl SovaInspector {
         context: &mut CTX,
     ) {
         // Clear the broadcast accessed storage before processing
-        self.cache.broadcast_accessed_storage.0.clear();
+        self.cache.accessed_storage.0.clear();
 
-        // Iterate through journal entries since last checkpoint and add to broadcast_accessed_storage cache
+        // Iterate through journal entries since last checkpoint and add to accessed_storage cache
         for entry in context.journal_ref().last_journal() {
             if let JournalEntry::StorageChanged {
                 address,
@@ -161,11 +161,8 @@ impl SovaInspector {
                     had_value: Some(*had_value),
                 };
 
-                self.cache.insert_broadcast_accessed_storage(
-                    *address,
-                    (*key).into(),
-                    storage_change,
-                );
+                self.cache
+                    .insert_accessed_storage(*address, (*key).into(), storage_change);
             }
         }
     }
@@ -205,7 +202,7 @@ impl SovaInspector {
         debug!("----- precompile call hook -----");
 
         match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
+            Ok(BitcoinMethod::CheckLocks) => {
                 debug!("-> Broadcast call hook");
 
                 // Process storage journal entries to find sstores before checking locks
@@ -251,9 +248,9 @@ impl SovaInspector {
             }
         };
 
-        // check if any of the storage slots in broadcast_accessed_storage are locked
+        // check if any of the storage slots in accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
-            &self.cache.broadcast_accessed_storage,
+            &self.cache.accessed_storage,
             context.block().number(),
             current_btc_block_height,
         ) {
@@ -368,8 +365,12 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
+        let method = BitcoinMethod::try_from(&inputs.input);
+
         // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
-        if inputs.target_address != self.cache.bitcoin_precompile_address {
+        if inputs.target_address != self.cache.bitcoin_precompile_address
+            && method == Ok(BitcoinMethod::CheckLocks)
+        {
             // CHECK LOCKS FOR ANY SSTORE IN ANY TX
             // Process storage journal entries before checking locks
             self.process_storage_journal_entries(context);
@@ -389,20 +390,20 @@ impl SovaInspector {
         }
         debug!("----- precompile call end hook -----");
 
-        // Update the btc tx data cache
-        match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
-                debug!("-> Broadcast call end hook");
+        // Lock the slots for the given transaction
+        match method {
+            Ok(BitcoinMethod::LockSlots) => {
+                debug!("-> LockSlots call end hook");
                 // only update if call was successful
                 if outcome.result.result != InstructionResult::Return {
                     *outcome = Self::create_revert_outcome(
-                        "Broadcast btc precompile execution failed".to_string(),
+                        "LockSlots precompile execution failed".to_string(),
                         inputs.gas_limit,
                         outcome.memory_offset.clone(),
                     );
                 }
 
-                self.handle_cache_btc_data(context, inputs, outcome);
+                self.handle_lock_slots(context, inputs, outcome);
             }
             Ok(_) => (), // Other methods we don't care about do nothing
             Err(err) => {
@@ -416,16 +417,16 @@ impl SovaInspector {
     }
 
     /// Cache the broadcast btc precompile result for future use in lock storage enforcement
-    fn handle_cache_btc_data<CTX: ContextTr<Journal: JournalExt>>(
+    fn handle_lock_slots<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
         context: &mut CTX,
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) -> Option<CallOutcome> {
-        let broadcast_txid = outcome.result.output[..32].to_vec();
+        let txid = outcome.result.output[..32].to_vec();
 
         // load current btc block height from state
-        let broadcast_block = match Self::get_l1_block_data(context) {
+        let block = match Self::get_l1_block_data(context) {
             Ok(height) => height,
             Err(err) => {
                 warn!(
@@ -445,13 +446,13 @@ impl SovaInspector {
 
         debug!(
             "Caching btc data from broadcast precompile call. Bitcoin block height from state: {}",
-            broadcast_block
+            block
         );
 
         // set broadcast txid and block in broadcast result
         let broadcast_result = BroadcastResult {
-            txid: Some(broadcast_txid),
-            block: Some(broadcast_block),
+            txid: Some(txid),
+            block: Some(block),
         };
 
         // Commit the broadcast storage to block storage and lock data
