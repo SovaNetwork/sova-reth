@@ -374,6 +374,18 @@ impl SovaInspector {
 
         // Lock the slots for the given transaction
         match BitcoinMethod::try_from(&inputs.input) {
+            Ok(BitcoinMethod::BroadcastTransaction) => {
+                // only update if call was successful
+                if outcome.result.result != InstructionResult::Return {
+                    *outcome = Self::create_revert_outcome(
+                        "BroadcastTransaction precompile execution failed".to_string(),
+                        inputs.gas_limit,
+                        outcome.memory_offset.clone(),
+                    );
+                }
+
+                self.handle_cache_btc_data(context, inputs, outcome);
+            }
             Ok(BitcoinMethod::LockSlots) => {
                 debug!("-> LockSlots call end hook");
                 // only update if call was successful
@@ -384,8 +396,6 @@ impl SovaInspector {
                         outcome.memory_offset.clone(),
                     );
                 }
-
-                self.handle_lock_slots(context, inputs, outcome);
             }
             Ok(BitcoinMethod::CheckLocks) => {
                 // CHECK LOCKS FOR ANY SSTORE IN ANY TX
@@ -416,7 +426,7 @@ impl SovaInspector {
     }
 
     /// Cache the broadcast btc precompile result for future use in lock storage enforcement
-    fn handle_lock_slots<CTX: ContextTr<Journal: JournalExt>>(
+    fn handle_cache_btc_data<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
         context: &mut CTX,
         inputs: &CallInputs,
