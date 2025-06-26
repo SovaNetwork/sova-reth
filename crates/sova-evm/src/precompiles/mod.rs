@@ -1,4 +1,5 @@
 mod abi;
+mod address_deriver;
 mod btc_client;
 mod precompile_utils;
 
@@ -22,6 +23,8 @@ use reth_tracing::tracing::{debug, info, warn};
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
+
+use crate::precompiles::address_deriver::SovaAddressDeriver;
 
 pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
     PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
@@ -61,16 +64,25 @@ pub struct BitcoinRpcPrecompile {
     http_client: Arc<ReqwestClient>,
     network_utxos_url: String,
     sequencer_mode: bool,
+    address_deriver: Arc<SovaAddressDeriver>,
 }
 
 impl Default for BitcoinRpcPrecompile {
     fn default() -> Self {
+        // Dummy address deriver for default (will panic if used without proper initialization)
+        let dummy_xpub = "xpub123Ab"
+            .parse()
+            .expect("Invalid dummy xpub");
+
+        let address_deriver = Arc::new(SovaAddressDeriver::new(dummy_xpub, Network::Regtest));
+
         Self {
             bitcoin_client: Arc::new(BitcoinClient::default()),
             network: Network::Regtest,
             http_client: Arc::new(ReqwestClient::new()),
             network_utxos_url: String::new(),
             sequencer_mode: false,
+            address_deriver,
         }
     }
 }
@@ -96,6 +108,7 @@ impl BitcoinRpcPrecompile {
         network: Network,
         network_utxos_url: String,
         sequencer_mode: bool,
+        address_deriver: Arc<SovaAddressDeriver>,
     ) -> Result<Self, bitcoincore_rpc::Error> {
         // Check for env vars at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
@@ -109,6 +122,7 @@ impl BitcoinRpcPrecompile {
             http_client: Arc::new(ReqwestClient::new()),
             network_utxos_url,
             sequencer_mode,
+            address_deriver,
         })
     }
 
@@ -140,6 +154,20 @@ impl BitcoinRpcPrecompile {
         )
     }
 
+    fn address_deriver_from_env(network: Network) -> Arc<SovaAddressDeriver> {
+        let derivation_xpub_str = env::var("SOVA_DERIVATION_XPUB")
+            .expect("SOVA_DERIVATION_XPUB environment variable must be set");
+        
+        if derivation_xpub_str.trim().is_empty() {
+            panic!("SOVA_DERIVATION_XPUB environment variable cannot be empty");
+        }
+
+        let derivation_xpub = bitcoin::bip32::Xpub::from_str(&derivation_xpub_str)
+            .expect("Invalid SOVA_DERIVATION_XPUB format");
+
+        Arc::new(SovaAddressDeriver::new(derivation_xpub, network))
+    }
+    
     pub fn from_env() -> Self {
         // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
         // to do this, we call this function once (for sanity check) after the env vars are set just before node start
@@ -152,7 +180,9 @@ impl BitcoinRpcPrecompile {
 
         let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
 
-        BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode)
+        let address_deriver = Self::address_deriver_from_env(network);
+
+        BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode, address_deriver)
             .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
@@ -424,18 +454,10 @@ impl BitcoinRpcPrecompile {
     }
 
     fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
-        // TODO(powvt): can this call fail and the tx execution still succeed?
-        let request = serde_json::json!({ "evm_address": ethereum_address });
-        let response: serde_json::Value = self.call_network_utxos("derive-address", &request)?;
-
-        debug!("derive-address response: {:?}", response);
-
-        response["btc_address"]
-            .as_str()
-            .map(String::from)
-            .ok_or_else(|| {
-                PrecompileError::Other("Failed to extract Bitcoin address from response".into())
-            })
+        let eth_bytes = SovaAddressDeriver::eth_addr_to_bytes(ethereum_address)?;
+        let btc_address = self.address_deriver.derive_bitcoin_address(&eth_bytes)?;
+        debug!("Locally derived Bitcoin address: {}", btc_address);
+        Ok(btc_address.to_string())
     }
 
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
@@ -448,7 +470,7 @@ impl BitcoinRpcPrecompile {
             Bytes::from(bitcoin_address.as_bytes().to_vec()),
         ))
     }
-
+    
     fn network_spend(
         &self,
         input: &[u8],
