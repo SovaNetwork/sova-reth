@@ -18,6 +18,8 @@ CARGO_INSTALL_EXTRA_FLAGS ?=
 # API key for network signing service
 NETWORK_UTXOS_API_KEY ?= indexer_api_key_here
 
+SOVA_DERIVATION_XPUB ?= tpubDBniRdE6LfcDtFKxAFsDsYPu88JZxWNQ5JRKxHpwjZihrSTtVhiEYai2W9Jw6uF7X3BgVCxD8vN2x1qKUfq9Bpi3LkJFvw6jweEMXonoKMb
+
 ##@ Help
 
 .PHONY: help
@@ -168,7 +170,7 @@ endef
 .PHONY: run-sova-regtest
 run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest and accompanying services
 	if [ "$(clean)" = "clean" ]; then $(MAKE) clean-data; fi
-	$(MAKE) build && NETWORK_UTXOS_API_KEY=$(NETWORK_UTXOS_API_KEY) ./target/release/sova-reth node \
+	$(MAKE) build && NETWORK_UTXOS_API_KEY=$(NETWORK_UTXOS_API_KEY) SOVA_DERIVATION_XPUB=$(SOVA_DERIVATION_XPUB) ./target/release/sova-reth node \
 	--chain dev \
 	--btc-network "regtest" \
 	--btc-network-url "http://127.0.0.1" \
