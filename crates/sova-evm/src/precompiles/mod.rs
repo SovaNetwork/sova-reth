@@ -187,7 +187,7 @@ impl BitcoinRpcPrecompile {
         }
 
         let res = match method {
-            BitcoinMethod::BroadcastTransaction => {
+            BitcoinMethod::BroadcastTransactionAndLock => {
                 btc_precompile.broadcast_btc_tx(input_data, gas_used)
             }
             BitcoinMethod::DecodeTransaction => {
@@ -197,7 +197,7 @@ impl BitcoinRpcPrecompile {
             BitcoinMethod::VaultSpend => {
                 btc_precompile.network_spend(input, precomp_caller, gas_used)
             }
-            // LockSlots and CheckLocks methods are triggers for the inspector
+            // CheckLocks method is a trigger for the inspector
             // They are NOT precompile functions
             _ => PrecompileResult::Ok(PrecompileOutput::new(0, Bytes::new())),
         };
