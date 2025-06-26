@@ -215,7 +215,7 @@ impl SovaInspector {
             Err(err) => {
                 // Return an error if we couldn't parse the method
                 Some(Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    format!("Invalid Bitcoin method: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ))
@@ -233,15 +233,9 @@ impl SovaInspector {
         let current_btc_block_height = match Self::get_l1_block_data(context) {
             Ok(height) => height,
             Err(err) => {
-                warn!(
-                    "Failed to get current Bitcoin block height from state: {}",
-                    err
-                );
+                warn!("Failed to get current Bitcoin block height from state: {err}");
                 return Some(Self::create_revert_outcome(
-                    format!(
-                        "Failed to get current Bitcoin block height from state: {}",
-                        err
-                    ),
+                    format!("Failed to get current Bitcoin block height from state: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
@@ -308,7 +302,7 @@ impl SovaInspector {
             Err(err) => {
                 warn!("WARNING: Failed to get lock status from sentinel, check connection to sentinel");
                 Some(Self::create_revert_outcome(
-                    format!("Failed to get lock status from sentinel: {}", err),
+                    format!("Failed to get lock status from sentinel: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ))
@@ -406,7 +400,7 @@ impl SovaInspector {
             Ok(_) => (), // Other methods we don't care about do nothing
             Err(err) => {
                 *outcome = Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    format!("Invalid Bitcoin method: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 )
@@ -427,15 +421,9 @@ impl SovaInspector {
         let block = match Self::get_l1_block_data(context) {
             Ok(height) => height,
             Err(err) => {
-                warn!(
-                    "Failed to get current Bitcoin block height from state: {}",
-                    err
-                );
+                warn!("Failed to get current Bitcoin block height from state: {err}",);
                 return Some(Self::create_revert_outcome(
-                    format!(
-                        "Failed to get current Bitcoin block height from state: {}",
-                        err
-                    ),
+                    format!("Failed to get current Bitcoin block height from state: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));

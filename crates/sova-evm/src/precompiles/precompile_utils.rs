@@ -115,7 +115,7 @@ impl fmt::Display for MethodError {
         match self {
             Self::InputTooShort => write!(f, "Input too short for method selector"),
             Self::UnknownSelector(selector) => {
-                write!(f, "Unknown method selector: 0x{:08x}", selector)
+                write!(f, "Unknown method selector: 0x{selector:08x}")
             }
         }
     }
@@ -199,10 +199,7 @@ mod tests {
                 BitcoinMethod::ConvertAddress if selector_bytes == [0x00, 0x00, 0x00, 0x03] => {}
                 BitcoinMethod::VaultSpend if selector_bytes == [0x00, 0x00, 0x00, 0x04] => {}
                 BitcoinMethod::CheckLocks if selector_bytes == [0x00, 0x00, 0x00, 0x05] => {}
-                _ => panic!(
-                    "Unexpected method variant for selector {:?}",
-                    selector_bytes
-                ),
+                _ => panic!("Unexpected method variant for selector {selector_bytes:?}"),
             }
         }
     }

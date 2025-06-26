@@ -162,7 +162,7 @@ impl BitcoinRpcPrecompile {
             precompile_input,
             precomp_caller,
         } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
-            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {:?}", e)))?;
+            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
 
         let input = &precompile_input;
         let precomp_caller = &precomp_caller;
@@ -240,11 +240,8 @@ impl BitcoinRpcPrecompile {
         let response = match request.send() {
             Ok(resp) => resp,
             Err(e) => {
-                warn!("WARNING: HTTP request to enclave failed: {}", e);
-                return Err(PrecompileError::Other(format!(
-                    "HTTP request failed: {}",
-                    e
-                )));
+                warn!("WARNING: HTTP request to enclave failed: {e}");
+                return Err(PrecompileError::Other(format!("HTTP request failed: {e}",)));
             }
         };
 
@@ -260,8 +257,7 @@ impl BitcoinRpcPrecompile {
                 warn!("WARNING: Failed to parse enclave response: {}", e);
 
                 Err(PrecompileError::Other(format!(
-                    "Failed to parse response: {}",
-                    e
+                    "Failed to parse response: {e}",
                 )))
             }
         }
@@ -356,10 +352,9 @@ impl BitcoinRpcPrecompile {
                             }
                             // Other JSON-RPC errors
                             _ => {
-                                warn!("WARNING: JSON-RPC error: {:?}", jsonrpc_err);
+                                warn!("WARNING: JSON-RPC error: {jsonrpc_err:?}");
                                 Err(PrecompileError::Other(format!(
-                                    "JSON-RPC error: {:?}",
-                                    jsonrpc_err
+                                    "JSON-RPC error: {jsonrpc_err:?}",
                                 )))
                             }
                         }
@@ -374,19 +369,17 @@ impl BitcoinRpcPrecompile {
                             debug!("Transaction already known: {} ({})", tx.txid(), err_msg);
                             Ok(tx.txid())
                         } else {
-                            warn!("WARNING: Bitcoin returned error: {}", err_msg);
+                            warn!("WARNING: Bitcoin returned error: {err_msg}");
                             Err(PrecompileError::Other(format!(
-                                "Bitcoin returned error: {}",
-                                err_msg
+                                "Bitcoin returned error: {err_msg}"
                             )))
                         }
                     }
                     // All other error types
                     _ => {
-                        warn!("WARNING: Bitcoin client error: {:?}", e);
+                        warn!("WARNING: Bitcoin client error: {e:?}");
                         Err(PrecompileError::Other(format!(
-                            "Bitcoin client error: {:?}",
-                            e
+                            "Bitcoin client error: {e:?}"
                         )))
                     }
                 }
@@ -425,7 +418,7 @@ impl BitcoinRpcPrecompile {
             })?;
 
         let encoded_data = abi_encode_tx_data(&data, &self.network).map_err(|e| {
-            PrecompileError::Other(format!("Failed to encode transaction data: {:?}", e))
+            PrecompileError::Other(format!("Failed to encode transaction data: {e:?}"))
         })?;
 
         Ok(PrecompileOutput::new(
@@ -439,7 +432,7 @@ impl BitcoinRpcPrecompile {
         let request = serde_json::json!({ "evm_address": ethereum_address });
         let response: serde_json::Value = self.call_network_utxos("derive-address", &request)?;
 
-        debug!("derive-address response: {:?}", response);
+        debug!("derive-address response: {response:?}");
 
         response["btc_address"]
             .as_str()
@@ -498,13 +491,12 @@ impl BitcoinRpcPrecompile {
                 .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
 
             let signed_tx_bytes = hex::decode(signed_tx_hex).map_err(|e| {
-                PrecompileError::Other(format!("Failed to decode signed transaction: {:?}", e))
+                PrecompileError::Other(format!("Failed to decode signed transaction: {e:?}"))
             })?;
 
             let signed_tx: bitcoin::Transaction = deserialize(&signed_tx_bytes).map_err(|e| {
                 PrecompileError::Other(format!(
-                    "Failed to deserialize signed Bitcoin transaction: {:?}",
-                    e
+                    "Failed to deserialize signed Bitcoin transaction: {e:?}",
                 ))
             })?;
 
@@ -512,13 +504,12 @@ impl BitcoinRpcPrecompile {
             info!("Broadcast result txid: {}", broadcast_txid);
 
             let expected_txid = Txid::from_str(txid_str).map_err(|e| {
-                PrecompileError::Other(format!("Invalid txid from signing service: {:?}", e))
+                PrecompileError::Other(format!("Invalid txid from signing service: {e:?}"))
             })?;
 
             if broadcast_txid != expected_txid {
                 warn!(
-                    "Broadcast txid {} does not match indexer txid {}",
-                    broadcast_txid, expected_txid
+                    "Broadcast txid {broadcast_txid} does not match indexer txid {expected_txid}"
                 );
             }
 
@@ -531,10 +522,10 @@ impl BitcoinRpcPrecompile {
                 .as_str()
                 .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
 
-            info!("Non-sequencer mode: received txid {}", txid_str);
+            info!("Non-sequencer mode: received txid {txid_str}");
 
             let txid = Txid::from_str(txid_str)
-                .map_err(|e| PrecompileError::Other(format!("Invalid txid: {:?}", e)))?;
+                .map_err(|e| PrecompileError::Other(format!("Invalid txid: {e:?}")))?;
 
             self.format_txid_to_bytes32(txid)
         };

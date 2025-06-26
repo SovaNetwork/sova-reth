@@ -175,8 +175,7 @@ where
                         Err(err) => {
                             warn!("Failed to validate Bitcoin block hash: {}", err);
                             return Err(BlockExecutionError::other(RethError::msg(format!(
-                                "Failed to validate Bitcoin block hash: {}",
-                                err
+                                "Failed to validate Bitcoin block hash: {err}",
                             ))));
                         }
                     }
@@ -330,8 +329,7 @@ where
                 .update_sentinel_locks(locked_block_num)
                 .map_err(|err| {
                     InternalBlockExecutionError::msg(format!(
-                        "Execution error: Failed to update sentinel locks: {}",
-                        err
+                        "Execution error: Failed to update sentinel locks: {err}",
                     ))
                 })?;
         }
@@ -467,8 +465,7 @@ where
                 .update_sentinel_locks(locked_block_num)
                 .map_err(|err| {
                     InternalBlockExecutionError::msg(format!(
-                        "Execution error: Failed to update sentinel locks: {}",
-                        err
+                        "Execution error: Failed to update sentinel locks: {err}",
                     ))
                 })?;
         }
