@@ -202,6 +202,15 @@ impl SovaInspector {
         debug!("----- precompile call hook -----");
 
         match BitcoinMethod::try_from(&inputs.input) {
+            Ok(BitcoinMethod::BroadcastTransactionAndLock) => {
+                debug!("-> Broadcast call hook");
+
+                // Process storage journal entries to find sstores before checking locks
+                self.process_storage_journal_entries(context);
+
+                // check locks
+                self.handle_lock_checks(context, inputs)
+            }
             Ok(BitcoinMethod::CheckLocks) => {
                 debug!("-> Broadcast call hook");
 
