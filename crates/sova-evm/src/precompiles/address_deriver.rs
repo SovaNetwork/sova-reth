@@ -44,12 +44,14 @@ impl SovaAddressDeriver {
             let chunk_bytes = &hash_bytes[chunk_start..chunk_start + 4];
             
             // Convert 4 bytes to u32 and mask to ensure non-hardened
+            // BIP32 rules state child numbers gte 2^31 (0x80000000) are hardened
+            // Masking with 0x7FFFFFFF ensures value is always < 2^31
             let value = u32::from_be_bytes([
                 chunk_bytes[0],
                 chunk_bytes[1], 
                 chunk_bytes[2],
                 chunk_bytes[3]
-            ]) & 0x7FFFFFFF; // Clear MSB to ensure non-hardened
+            ]) & 0x7FFFFFFF; // Clear most significant bit to ensure non-hardened
             
             chunks.push(ChildNumber::from(value));
         }
