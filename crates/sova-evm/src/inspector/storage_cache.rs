@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use alloy_primitives::{Address, StorageKey, StorageValue};
+use reth_tracing::tracing::debug;
 
 use super::StorageChange;
 
@@ -115,6 +116,10 @@ impl StorageCache {
         key: StorageKey,
         storage_change: StorageChange,
     ) {
+        debug!(
+            "deb debug: checking if address {:?} is excluded: {:?}",
+            address, self.excluded_addresses.contains(&address)
+        );
         if !self.excluded_addresses.contains(&address) {
             // If we already have an entry for this address and key,
             // update its current value while preserving the previous value
@@ -127,6 +132,9 @@ impl StorageCache {
                 } else {
                     None
                 };
+
+                debug!("deb debug: inserting storage change: address: {:?}, key: {:?}, previous_value: {:?}, current_value: {:?}", 
+                    address, key, previous_value, storage_change.value);
 
                 // If we don't have an entry for this address and key, add one
                 self.accessed_storage.insert(
@@ -143,6 +151,7 @@ impl StorageCache {
     pub fn commit_broadcast(&mut self, broadcast_result: BroadcastResult) {
         // Add to lock data
         if broadcast_result.txid.is_some() && broadcast_result.block.is_some() {
+            debug!("deb debug inserting lock_data {:?}", self.accessed_storage.clone());
             self.lock_data
                 .insert(broadcast_result, self.accessed_storage.clone());
         }

@@ -141,12 +141,16 @@ impl SovaInspector {
     fn process_storage_journal_entries<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
         context: &mut CTX,
+        clear: bool,
     ) {
-        // Clear the broadcast accessed storage before processing
+        // Clear the accessed storage before processing
         self.cache.accessed_storage.0.clear();
+
+        debug!("deb debug: processing storage journal entries");
 
         // Iterate through journal entries since last checkpoint and add to accessed_storage cache
         for entry in context.journal_ref().last_journal() {
+            debug!("deb debug: processing journal entry: {:?}", entry);
             if let JournalEntry::StorageChanged {
                 address,
                 key,
@@ -165,6 +169,7 @@ impl SovaInspector {
                     .insert_accessed_storage(*address, (*key).into(), storage_change);
             }
         }
+        debug!("deb debug: accessed_storage after processing: {:?}", self.cache.accessed_storage);
     }
 
     /// Create a revert outcome with an error message
@@ -195,31 +200,38 @@ impl SovaInspector {
         context: &mut CTX,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
+        debug!("target addr input: {:?}", inputs.target_address);
+        debug!("caller addr input: {:?}", inputs.caller);
         // intercept all BTC broadcast precompile calls and check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             return None;
         }
         debug!("----- precompile call hook -----");
+        
+        debug!("deb debug: processing storage journal entries at call hook");
+        
 
         match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransactionAndLock) => {
-                debug!("-> Broadcast call hook");
-
-                // Process storage journal entries to find sstores before checking locks
-                self.process_storage_journal_entries(context);
-
-                // check locks
-                self.handle_lock_checks(context, inputs)
-            }
+            // Ok(BitcoinMethod::CheckLocks | BitcoinMethod::BroadcastTransactionAndLock) => {
             Ok(BitcoinMethod::CheckLocks) => {
-                debug!("-> Broadcast call hook");
+            // Ok(BitcoinMethod::BroadcastTransactionAndLock) => {
+                debug!("-> CheckLocks call hook");
 
                 // Process storage journal entries to find sstores before checking locks
-                self.process_storage_journal_entries(context);
+                self.process_storage_journal_entries(context, true);
 
                 // check locks
                 self.handle_lock_checks(context, inputs)
             }
+            // Ok(BitcoinMethod::BroadcastTransactionAndLock) => {
+            //     debug!("-> BroadcastTransactionAndLock call hook");
+
+            //     // Process storage journal entries to find sstores before checking locks
+            //     self.process_storage_journal_entries(context, true);
+
+            //     // check locks
+            //     self.handle_lock_checks(context, inputs)
+            // }
             Ok(_) => None, // Other methods we don't care about
             Err(err) => {
                 // Return an error if we couldn't parse the method
@@ -368,16 +380,26 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
+        debug!("target addr input: {:?}", inputs.target_address);
+        debug!("caller addr input: {:?}", inputs.caller);
         // intercept all BTC broadcast precompile calls and check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
+            self.process_storage_journal_entries(context, true);
             return;
         }
 
         debug!("----- precompile call end hook -----");
 
+        debug!("deb debug: processing storage journal entries at call END hook");
+        // self.process_storage_journal_entries(context);
+
         // Lock the slots for the given transaction
         match BitcoinMethod::try_from(&inputs.input) {
             Ok(BitcoinMethod::BroadcastTransactionAndLock) => {
+                debug!("-> BroadcastTransactionAndLock call end hook: processing journal");
+
+                // self.process_storage_journal_entries(context);
+
                 // only update if call was successful
                 if outcome.result.result != InstructionResult::Return {
                     *outcome = Self::create_revert_outcome(
@@ -387,22 +409,27 @@ impl SovaInspector {
                     );
                 }
 
+                debug!("-> BroadcastTransactionAndLock call end hook: processing cache");
                 self.handle_cache_btc_data(context, inputs, outcome);
             }
             Ok(BitcoinMethod::CheckLocks) => {
+                debug!("-> CheckLocks call end hook: processing journal");
+
                 // CHECK LOCKS FOR ANY SSTORE IN ANY TX
                 // Process storage journal entries before checking locks
-                self.process_storage_journal_entries(context);
+                // self.process_storage_journal_entries(context);
 
                 match self.handle_lock_checks(context, inputs) {
                     Some(revert_outcome) => {
                         // Replace outcome with revert_outcome
+                        debug!("deb debug: REVERTING");
                         *outcome = revert_outcome;
                         // clear checkpoint after reverting
                         self.checkpoint = None;
                     }
                     None => {
                         // Keep the existing outcome
+                        return;
                     }
                 }
             }
@@ -415,6 +442,8 @@ impl SovaInspector {
                 )
             }
         }
+
+        // self.cache.accessed_storage.0.clear();
     }
 
     /// Cache the broadcast btc precompile result for future use in lock storage enforcement
@@ -449,6 +478,8 @@ impl SovaInspector {
             txid: Some(txid),
             block: Some(block),
         };
+
+        debug!("deb debug: commit_broadcast {:?}", &broadcast_result);
 
         // Commit the broadcast storage to block storage and lock data
         self.cache.commit_broadcast(broadcast_result);

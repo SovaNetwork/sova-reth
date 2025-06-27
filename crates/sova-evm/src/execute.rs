@@ -247,6 +247,7 @@ where
 
         // === REVERT APPLICATION PHASE ===
         // Apply any reverts collected during simulation
+        debug!("deb debug: revert_cache (execute_one): {revert_cache:?}");
         if !revert_cache.is_empty() {
             for (address, transition) in &revert_cache {
                 for (slot, slot_data) in &transition.storage {
@@ -377,6 +378,8 @@ where
 
             cache
         };
+
+        debug!("deb debug: revert_cache (execute_one_with_state_hook): {revert_cache:?}");
 
         // === REVERT APPLICATION PHASE ===
         // Apply any reverts collected during simulation
