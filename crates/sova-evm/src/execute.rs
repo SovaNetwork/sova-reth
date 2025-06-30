@@ -1,7 +1,5 @@
 extern crate alloc;
 
-use std::sync::Arc;
-
 use alloc::boxed::Box;
 
 use alloy_consensus::{BlockHeader, Transaction};
@@ -31,14 +29,7 @@ use revm::state::EvmStorageSlot;
 
 use sova_chainspec::L1_BLOCK_SATOSHI_SELECTOR;
 
-use crate::{BitcoinClient, BitcoinRpcPrecompile, WithInspector};
-
-/// A Sova block executor provider that can create executors using a strategy factory.
-#[derive(Clone, Debug)]
-pub struct SovaBlockExecutorProvider<F> {
-    strategy_factory: F,
-    bitcoin_client: Arc<BitcoinClient>,
-}
+use crate::{BitcoinRpcPrecompile, WithInspector};
 
 /// A generic block executor that uses a [`BlockExecutor`] to
 /// execute blocks.
@@ -48,21 +39,6 @@ pub struct SovaBlockExecutor<F, DB> {
     pub(crate) strategy_factory: F,
     /// Database.
     pub(crate) db: State<DB>,
-}
-
-impl<F, DB: Database> SovaBlockExecutor<F, DB> {
-    /// Creates a new `SovaBlockExecutor` with the given strategy.
-    pub fn new(strategy_factory: F, db: DB) -> Self {
-        let db = State::builder()
-            .with_database(db)
-            .with_bundle_update()
-            .without_state_clear()
-            .build();
-        Self {
-            strategy_factory,
-            db,
-        }
-    }
 }
 
 impl<F, DB> SovaBlockExecutor<F, DB>
@@ -243,7 +219,7 @@ where
                         .into();
 
                     // Set the storage slot directly in the revm account
-                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value);
+                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value, 0);
                     revm_acc.storage.insert(*slot, storage_slot);
                     revm_acc.mark_touch();
 
@@ -323,6 +299,8 @@ where
     where
         H: OnStateHook + 'static,
     {
+        info!("execution flow: starting");
+
         // === SIMULATION PHASE ===
         // Capture revert information
         let revert_cache = {
@@ -381,7 +359,7 @@ where
                         .into();
 
                     // Set the storage slot directly in the revm account
-                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value);
+                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value, 0);
                     revm_acc.storage.insert(*slot, storage_slot);
                     revm_acc.mark_touch();
 

@@ -5,7 +5,6 @@ mod precompiles;
 mod sova_revm;
 
 use evm::{SovaEvm, SovaEvmFactory};
-pub use execute::SovaBlockExecutorProvider;
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 use once_cell::race::OnceBox;
@@ -22,7 +21,6 @@ use alloy_evm::{
     EvmEnv,
 };
 use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
-use alloy_primitives::Address;
 
 use reth_evm::{precompiles::PrecompilesMap, ConfigureEvm, InspectorFor};
 use reth_optimism_chainspec::OpChainSpec;
@@ -30,10 +28,6 @@ use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes}
 use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
 use reth_primitives::{SealedBlock, SealedHeader};
 use reth_revm::{
-    context::Cfg,
-    context_interface::ContextTr,
-    handler::PrecompileProvider,
-    interpreter::{InputsImpl, InterpreterResult},
     Database, State,
 };
 use reth_tasks::TaskExecutor;

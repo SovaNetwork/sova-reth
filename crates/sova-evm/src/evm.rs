@@ -4,7 +4,7 @@ use alloy_evm::{Database, Evm, EvmEnv, EvmFactory};
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use op_alloy_consensus::OpTxType;
 use op_revm::{OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
-use reth_evm::precompiles::{PrecompileInput, PrecompilesMap};
+use reth_evm::precompiles::PrecompilesMap;
 use reth_tracing::tracing::debug;
 use revm::{
     context::{BlockEnv, TxEnv},
@@ -12,7 +12,6 @@ use revm::{
     handler::{instructions::EthInstructions, PrecompileProvider},
     inspector::NoOpInspector,
     interpreter::{interpreter::EthInterpreter, InterpreterResult},
-    precompile::PrecompileResult,
     Context, ExecuteEvm, InspectEvm, Inspector,
 };
 use sova_chainspec::BTC_PRECOMPILE_ADDRESS;

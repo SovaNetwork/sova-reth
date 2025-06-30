@@ -1,5 +1,5 @@
 use revm::{
-    context::{ContextSetters, ContextTr, Evm, FrameStack, JournalTr},
+    context::{ContextSetters, ContextTr, Evm, FrameStack},
     handler::{
         evm::{ContextDbError, FrameInitResult},
         instructions::{EthInstructions, InstructionProvider},
@@ -7,10 +7,8 @@ use revm::{
     },
     inspector::{InspectorEvmTr, JournalExt},
     interpreter::{
-        interpreter::EthInterpreter, Interpreter, InterpreterAction, InterpreterResult,
-        InterpreterTypes,
+        interpreter::EthInterpreter, InterpreterResult,
     },
-    state::EvmState,
     Inspector,
 };
 

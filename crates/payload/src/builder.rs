@@ -644,7 +644,7 @@ where
                         .into();
 
                     // set the storage slot directly in the revm account
-                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value);
+                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value, 0);
                     revm_acc.storage.insert(*slot, storage_slot);
                     revm_acc.mark_touch();
 

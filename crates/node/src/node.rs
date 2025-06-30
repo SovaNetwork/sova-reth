@@ -20,15 +20,15 @@ use reth_optimism_payload_builder::{
     builder::OpPayloadTransactions,
     config::{OpBuilderConfig, OpDAConfig},
 };
-use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
+use reth_optimism_primitives::OpPrimitives;
 
 use reth_optimism_rpc::OpEthApiBuilder;
-use reth_provider::{providers::ProviderFactoryBuilder, ChainSpecProvider, EthStorage};
+use reth_provider::{providers::ProviderFactoryBuilder, ChainSpecProvider};
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
 use sova_cli::{BitcoinConfig, SovaConfig};
-use sova_evm::{BitcoinClient, SovaBlockExecutorProvider, SovaEvmConfig};
+use sova_evm::{BitcoinClient, SovaEvmConfig};
 
 use crate::SovaArgs;
 
