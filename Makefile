@@ -188,4 +188,4 @@ run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest
 	--authrpc.port 8551 \
 	--datadir ./data \
 	--log.stdout.filter debug \
-	--dev > ./sova-reth.log 2>&1
+	--dev --color never > ./sova-reth.log 2>&1
