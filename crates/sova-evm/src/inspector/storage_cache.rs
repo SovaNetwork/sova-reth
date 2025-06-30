@@ -89,7 +89,7 @@ pub struct StorageCache {
     /// Excluded addresses from the inspector
     excluded_addresses: HashSet<Address>,
     /// Local cache of storage slot data for a tx since the last broadcast precompile call
-    pub accessed_storage: AccessedStorage,
+    pub broadcast_accessed_storage: AccessedStorage,
     /// All slots to be locked for the next block
     pub lock_data: HashMap<BroadcastResult, AccessedStorage>,
 }
@@ -102,14 +102,14 @@ impl StorageCache {
         Self {
             bitcoin_precompile_address,
             excluded_addresses: excluded_addresses.into_iter().collect(),
-            accessed_storage: AccessedStorage::new(),
+            broadcast_accessed_storage: AccessedStorage::new(),
             lock_data: HashMap::new(),
         }
     }
 
     /// Update data in the broadcast storage cache to be later enforced during block
     /// execution and added to final lock data after current block process is done
-    pub fn insert_accessed_storage(
+    pub fn insert_broadcast_accessed_storage(
         &mut self,
         address: Address,
         key: StorageKey,
@@ -118,7 +118,7 @@ impl StorageCache {
         if !self.excluded_addresses.contains(&address) {
             // If we already have an entry for this address and key,
             // update its current value while preserving the previous value
-            if let Some(slot_data) = self.accessed_storage.entry(address).get_mut(&key) {
+            if let Some(slot_data) = self.broadcast_accessed_storage.entry(address).get_mut(&key) {
                 slot_data.current_value = storage_change.value;
             } else {
                 // Get the previous value only if the reason is not SLOAD
@@ -129,7 +129,7 @@ impl StorageCache {
                 };
 
                 // If we don't have an entry for this address and key, add one
-                self.accessed_storage.insert(
+                self.broadcast_accessed_storage.insert(
                     address,
                     key,
                     previous_value.unwrap_or_default(),
@@ -144,17 +144,17 @@ impl StorageCache {
         // Add to lock data
         if broadcast_result.txid.is_some() && broadcast_result.block.is_some() {
             self.lock_data
-                .insert(broadcast_result, self.accessed_storage.clone());
+                .insert(broadcast_result, self.broadcast_accessed_storage.clone());
         }
 
         // Clear broadcast storage for next transaction
         // or if there is a second broadcast precompile call in this tx.
-        self.accessed_storage.0.clear();
+        self.broadcast_accessed_storage.0.clear();
     }
 
     /// Clear all storage data for a new block
     pub fn clear_cache(&mut self) {
-        self.accessed_storage.0.clear();
+        self.broadcast_accessed_storage.0.clear();
         self.lock_data.clear();
     }
 }
