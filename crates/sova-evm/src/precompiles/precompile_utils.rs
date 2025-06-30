@@ -30,14 +30,6 @@ pub enum BitcoinMethod {
     /// Creates, signs, and broadcasts a Bitcoin transaction from a specified signer
     /// Selector: 0x00000004
     VaultSpend,
-
-    /// Locks the SSTORES touched in the current transaction BEFORE the LockSlots method is called
-    /// Selector: 0x00000005
-    LockSlots,
-
-    /// Performs all lock-checks for touched slots BEFORE the LockSlots method is called
-    /// Selector: 0x00000006
-    CheckLocks,
 }
 
 impl BitcoinMethod {
@@ -67,16 +59,6 @@ impl BitcoinMethod {
                 base_cost: 30_000,
                 cost_per_byte: 0,
             },
-            Self::LockSlots => GasConfig {
-                limit: 10_000,
-                base_cost: 10_000,
-                cost_per_byte: 0,
-            },
-            Self::CheckLocks => GasConfig {
-                limit: 10_000,
-                base_cost: 10_000,
-                cost_per_byte: 0,
-            },
         }
     }
 
@@ -104,8 +86,6 @@ impl BitcoinMethod {
             0x00000002 => Ok(Self::DecodeTransaction),
             0x00000003 => Ok(Self::ConvertAddress),
             0x00000004 => Ok(Self::VaultSpend),
-            0x00000005 => Ok(Self::LockSlots),
-            0x00000006 => Ok(Self::CheckLocks),
             _ => Err(MethodError::UnknownSelector(selector_value)),
         }
     }
@@ -125,7 +105,7 @@ impl fmt::Display for MethodError {
         match self {
             Self::InputTooShort => write!(f, "Input too short for method selector"),
             Self::UnknownSelector(selector) => {
-                write!(f, "Unknown method selector: 0x{:08x}", selector)
+                write!(f, "Unknown method selector: 0x{selector:08x}")
             }
         }
     }
@@ -176,8 +156,6 @@ mod tests {
             ([0x00, 0x00, 0x00, 0x02], BitcoinMethod::DecodeTransaction),
             ([0x00, 0x00, 0x00, 0x03], BitcoinMethod::ConvertAddress),
             ([0x00, 0x00, 0x00, 0x04], BitcoinMethod::VaultSpend),
-            ([0x00, 0x00, 0x00, 0x05], BitcoinMethod::LockSlots),
-            ([0x00, 0x00, 0x00, 0x06], BitcoinMethod::CheckLocks),
         ];
 
         // Test parsing from byte arrays to method variants
@@ -209,12 +187,7 @@ mod tests {
                 BitcoinMethod::DecodeTransaction if selector_bytes == [0x00, 0x00, 0x00, 0x02] => {}
                 BitcoinMethod::ConvertAddress if selector_bytes == [0x00, 0x00, 0x00, 0x03] => {}
                 BitcoinMethod::VaultSpend if selector_bytes == [0x00, 0x00, 0x00, 0x04] => {}
-                BitcoinMethod::LockSlots if selector_bytes == [0x00, 0x00, 0x00, 0x05] => {}
-                BitcoinMethod::CheckLocks if selector_bytes == [0x00, 0x00, 0x00, 0x06] => {}
-                _ => panic!(
-                    "Unexpected method variant for selector {:?}",
-                    selector_bytes
-                ),
+                _ => panic!("Unexpected method variant for selector {selector_bytes:?}",),
             }
         }
     }

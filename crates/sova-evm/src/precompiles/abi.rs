@@ -36,7 +36,7 @@ pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
 
     let decoded = input_type
         .abi_decode_params(input)
-        .map_err(|e| PrecompileError::other(format!("Failed to decode input: {:?}", e)))?;
+        .map_err(|e| PrecompileError::other(format!("Failed to decode input: {e:?}")))?;
 
     if let DynSolValue::Tuple(values) = decoded {
         Ok(DecodedInput {
@@ -66,7 +66,7 @@ fn extract_fixed_bytes(value: &DynSolValue, size: usize) -> Result<Vec<u8>, Prec
 
 fn extract_address(value: &DynSolValue) -> Result<String, PrecompileError> {
     if let DynSolValue::Address(addr) = value {
-        Ok(format!("{:?}", addr).trim_start_matches("0x").to_string())
+        Ok(format!("{addr:?}").trim_start_matches("0x").to_string())
     } else {
         Err(PrecompileError::other("Invalid address"))
     }
@@ -177,7 +177,7 @@ pub fn abi_encode_tx_data(
     network: &Network,
 ) -> Result<Bytes, PrecompileError> {
     let txid = Vec::from_hex(&tx_data.txid.to_string())
-        .map_err(|e| PrecompileError::Other(format!("Failed to decode txid: {:?}", e)))?;
+        .map_err(|e| PrecompileError::Other(format!("Failed to decode txid: {e:?}")))?;
 
     let outputs = tx_data
         .vout

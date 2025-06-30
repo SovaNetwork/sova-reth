@@ -143,9 +143,9 @@ impl SovaInspector {
         context: &mut CTX,
     ) {
         // Clear the broadcast accessed storage before processing
-        self.cache.accessed_storage.0.clear();
+        self.cache.broadcast_accessed_storage.0.clear();
 
-        // Iterate through journal entries since last checkpoint and add to accessed_storage cache
+        // Iterate through journal entries since last checkpoint and add to broadcast_accessed_storage cache
         for entry in context.journal_ref().last_journal() {
             if let JournalEntry::StorageChanged {
                 address,
@@ -161,8 +161,11 @@ impl SovaInspector {
                     had_value: Some(*had_value),
                 };
 
-                self.cache
-                    .insert_accessed_storage(*address, (*key).into(), storage_change);
+                self.cache.insert_broadcast_accessed_storage(
+                    *address,
+                    (*key).into(),
+                    storage_change,
+                );
             }
         }
     }
@@ -202,7 +205,7 @@ impl SovaInspector {
         debug!("----- precompile call hook -----");
 
         match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::CheckLocks) => {
+            Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call hook");
 
                 // Process storage journal entries to find sstores before checking locks
@@ -215,7 +218,7 @@ impl SovaInspector {
             Err(err) => {
                 // Return an error if we couldn't parse the method
                 Some(Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    format!("Invalid Bitcoin method: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ))
@@ -238,19 +241,16 @@ impl SovaInspector {
                     err
                 );
                 return Some(Self::create_revert_outcome(
-                    format!(
-                        "Failed to get current Bitcoin block height from state: {}",
-                        err
-                    ),
+                    format!("Failed to get current Bitcoin block height from state: {err}",),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
             }
         };
 
-        // check if any of the storage slots in accessed_storage are locked
+        // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
-            &self.cache.accessed_storage,
+            &self.cache.broadcast_accessed_storage,
             context.block().number(),
             current_btc_block_height,
         ) {
@@ -308,7 +308,7 @@ impl SovaInspector {
             Err(err) => {
                 warn!("WARNING: Failed to get lock status from sentinel, check connection to sentinel");
                 Some(Self::create_revert_outcome(
-                    format!("Failed to get lock status from sentinel: {}", err),
+                    format!("Failed to get lock status from sentinel: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ))
@@ -365,49 +365,46 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
-        // intercept all BTC broadcast precompile calls and check locks
+        // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
-            return;
-        }
+            // CHECK LOCKS FOR ANY SSTORE IN ANY TX
+            // Process storage journal entries before checking locks
+            self.process_storage_journal_entries(context);
 
+            match self.handle_lock_checks(context, inputs) {
+                Some(revert_outcome) => {
+                    // Replace outcome with revert_outcome
+                    *outcome = revert_outcome;
+                    // clear checkpoint after reverting
+                    self.checkpoint = None;
+                }
+                None => {
+                    // Keep the existing outcome
+                    return;
+                }
+            }
+        }
         debug!("----- precompile call end hook -----");
 
-        // Lock the slots for the given transaction
+        // Update the btc tx data cache
         match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::LockSlots) => {
-                debug!("-> LockSlots call end hook");
+            Ok(BitcoinMethod::BroadcastTransaction) => {
+                debug!("-> Broadcast call end hook");
                 // only update if call was successful
                 if outcome.result.result != InstructionResult::Return {
                     *outcome = Self::create_revert_outcome(
-                        "LockSlots precompile execution failed".to_string(),
+                        "Broadcast btc precompile execution failed".to_string(),
                         inputs.gas_limit,
                         outcome.memory_offset.clone(),
                     );
                 }
 
-                self.handle_lock_slots(context, inputs, outcome);
-            }
-            Ok(BitcoinMethod::CheckLocks) => {
-                // CHECK LOCKS FOR ANY SSTORE IN ANY TX
-                // Process storage journal entries before checking locks
-                self.process_storage_journal_entries(context);
-
-                match self.handle_lock_checks(context, inputs) {
-                    Some(revert_outcome) => {
-                        // Replace outcome with revert_outcome
-                        *outcome = revert_outcome;
-                        // clear checkpoint after reverting
-                        self.checkpoint = None;
-                    }
-                    None => {
-                        // Keep the existing outcome
-                    }
-                }
+                self.handle_cache_btc_data(context, inputs, outcome);
             }
             Ok(_) => (), // Other methods we don't care about do nothing
             Err(err) => {
                 *outcome = Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    format!("Invalid Bitcoin method: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 )
@@ -416,16 +413,16 @@ impl SovaInspector {
     }
 
     /// Cache the broadcast btc precompile result for future use in lock storage enforcement
-    fn handle_lock_slots<CTX: ContextTr<Journal: JournalExt>>(
+    fn handle_cache_btc_data<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
         context: &mut CTX,
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) -> Option<CallOutcome> {
-        let txid = outcome.result.output[..32].to_vec();
+        let broadcast_txid = outcome.result.output[..32].to_vec();
 
         // load current btc block height from state
-        let block = match Self::get_l1_block_data(context) {
+        let broadcast_block = match Self::get_l1_block_data(context) {
             Ok(height) => height,
             Err(err) => {
                 warn!(
@@ -433,10 +430,7 @@ impl SovaInspector {
                     err
                 );
                 return Some(Self::create_revert_outcome(
-                    format!(
-                        "Failed to get current Bitcoin block height from state: {}",
-                        err
-                    ),
+                    format!("Failed to get current Bitcoin block height from state: {err}",),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
@@ -445,13 +439,13 @@ impl SovaInspector {
 
         debug!(
             "Caching btc data from broadcast precompile call. Bitcoin block height from state: {}",
-            block
+            broadcast_block
         );
 
         // set broadcast txid and block in broadcast result
         let broadcast_result = BroadcastResult {
-            txid: Some(txid),
-            block: Some(block),
+            txid: Some(broadcast_txid),
+            block: Some(broadcast_block),
         };
 
         // Commit the broadcast storage to block storage and lock data

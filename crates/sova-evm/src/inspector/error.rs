@@ -13,10 +13,10 @@ pub enum SlotProviderError {
 impl fmt::Display for SlotProviderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SlotProviderError::Transport(e) => write!(f, "Transport error: {}", e),
-            SlotProviderError::RpcError(e) => write!(f, "RPC error: {}", e),
-            SlotProviderError::ConnectionError(e) => write!(f, "Connection error: {}", e),
-            SlotProviderError::BitcoinError(e) => write!(f, "Bitcoin error: {}", e),
+            SlotProviderError::Transport(e) => write!(f, "Transport error: {e}"),
+            SlotProviderError::RpcError(e) => write!(f, "RPC error: {e}"),
+            SlotProviderError::ConnectionError(e) => write!(f, "Connection error: {e}"),
+            SlotProviderError::BitcoinError(e) => write!(f, "Bitcoin error: {e}"),
         }
     }
 }
