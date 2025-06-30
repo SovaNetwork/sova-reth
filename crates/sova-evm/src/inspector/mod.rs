@@ -218,7 +218,7 @@ impl SovaInspector {
             Err(err) => {
                 // Return an error if we couldn't parse the method
                 Some(Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    format!("Invalid Bitcoin method: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ))
@@ -241,10 +241,7 @@ impl SovaInspector {
                     err
                 );
                 return Some(Self::create_revert_outcome(
-                    format!(
-                        "Failed to get current Bitcoin block height from state: {}",
-                        err
-                    ),
+                    format!("Failed to get current Bitcoin block height from state: {err}",),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
@@ -311,7 +308,7 @@ impl SovaInspector {
             Err(err) => {
                 warn!("WARNING: Failed to get lock status from sentinel, check connection to sentinel");
                 Some(Self::create_revert_outcome(
-                    format!("Failed to get lock status from sentinel: {}", err),
+                    format!("Failed to get lock status from sentinel: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ))
@@ -407,7 +404,7 @@ impl SovaInspector {
             Ok(_) => (), // Other methods we don't care about do nothing
             Err(err) => {
                 *outcome = Self::create_revert_outcome(
-                    format!("Invalid Bitcoin method: {}", err),
+                    format!("Invalid Bitcoin method: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 )
@@ -433,10 +430,7 @@ impl SovaInspector {
                     err
                 );
                 return Some(Self::create_revert_outcome(
-                    format!(
-                        "Failed to get current Bitcoin block height from state: {}",
-                        err
-                    ),
+                    format!("Failed to get current Bitcoin block height from state: {err}",),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));

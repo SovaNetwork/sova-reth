@@ -157,7 +157,7 @@ impl From<&str> for BitcoinNetwork {
         match parse_network(s) {
             Ok(network) => BitcoinNetwork::from(network),
             Err(err) => {
-                eprintln!("Error parsing network: {}", err);
+                eprintln!("Error parsing network: {err}");
                 BitcoinNetwork::default()
             }
         }
