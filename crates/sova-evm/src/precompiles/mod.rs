@@ -5,7 +5,7 @@ mod precompile_utils;
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
 pub use precompile_utils::BitcoinMethod;
-use reth_evm::precompiles::PrecompileInput;
+use reth_evm::precompiles::{DynPrecompile, PrecompileInput};
 use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
@@ -15,7 +15,6 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
-use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
@@ -24,8 +23,8 @@ use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
 
-// pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
-//     PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
+pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
+    PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::mock_run);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -157,16 +156,15 @@ impl BitcoinRpcPrecompile {
             .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
-    // pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
-    pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
-        // let BitcoinRpcPrecompileInput {
-        //     precompile_input,
-        //     precomp_caller,
-        // } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
-        //     .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
+    pub fn mock_run(_input: &[u8], _gas_limit: u64) -> PrecompileResult {
+        // Mock implementation that does nothing and returns empty output
+        // This is needed to apply the alternate mapping of the precompile
+        // Else the map doesn't execute
+        Ok(PrecompileOutput::new(0, Bytes::new()))
+    }
 
-        // let input = &precompile_input;
-        // let precomp_caller = &precomp_caller;
+    pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
+        debug!("Running BitcoinRpcPrecompile with input: {:?}", input);
 
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
@@ -531,9 +529,10 @@ impl BitcoinRpcPrecompile {
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 
-    pub fn run_map(input: PrecompileInput<'_>) -> PrecompileResult {
-        // Convert &[u8] to &Bytes
-        let bytes = Bytes::copy_from_slice(input.data);
-        BitcoinRpcPrecompile::run(&bytes, &input.caller)
+    pub fn run_map(_: DynPrecompile) -> DynPrecompile {
+        move |input: PrecompileInput<'_>| -> PrecompileResult {
+            BitcoinRpcPrecompile::run(&Bytes::copy_from_slice(input.data), &input.caller)
+        }
+        .into()
     }
 }

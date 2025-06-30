@@ -5,6 +5,7 @@ use alloy_primitives::{Address, Bytes, TxKind, U256};
 use op_alloy_consensus::OpTxType;
 use op_revm::{OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
 use reth_evm::precompiles::{PrecompileInput, PrecompilesMap};
+use reth_tracing::tracing::debug;
 use revm::{
     context::{BlockEnv, TxEnv},
     context_interface::result::{EVMError, ResultAndState},
@@ -262,13 +263,9 @@ impl EvmFactory for SovaEvmFactory {
             inspect: false,
         };
 
+        debug!("Adding Bitcoin RPC precompile at address: {BTC_PRECOMPILE_ADDRESS:?}");
         evm.precompiles_mut()
-            .map_precompile(&BTC_PRECOMPILE_ADDRESS, |_| {
-                move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_map(input)
-                }
-                .into()
-            });
+            .map_precompile(&BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run_map);
 
         evm
     }
@@ -291,13 +288,9 @@ impl EvmFactory for SovaEvmFactory {
             inspect: true,
         };
 
+        debug!("Adding Bitcoin RPC precompile at address: {BTC_PRECOMPILE_ADDRESS:?}");
         evm.precompiles_mut()
-            .map_precompile(&BTC_PRECOMPILE_ADDRESS, |_| {
-                move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_map(input)
-                }
-                .into()
-            });
+            .map_precompile(&BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run_map);
 
         evm
     }

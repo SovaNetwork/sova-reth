@@ -46,6 +46,8 @@ use op_revm::{
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS};
 use sova_cli::SovaConfig;
 
+use crate::precompiles::SOVA_BITCOIN_PRECOMPILE;
+
 // Custom precompiles that include Bitcoin precompile
 #[derive(Clone, Default)]
 pub struct SovaPrecompiles {
@@ -72,8 +74,8 @@ impl SovaPrecompiles {
 
         static INSTANCE: OnceBox<Precompiles> = OnceBox::new();
         let precompiles = INSTANCE.get_or_init(|| {
-            let precompiles = global_precompiles.clone();
-            // precompiles.extend([SOVA_BITCOIN_PRECOMPILE]);
+            let mut precompiles = global_precompiles.clone();
+            precompiles.extend([SOVA_BITCOIN_PRECOMPILE]);
             Box::new(precompiles)
         });
 
