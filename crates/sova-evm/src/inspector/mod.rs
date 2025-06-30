@@ -339,7 +339,7 @@ impl SovaInspector {
 
         // Create storage with both current and previous values
         let mut storage = StorageWithOriginalValues::default();
-        let storage_slot = StorageSlot::new_changed(revert_value, current_value);
+        let storage_slot = StorageSlot::new_changed(current_value, revert_value);
         storage.insert(key, storage_slot);
 
         let transition: TransitionAccount = TransitionAccount {
