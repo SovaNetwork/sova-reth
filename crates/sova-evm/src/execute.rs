@@ -14,7 +14,7 @@ use alloy_primitives::{
 use reth_errors::RethError;
 use reth_evm::{
     block::{BlockExecutor, InternalBlockExecutionError},
-    execute::{BlockExecutionError, BlockExecutorProvider, Executor},
+    execute::{BlockExecutionError, Executor},
     ConfigureEvm, Database, Evm, EvmFactory, OnStateHook,
 };
 use reth_node_api::{BlockBody, NodePrimitives};
@@ -31,43 +31,13 @@ use revm::state::EvmStorageSlot;
 
 use sova_chainspec::L1_BLOCK_SATOSHI_SELECTOR;
 
-use crate::{BitcoinClient, WithInspector};
+use crate::{BitcoinClient, BitcoinRpcPrecompile, WithInspector};
 
 /// A Sova block executor provider that can create executors using a strategy factory.
 #[derive(Clone, Debug)]
 pub struct SovaBlockExecutorProvider<F> {
     strategy_factory: F,
     bitcoin_client: Arc<BitcoinClient>,
-}
-
-impl<F> SovaBlockExecutorProvider<F> {
-    /// Creates a new `SovaBlockExecutorProvider` with the given strategy factory.
-    pub const fn new(strategy_factory: F, bitcoin_client: Arc<BitcoinClient>) -> Self {
-        Self {
-            strategy_factory,
-            bitcoin_client,
-        }
-    }
-}
-
-impl<F> BlockExecutorProvider for SovaBlockExecutorProvider<F>
-where
-    F: ConfigureEvm + 'static + WithInspector,
-{
-    type Primitives = F::Primitives;
-
-    type Executor<DB: Database> = SovaBlockExecutor<F, DB>;
-
-    fn executor<DB>(&self, db: DB) -> Self::Executor<DB>
-    where
-        DB: Database,
-    {
-        SovaBlockExecutor::new(
-            self.strategy_factory.clone(),
-            db,
-            self.bitcoin_client.clone(),
-        )
-    }
 }
 
 /// A generic block executor that uses a [`BlockExecutor`] to
@@ -78,13 +48,11 @@ pub struct SovaBlockExecutor<F, DB> {
     pub(crate) strategy_factory: F,
     /// Database.
     pub(crate) db: State<DB>,
-    /// Bitcoin client for validating block data.
-    pub(crate) bitcoin_client: Arc<BitcoinClient>,
 }
 
 impl<F, DB: Database> SovaBlockExecutor<F, DB> {
     /// Creates a new `SovaBlockExecutor` with the given strategy.
-    pub fn new(strategy_factory: F, db: DB, bitcoin_client: Arc<BitcoinClient>) -> Self {
+    pub fn new(strategy_factory: F, db: DB) -> Self {
         let db = State::builder()
             .with_database(db)
             .with_bundle_update()
@@ -93,7 +61,6 @@ impl<F, DB: Database> SovaBlockExecutor<F, DB> {
         Self {
             strategy_factory,
             db,
-            bitcoin_client,
         }
     }
 }
@@ -153,8 +120,10 @@ where
 
                     // TODO(powvt): Parse setBitcoinBlockDataCompact format from L1Block contract
 
+                    let btc_precompile = BitcoinRpcPrecompile::from_env();
+
                     // Validate the Bitcoin block hash
-                    match self
+                    match btc_precompile
                         .bitcoin_client
                         .validate_block_hash(block_height.to::<u64>(), tx_block_hash)
                     {

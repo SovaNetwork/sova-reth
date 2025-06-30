@@ -5,6 +5,7 @@ mod precompile_utils;
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
 pub use precompile_utils::BitcoinMethod;
+use reth_evm::precompiles::PrecompileInput;
 use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
@@ -23,8 +24,8 @@ use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
 
-pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
-    PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
+// pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
+//     PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -56,7 +57,7 @@ struct UtxoUpdate {
 
 #[derive(Clone, Debug)]
 pub struct BitcoinRpcPrecompile {
-    bitcoin_client: Arc<BitcoinClient>,
+    pub bitcoin_client: Arc<BitcoinClient>,
     network: Network,
     http_client: Arc<ReqwestClient>,
     network_utxos_url: String,
@@ -75,20 +76,20 @@ impl Default for BitcoinRpcPrecompile {
     }
 }
 
-#[derive(RlpDecodable, RlpEncodable, Debug)]
-pub struct BitcoinRpcPrecompileInput {
-    precompile_input: Bytes,
-    precomp_caller: Address,
-}
+// #[derive(RlpDecodable, RlpEncodable, Debug)]
+// pub struct BitcoinRpcPrecompileInput {
+//     precompile_input: Bytes,
+//     precomp_caller: Address,
+// }
 
-impl BitcoinRpcPrecompileInput {
-    pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
-        Self {
-            precompile_input,
-            precomp_caller,
-        }
-    }
-}
+// impl BitcoinRpcPrecompileInput {
+//     pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
+//         Self {
+//             precompile_input,
+//             precomp_caller,
+//         }
+//     }
+// }
 
 impl BitcoinRpcPrecompile {
     pub fn new(
@@ -157,15 +158,15 @@ impl BitcoinRpcPrecompile {
     }
 
     // pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
-    pub fn run(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
-        let BitcoinRpcPrecompileInput {
-            precompile_input,
-            precomp_caller,
-        } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
-            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
+    pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
+        // let BitcoinRpcPrecompileInput {
+        //     precompile_input,
+        //     precomp_caller,
+        // } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
+        //     .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
 
-        let input = &precompile_input;
-        let precomp_caller = &precomp_caller;
+        // let input = &precompile_input;
+        // let precomp_caller = &precomp_caller;
 
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
@@ -528,5 +529,11 @@ impl BitcoinRpcPrecompile {
         };
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
+    }
+
+    pub fn run_map(input: PrecompileInput<'_>) -> PrecompileResult {
+        // Convert &[u8] to &Bytes
+        let bytes = Bytes::copy_from_slice(input.data);
+        BitcoinRpcPrecompile::run(&bytes, &input.caller)
     }
 }

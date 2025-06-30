@@ -6,6 +6,7 @@ use error::SlotProviderError;
 use provider::StorageSlotProvider;
 
 pub use provider::SlotProvider;
+use revm::{context::LocalContextTr, interpreter::CallInput};
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -109,11 +110,12 @@ impl SovaInspector {
     fn get_l1_block_data<CTX: ContextTr<Journal: JournalExt>>(
         context: &mut CTX,
     ) -> Result<u64, String> {
+        let (_, journal) = context.tx_journal_mut();
         // load the account
-        match context.journal().load_account(L1_BLOCK_CONTRACT_ADDRESS) {
+        match journal.load_account(L1_BLOCK_CONTRACT_ADDRESS) {
             Ok(_) => {
                 // try to load the storage
-                match context.journal().sload(
+                match journal.sload(
                     L1_BLOCK_CONTRACT_ADDRESS,
                     L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
                 ) {
@@ -146,7 +148,7 @@ impl SovaInspector {
         self.cache.broadcast_accessed_storage.0.clear();
 
         // Iterate through journal entries since last checkpoint and add to broadcast_accessed_storage cache
-        for entry in context.journal_ref().last_journal() {
+        for entry in context.journal_ref().journal() {
             if let JournalEntry::StorageChanged {
                 address,
                 key,
@@ -204,7 +206,17 @@ impl SovaInspector {
         }
         debug!("----- precompile call hook -----");
 
-        match BitcoinMethod::try_from(&inputs.input) {
+        let precompile_input: Bytes = match &inputs.input {
+            CallInput::Bytes(bytes) => bytes.to_vec(),
+            CallInput::SharedBuffer(range) => context
+                .local()
+                .shared_memory_buffer_slice(range.clone())
+                .map(|slice| slice.to_vec())
+                .unwrap(),
+        }
+        .into();
+
+        match BitcoinMethod::try_from(&precompile_input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call hook");
 
@@ -248,10 +260,13 @@ impl SovaInspector {
             }
         };
 
+        let block_number: u64 = context.block().number().to();
+        let (_, journal) = context.tx_journal_mut();
+
         // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
             &self.cache.broadcast_accessed_storage,
-            context.block().number(),
+            block_number,
             current_btc_block_height,
         ) {
             Ok(batch_response) => {
@@ -282,7 +297,7 @@ impl SovaInspector {
 
                             // CRITICAL: Always revert state changes in journal when a lock is detected
                             if let Some(checkpoint) = self.checkpoint {
-                                context.journal().checkpoint_revert(checkpoint);
+                                journal.checkpoint_revert(checkpoint);
                             } else {
                                 // No checkpoint available, this is usually not good and a potential edge case
                                 warn!("WARNING: No checkpoint available for reversion");
@@ -386,8 +401,18 @@ impl SovaInspector {
         }
         debug!("----- precompile call end hook -----");
 
+        let precompile_input: Bytes = match &inputs.input {
+            CallInput::Bytes(bytes) => bytes.to_vec(),
+            CallInput::SharedBuffer(range) => context
+                .local()
+                .shared_memory_buffer_slice(range.clone())
+                .map(|slice| slice.to_vec())
+                .unwrap(),
+        }
+        .into();
+
         // Update the btc tx data cache
-        match BitcoinMethod::try_from(&inputs.input) {
+        match BitcoinMethod::try_from(&precompile_input) {
             Ok(BitcoinMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call end hook");
                 // only update if call was successful
@@ -463,16 +488,20 @@ where
         // Ensure clean cache
         self.clear_cache();
 
+        let (_, journal) = context.tx_journal_mut();
+
         // Create a checkpoint if one doesn't exist yet
         if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journal().checkpoint());
+            self.checkpoint = Some(journal.checkpoint());
         }
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        let (_, journal) = context.tx_journal_mut();
+
         // Create a checkpoint if there isnt one already
         if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journal().checkpoint());
+            self.checkpoint = Some(journal.checkpoint());
         }
 
         self.call_inner(context, inputs)
