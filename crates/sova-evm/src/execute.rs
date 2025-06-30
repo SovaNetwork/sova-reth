@@ -41,6 +41,21 @@ pub struct SovaBlockExecutor<F, DB> {
     pub(crate) db: State<DB>,
 }
 
+impl<F, DB: Database> SovaBlockExecutor<F, DB> {
+    /// Creates a new `SovaBlockExecutor` with the given strategy.
+    pub fn new(strategy_factory: F, db: DB) -> Self {
+        let db = State::builder()
+            .with_database(db)
+            .with_bundle_update()
+            .without_state_clear()
+            .build();
+        Self {
+            strategy_factory,
+            db,
+        }
+    }
+}
+
 impl<F, DB> SovaBlockExecutor<F, DB>
 where
     F: ConfigureEvm + WithInspector,
@@ -159,7 +174,7 @@ where
         block: &RecoveredBlock<<Self::Primitives as NodePrimitives>::Block>,
     ) -> Result<BlockExecutionResult<<Self::Primitives as NodePrimitives>::Receipt>, Self::Error>
     {
-        info!("execution flow: starting");
+        debug!("execution flow: starting");
 
         // === SIMULATION PHASE ===
         // Capture revert information
@@ -299,7 +314,7 @@ where
     where
         H: OnStateHook + 'static,
     {
-        info!("execution flow: starting");
+        debug!("execution flow: starting");
 
         // === SIMULATION PHASE ===
         // Capture revert information

@@ -4,11 +4,13 @@ mod inspector;
 mod precompiles;
 mod sova_revm;
 
+use alloy_evm::Database as Alloy_Database;
 use evm::{SovaEvm, SovaEvmFactory};
 use inspector::SovaInspector;
 pub use inspector::{AccessedStorage, BroadcastResult, SlotProvider, StorageChange, WithInspector};
 use once_cell::race::OnceBox;
 pub use precompiles::{BitcoinClient, BitcoinRpcPrecompile, SovaL1BlockInfo};
+use reth_errors::BlockExecutionError;
 use revm::{handler::EthPrecompiles, precompile::Precompiles, primitives::hardfork::SpecId};
 
 use std::{error::Error, sync::Arc};
@@ -22,7 +24,7 @@ use alloy_evm::{
 };
 use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
 
-use reth_evm::{precompiles::PrecompilesMap, ConfigureEvm, InspectorFor};
+use reth_evm::{execute::Executor, precompiles::PrecompilesMap, ConfigureEvm, InspectorFor};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes};
 use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
@@ -40,7 +42,7 @@ use op_revm::{
 use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS};
 use sova_cli::SovaConfig;
 
-use crate::precompiles::SOVA_BITCOIN_PRECOMPILE;
+use crate::{execute::SovaBlockExecutor, precompiles::SOVA_BITCOIN_PRECOMPILE};
 
 // Custom precompiles that include Bitcoin precompile
 #[derive(Clone, Default)]
@@ -241,9 +243,29 @@ impl ConfigureEvm for SovaEvmConfig {
     ) -> OpBlockExecutionCtx {
         self.inner.context_for_next_block(parent, attributes)
     }
+
+    fn executor<DB: Alloy_Database>(
+        &self,
+        db: DB,
+    ) -> impl Executor<DB, Primitives = Self::Primitives, Error = BlockExecutionError> {
+        SovaBlockExecutor::new(self, db)
+    }
+
+    fn batch_executor<DB: Alloy_Database>(
+        &self,
+        db: DB,
+    ) -> impl Executor<DB, Primitives = Self::Primitives, Error = BlockExecutionError> {
+        SovaBlockExecutor::new(self, db)
+    }
 }
 
 impl WithInspector for SovaEvmConfig {
+    fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
+        &self.inspector
+    }
+}
+
+impl WithInspector for &SovaEvmConfig {
     fn with_inspector(&self) -> &Arc<RwLock<SovaInspector>> {
         &self.inspector
     }
