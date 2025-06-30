@@ -55,7 +55,7 @@ use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, Transac
 
 use revm::{
     context::{Block, BlockEnv},
-    state::Account,
+    state::{Account, EvmStorageSlot},
 };
 
 use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
@@ -611,7 +611,13 @@ where
         if !revert_cache.is_empty() {
             for (address, transition) in &revert_cache {
                 for (slot, slot_data) in &transition.storage {
-                    let prev_value = slot_data.previous_or_original_value;
+                    let original_value = slot_data.previous_or_original_value;
+                    let revert_value = slot_data.present_value;
+
+                    debug!(
+                        "Reverting slot {:?} from {:?} to {:?}",
+                        slot, original_value, revert_value
+                    );
 
                     // Load account from state
                     let acc = db.load_cache_account(*address).map_err(|err| {
@@ -623,11 +629,6 @@ where
                         PayloadBuilderError::Internal(err.into())
                     })?;
 
-                    // Set slot in account to previous value
-                    if let Some(a) = acc.account.as_mut() {
-                        a.storage.insert(*slot, prev_value);
-                    }
-
                     // Convert to revm account, mark as modified and commit it to state
                     let mut revm_acc: Account = acc
                         .account_info()
@@ -636,12 +637,13 @@ where
                         )))?
                         .into();
 
+                    // set the storage slot directly in the revm account
+                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value);
+                    revm_acc.storage.insert(*slot, storage_slot);
                     revm_acc.mark_touch();
 
                     let mut changes: HashMap<Address, Account> = HashMap::new();
                     changes.insert(*address, revm_acc);
-
-                    // commit to account slot changes to state
                     db.commit(changes);
                 }
             }
