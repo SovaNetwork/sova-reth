@@ -615,10 +615,8 @@ where
                     let revert_value = slot_data.present_value;
 
                     debug!(
-                        "Reverting slot {:?} from {:?} to {:?}", 
-                        slot, 
-                        original_value, 
-                        revert_value
+                        "Reverting slot {:?} from {:?} to {:?}",
+                        slot, original_value, revert_value
                     );
 
                     // Load account from state
@@ -1099,4 +1097,3 @@ mod tests {
         assert_eq!(bitcoin_tx.from, L1_BLOCK_CONTRACT_CALLER);
     }
 }
-

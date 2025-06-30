@@ -11,3 +11,5 @@ target/
 
 # node data
 data/
+
+sova-reth.log
