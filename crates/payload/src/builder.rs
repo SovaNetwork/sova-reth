@@ -1084,7 +1084,7 @@ mod tests {
             // Target the L1Block contract
             to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
             // Dont mint Sova
-            mint: 0.into(),
+            mint: 0,
             // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
             value: U256::ZERO,
             // Gas limit for the call

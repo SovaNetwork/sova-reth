@@ -1,12 +1,12 @@
 use revm::{
-    context::{ContextSetters, ContextTr, Evm},
+    context::{ContextError, ContextSetters, ContextTr, Evm, FrameStack},
     handler::{
         instructions::{EthInstructions, InstructionProvider},
-        EvmTr, PrecompileProvider,
+        EthFrame, EvmTr, FrameInitOrResult, FrameTr, ItemOrResult, PrecompileProvider,
     },
     inspector::{InspectorEvmTr, JournalExt},
-    interpreter::{interpreter::EthInterpreter, Interpreter, InterpreterAction, InterpreterTypes},
-    Inspector,
+    interpreter::{interpreter::EthInterpreter, InterpreterResult},
+    Database, Inspector,
 };
 
 use crate::SovaPrecompiles;
@@ -15,7 +15,7 @@ use crate::SovaPrecompiles;
 ///
 /// This is a wrapper type around the `revm` EVM with custom Bitcoin precompiles.
 pub struct SovaEvm<CTX, INSP, I = EthInstructions<EthInterpreter, CTX>, P = SovaPrecompiles>(
-    pub Evm<CTX, INSP, I, P>,
+    pub Evm<CTX, INSP, I, P, EthFrame<EthInterpreter>>,
 );
 
 impl<CTX: ContextTr, INSP>
@@ -27,6 +27,7 @@ impl<CTX: ContextTr, INSP>
             inspector,
             instruction: EthInstructions::new_mainnet(),
             precompiles: SovaPrecompiles::default(),
+            frame_stack: FrameStack::new(),
         })
     }
 }
@@ -51,11 +52,8 @@ impl<CTX, INSP, I, P> SovaEvm<CTX, INSP, I, P> {
 impl<CTX, INSP, I, P> InspectorEvmTr for SovaEvm<CTX, INSP, I, P>
 where
     CTX: ContextTr<Journal: JournalExt> + ContextSetters,
-    I: InstructionProvider<
-        Context = CTX,
-        InterpreterTypes: InterpreterTypes<Output = InterpreterAction>,
-    >,
-    P: PrecompileProvider<CTX>,
+    I: InstructionProvider<Context = CTX, InterpreterTypes = EthInterpreter>,
+    P: PrecompileProvider<CTX, Output = InterpreterResult>,
     INSP: Inspector<CTX, I::InterpreterTypes>,
 {
     type Inspector = INSP;
@@ -68,41 +66,43 @@ where
         (&mut self.0.ctx, &mut self.0.inspector)
     }
 
-    fn run_inspect_interpreter(
+    fn ctx_inspector_frame(
         &mut self,
-        interpreter: &mut Interpreter<
-            <Self::Instructions as InstructionProvider>::InterpreterTypes,
-        >,
-    ) -> <<Self::Instructions as InstructionProvider>::InterpreterTypes as InterpreterTypes>::Output
-    {
-        self.0.run_inspect_interpreter(interpreter)
+    ) -> (&mut Self::Context, &mut Self::Inspector, &mut Self::Frame) {
+        (
+            &mut self.0.ctx,
+            &mut self.0.inspector,
+            self.0.frame_stack.get(),
+        )
+    }
+
+    fn ctx_inspector_frame_instructions(
+        &mut self,
+    ) -> (
+        &mut Self::Context,
+        &mut Self::Inspector,
+        &mut Self::Frame,
+        &mut Self::Instructions,
+    ) {
+        (
+            &mut self.0.ctx,
+            &mut self.0.inspector,
+            self.0.frame_stack.get(),
+            &mut self.0.instruction,
+        )
     }
 }
 
 impl<CTX, INSP, I, P> EvmTr for SovaEvm<CTX, INSP, I, P>
 where
     CTX: ContextTr,
-    I: InstructionProvider<
-        Context = CTX,
-        InterpreterTypes: InterpreterTypes<Output = InterpreterAction>,
-    >,
-    P: PrecompileProvider<CTX>,
+    I: InstructionProvider<Context = CTX, InterpreterTypes = EthInterpreter>,
+    P: PrecompileProvider<CTX, Output = InterpreterResult>,
 {
     type Context = CTX;
     type Instructions = I;
     type Precompiles = P;
-
-    fn run_interpreter(
-        &mut self,
-        interpreter: &mut Interpreter<
-            <Self::Instructions as InstructionProvider>::InterpreterTypes,
-        >,
-    ) -> <<Self::Instructions as InstructionProvider>::InterpreterTypes as InterpreterTypes>::Output
-    {
-        let context = &mut self.0.ctx;
-        let instructions = &mut self.0.instruction;
-        interpreter.run_plain(instructions.instruction_table(), context)
-    }
+    type Frame = EthFrame<EthInterpreter>;
 
     fn ctx(&mut self) -> &mut Self::Context {
         &mut self.0.ctx
@@ -118,5 +118,40 @@ where
 
     fn ctx_precompiles(&mut self) -> (&mut Self::Context, &mut Self::Precompiles) {
         (&mut self.0.ctx, &mut self.0.precompiles)
+    }
+
+    fn frame_stack(&mut self) -> &mut FrameStack<Self::Frame> {
+        &mut self.0.frame_stack
+    }
+
+    fn frame_init(
+        &mut self,
+        frame_input: <Self::Frame as FrameTr>::FrameInit,
+    ) -> Result<
+        ItemOrResult<&mut Self::Frame, <Self::Frame as FrameTr>::FrameResult>,
+        ContextError<<<Self::Context as ContextTr>::Db as Database>::Error>,
+    > {
+        self.0.frame_init(frame_input)
+    }
+
+    fn frame_run(
+        &mut self,
+    ) -> Result<
+        FrameInitOrResult<Self::Frame>,
+        ContextError<<<Self::Context as ContextTr>::Db as Database>::Error>,
+    > {
+        self.0.frame_run()
+    }
+
+    #[doc = " Returns the result of the frame to the caller. Frame is popped from the frame stack."]
+    #[doc = " Consumes the frame result or returns it if there is more frames to run."]
+    fn frame_return_result(
+        &mut self,
+        result: <Self::Frame as FrameTr>::FrameResult,
+    ) -> Result<
+        Option<<Self::Frame as FrameTr>::FrameResult>,
+        ContextError<<<Self::Context as ContextTr>::Db as Database>::Error>,
+    > {
+        self.0.frame_return_result(result)
     }
 }

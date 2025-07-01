@@ -1,7 +1,8 @@
 use op_revm::{transaction::OpTxTr, L1BlockInfo, OpSpecId};
 use revm::{
-    context::{Cfg, JournalOutput, JournalTr},
+    context::{Cfg, JournalTr},
     context_interface::Block,
+    state::EvmState,
     Context, Database, Inspector,
 };
 
@@ -25,7 +26,7 @@ where
     TX: OpTxTr,
     CFG: Cfg<Spec = OpSpecId>,
     DB: Database,
-    JOURNAL: JournalTr<Database = DB, FinalOutput = JournalOutput>,
+    JOURNAL: JournalTr<Database = DB, State = EvmState>,
 {
     type Context = Self;
 

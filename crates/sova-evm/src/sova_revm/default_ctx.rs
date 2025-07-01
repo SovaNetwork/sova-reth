@@ -43,6 +43,6 @@ mod test {
         // execute
         let _ = evm.replay();
         // inspect
-        let _ = evm.inspect_replay();
+        let _ = evm.inspect_one_tx(OpTransaction::default());
     }
 }

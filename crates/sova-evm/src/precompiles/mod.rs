@@ -5,7 +5,6 @@ mod precompile_utils;
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
 pub use precompile_utils::BitcoinMethod;
-use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
 use std::{env, str::FromStr, sync::Arc};
@@ -13,20 +12,20 @@ use std::{env, str::FromStr, sync::Arc};
 use reqwest::blocking::Client as ReqwestClient;
 use serde::Deserialize;
 
+use alloy_evm::precompiles::PrecompileInput;
 use alloy_primitives::{Address, Bytes};
-use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
-use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
+use sova_chainspec::SOVA_BTC_CONTRACT_ADDRESS;
 
-pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress = PrecompileWithAddress(
-    BTC_PRECOMPILE_ADDRESS,
-    BitcoinRpcPrecompile::bitcoin_rpc_precompile_adapter,
-);
+// pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress = PrecompileWithAddress(
+//     BTC_PRECOMPILE_ADDRESS,
+//     BitcoinRpcPrecompile::bitcoin_rpc_precompile_adapter,
+// );
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -73,21 +72,6 @@ impl Default for BitcoinRpcPrecompile {
             http_client: Arc::new(ReqwestClient::new()),
             network_utxos_url: String::new(),
             sequencer_mode: false,
-        }
-    }
-}
-
-#[derive(RlpDecodable, RlpEncodable, Debug)]
-pub struct BitcoinRpcPrecompileInput {
-    precompile_input: Bytes,
-    precomp_caller: Address,
-}
-
-impl BitcoinRpcPrecompileInput {
-    pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
-        Self {
-            precompile_input,
-            precomp_caller,
         }
     }
 }
@@ -159,15 +143,15 @@ impl BitcoinRpcPrecompile {
     }
 
     // pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
-    pub fn run(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
-        let BitcoinRpcPrecompileInput {
-            precompile_input,
-            precomp_caller,
-        } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
-            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {:?}", e)))?;
+    pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
+        // let BitcoinRpcPrecompileInput {
+        //     precompile_input,
+        //     precomp_caller,
+        // } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
+        //     .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {:?}", e)))?;
 
-        let input = &precompile_input;
-        let precomp_caller = &precomp_caller;
+        // let input = &precompile_input;
+        // let precomp_caller = &precomp_caller;
 
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
@@ -211,13 +195,13 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    fn bitcoin_rpc_precompile_adapter(input: &[u8], gas_limit: u64) -> PrecompileResult {
-        // Deserialize the input to BitcoinRpcPrecompileInput
-        let bytes = alloy_primitives::Bytes::copy_from_slice(input);
+    // fn bitcoin_rpc_precompile_adapter(input: &[u8], gas_limit: u64) -> PrecompileResult {
+    //     // Deserialize the input to BitcoinRpcPrecompileInput
+    //     let bytes = alloy_primitives::Bytes::copy_from_slice(input);
 
-        // Call the run method with the precompile input and gas limit
-        Self::run(&bytes, gas_limit)
-    }
+    //     // Call the run method with the precompile input and gas limit
+    //     Self::run(&bytes, gas_limit)
+    // }
 
     fn call_network_utxos<T: serde::Serialize, R: serde::de::DeserializeOwned>(
         &self,
@@ -550,5 +534,11 @@ impl BitcoinRpcPrecompile {
         };
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
+    }
+
+    pub fn run_map(input: PrecompileInput<'_>) -> PrecompileResult {
+        // Convert &[u8] to &Bytes
+        let bytes = Bytes::copy_from_slice(input.data);
+        BitcoinRpcPrecompile::run(&bytes, &input.caller)
     }
 }

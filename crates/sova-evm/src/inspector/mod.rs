@@ -110,11 +110,12 @@ impl SovaInspector {
     fn get_l1_block_data<CTX: ContextTr<Journal: JournalExt>>(
         context: &mut CTX,
     ) -> Result<u64, String> {
+        let (_, journal) = context.tx_journal_mut();
         // load the account
-        match context.journal().load_account(L1_BLOCK_CONTRACT_ADDRESS) {
+        match journal.load_account(L1_BLOCK_CONTRACT_ADDRESS) {
             Ok(_) => {
                 // try to load the storage
-                match context.journal().sload(
+                match journal.sload(
                     L1_BLOCK_CONTRACT_ADDRESS,
                     L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
                 ) {
@@ -259,10 +260,13 @@ impl SovaInspector {
             }
         };
 
-        // check if any of the storage slots in accessed_storage are locked
+        let block_number: u64 = context.block().number().to();
+        let (_, journal) = context.tx_journal_mut();
+
+        // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
             &self.cache.accessed_storage,
-            context.block().number(),
+            block_number,
             current_btc_block_height,
         ) {
             Ok(batch_response) => {
@@ -293,7 +297,7 @@ impl SovaInspector {
 
                             // CRITICAL: Always revert state changes in journal when a lock is detected
                             if let Some(checkpoint) = self.checkpoint {
-                                context.journal().checkpoint_revert(checkpoint);
+                                journal.checkpoint_revert(checkpoint);
                             } else {
                                 // No checkpoint available, this is usually not good and a potential edge case
                                 warn!("WARNING: No checkpoint available for reversion");
@@ -490,16 +494,20 @@ where
         // Ensure clean cache
         self.clear_cache();
 
+        let (_, journal) = context.tx_journal_mut();
+
         // Create a checkpoint if one doesn't exist yet
         if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journal().checkpoint());
+            self.checkpoint = Some(journal.checkpoint());
         }
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        let (_, journal) = context.tx_journal_mut();
+
         // Create a checkpoint if there isnt one already
         if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journal().checkpoint());
+            self.checkpoint = Some(journal.checkpoint());
         }
 
         self.call_inner(context, inputs)
