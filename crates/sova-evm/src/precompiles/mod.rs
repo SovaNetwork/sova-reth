@@ -70,9 +70,7 @@ pub struct BitcoinRpcPrecompile {
 impl Default for BitcoinRpcPrecompile {
     fn default() -> Self {
         // Dummy address deriver for default (will panic if used without proper initialization)
-        let dummy_xpub = "xpub123Ab"
-            .parse()
-            .expect("Invalid dummy xpub");
+        let dummy_xpub = "xpub123Ab".parse().expect("Invalid dummy xpub");
 
         let address_deriver = Arc::new(SovaAddressDeriver::new(dummy_xpub, Network::Regtest));
 
@@ -157,7 +155,7 @@ impl BitcoinRpcPrecompile {
     fn address_deriver_from_env(network: Network) -> Arc<SovaAddressDeriver> {
         let derivation_xpub_str = env::var("SOVA_DERIVATION_XPUB")
             .expect("SOVA_DERIVATION_XPUB environment variable must be set");
-        
+
         if derivation_xpub_str.trim().is_empty() {
             panic!("SOVA_DERIVATION_XPUB environment variable cannot be empty");
         }
@@ -167,7 +165,7 @@ impl BitcoinRpcPrecompile {
 
         Arc::new(SovaAddressDeriver::new(derivation_xpub, network))
     }
-    
+
     pub fn from_env() -> Self {
         // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
         // to do this, we call this function once (for sanity check) after the env vars are set just before node start
@@ -182,8 +180,14 @@ impl BitcoinRpcPrecompile {
 
         let address_deriver = Self::address_deriver_from_env(network);
 
-        BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode, address_deriver)
-            .expect("Failed to create BitcoinRpcPrecompile from environment")
+        BitcoinRpcPrecompile::new(
+            bitcoin_client,
+            network,
+            network_utxos_url,
+            sequencer_mode,
+            address_deriver,
+        )
+        .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
     pub fn run(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
@@ -470,7 +474,7 @@ impl BitcoinRpcPrecompile {
             Bytes::from(bitcoin_address.as_bytes().to_vec()),
         ))
     }
-    
+
     fn network_spend(
         &self,
         input: &[u8],
