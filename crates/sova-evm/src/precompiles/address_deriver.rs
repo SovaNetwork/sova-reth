@@ -94,14 +94,14 @@ impl SovaAddressDeriver {
             .derive_pub(&self.secp, &path)
             .map_err(|e| {
                 warn!("Failed to derive child public key: {}", e);
-                PrecompileError::Other(format!("Failed to derive child public key: {}", e))
+                PrecompileError::Other(format!("Failed to derive child public key: {e}"))
             })?;
 
         // Convert to Bitcoin address (P2WPKH)
         let public_key = PublicKey::new(child_xpub.public_key);
         let address = Address::p2wpkh(&public_key, self.network).map_err(|e| {
             warn!("Failed to create P2WPKH address: {}", e);
-            PrecompileError::Other(format!("Failed to create P2WPKH address: {}", e))
+            PrecompileError::Other(format!("Failed to create P2WPKH address: {e}"))
         })?;
 
         Ok(address)
