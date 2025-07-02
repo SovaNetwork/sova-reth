@@ -295,7 +295,7 @@ impl BitcoinRpcPrecompile {
 
     fn format_txid_to_bytes32(&self, txid: bitcoin::Txid) -> Vec<u8> {
         // format to match slot locking service
-        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
+        // Reverse the byte order (Bitcoin hashes are reversed compared to EVM)
         let mut bytes = txid.to_raw_hash().to_byte_array().to_vec();
         bytes.reverse();
 
@@ -459,9 +459,9 @@ impl BitcoinRpcPrecompile {
 
     fn parse_eth_address_bytes(&self, input: &[u8]) -> Result<[u8; 20], PrecompileError> {
         if input.len() != 20 {
-            warn!("Ethereum address must be 20 bytes, got {}", input.len());
+            warn!("EVM address must be 20 bytes, got {}", input.len());
             return Err(PrecompileError::Other(format!(
-                "Ethereum address must be 20 bytes, got {}",
+                "EVM address must be 20 bytes, got {}",
                 input.len()
             )));
         }
