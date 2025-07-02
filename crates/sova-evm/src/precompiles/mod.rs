@@ -156,7 +156,6 @@ impl BitcoinRpcPrecompile {
             .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
-    // pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
     pub fn run(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
         let BitcoinRpcPrecompileInput {
             precompile_input,
