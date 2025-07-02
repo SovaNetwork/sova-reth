@@ -214,7 +214,7 @@ where
 
         // TODO(powvt): investigate if this can be None?
         if config.attributes.transactions.is_empty() {
-            warn!(target: "payload_builder", "No sequencer txs recieved");
+            warn!(target: "payload_builder", "No sequencer txs received");
         }
 
         let mut op_payload_attrs = OpPayloadAttributes {
@@ -284,7 +284,7 @@ where
     /// Computes the witness for the payload.
     ///
     /// TODO(powvt): Deal with call to Bitcoin node here.
-    /// Ideally that data is already in the attributes recieved from the sequencer.
+    /// Ideally that data is already in the attributes received from the sequencer.
     pub fn payload_witness(
         &self,
         parent: SealedHeader,

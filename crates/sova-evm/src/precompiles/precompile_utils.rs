@@ -23,7 +23,7 @@ pub enum BitcoinMethod {
     /// Selector: 0x00000002
     DecodeTransaction,
 
-    /// Converts Ethereum address to Bitcoin address
+    /// Converts EVM address to Bitcoin address
     /// Selector: 0x00000003
     ConvertAddress,
 
