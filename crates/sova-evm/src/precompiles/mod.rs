@@ -465,7 +465,7 @@ impl BitcoinRpcPrecompile {
                 input.len()
             )));
         }
-        
+
         let mut array = [0u8; 20];
         array.copy_from_slice(input);
         Ok(array)
@@ -473,8 +473,10 @@ impl BitcoinRpcPrecompile {
 
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
         let ethereum_address = self.parse_eth_address_bytes(input)?;
-        let bitcoin_address = self.address_deriver.derive_bitcoin_address(&ethereum_address)?;
-        
+        let bitcoin_address = self
+            .address_deriver
+            .derive_bitcoin_address(&ethereum_address)?;
+
         Ok(PrecompileOutput::new(
             gas_used,
             Bytes::from(bitcoin_address.to_string().as_bytes().to_vec()),

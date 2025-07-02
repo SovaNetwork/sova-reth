@@ -33,7 +33,7 @@ impl SovaAddressDeriver {
 
     /// Convert Ethereum address to BIP32 derivation path using hash-based approach
     /// This eliminates collisions while ensuring all child numbers are non-hardened
-    /// 
+    ///
     /// Collision resistance: SHA256 provides 2^128 security against birthday attacks,
     /// which is more than sufficient for the 2^160 Ethereum address space
     fn evm_address_to_derivation_path(evm_address: &[u8; 20]) -> DerivationPath {
@@ -45,9 +45,9 @@ impl SovaAddressDeriver {
         let hash_bytes = hash.to_byte_array();
 
         // Split 32-byte hash into chunks for BIP32 derivation path
-        // 
+        //
         // Entropy analysis:
-        // - Input: 256 bits (SHA256 hash of Ethereum address)  
+        // - Input: 256 bits (SHA256 hash of Ethereum address)
         // - Output: 7-level derivation path using 217 bits (7 × 31 bits)
         // - Entropy utilization: 217/256 = 85% (39 bits unused)
         // - Birthday paradox: √(2^217) = 2^(217/2) = 2^108.5
@@ -55,7 +55,7 @@ impl SovaAddressDeriver {
         //
         // Design analysis:
         // - 7 levels chosen for reasonable path depth vs entropy trade-off
-        // - 31 bits per level (0x7FFFFFFF mask) ensures non-hardened derivation 
+        // - 31 bits per level (0x7FFFFFFF mask) ensures non-hardened derivation
         // - Remaining 39 bits provide no additional security benefit given 2^160 Ethereum address space
         // - Could use all 8 chunks (248 bits) but depth/simplicity trade-off favors current approach
         let mut chunks = Vec::new();
