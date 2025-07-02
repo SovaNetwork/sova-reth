@@ -25,7 +25,6 @@ fn set_env_for_sova(args: SovaArgs) {
         "SOVA_SENTINEL_CONFIRMATION_THRESHOLD",
         args.sentinel_confirmation_threshold.to_string(),
     );
-    env::set_var("SOVA_SEQUENCER_MODE", args.sequencer.is_some().to_string());
 }
 
 fn main() {

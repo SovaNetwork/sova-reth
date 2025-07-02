@@ -471,15 +471,50 @@ impl BitcoinRpcPrecompile {
         Ok(array)
     }
 
+    /// Call indexer to derive Bitcoin address (sequencer mode only)
+    /// This ensures the indexer caches the derivation AND adds address to watched set
+    fn derive_btc_address_with_caching(
+        &self,
+        ethereum_address_bytes: &[u8; 20],
+    ) -> Result<String, PrecompileError> {
+        // Convert bytes to hex with 0x prefix for indexer API call
+        let evm_address_hex = format!("0x{}", hex::encode(ethereum_address_bytes));
+
+        let request = serde_json::json!({
+            "evm_address": evm_address_hex
+        });
+
+        debug!("Calling indexer derive-address with: {}", evm_address_hex);
+
+        let response: serde_json::Value = self.call_network_utxos("derive-address", &request)?;
+
+        debug!("derive-address response: {:?}", response);
+
+        // Extract the Bitcoin address from indexer response
+        response["btc_address"]
+            .as_str()
+            .map(String::from)
+            .ok_or_else(|| {
+                PrecompileError::Other(
+                    "Failed to extract Bitcoin address from indexer response".into(),
+                )
+            })
+    }
+
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        let ethereum_address = self.parse_eth_address_bytes(input)?;
-        let bitcoin_address = self
-            .address_deriver
-            .derive_bitcoin_address(&ethereum_address)?;
+        let ethereum_address_bytes = self.parse_eth_address_bytes(input)?;
+
+        let bitcoin_address = if self.sequencer_mode {
+            self.derive_btc_address_with_caching(&ethereum_address_bytes)?
+        } else {
+            self.address_deriver
+                .derive_bitcoin_address(&ethereum_address_bytes)?
+                .to_string()
+        };
 
         Ok(PrecompileOutput::new(
             gas_used,
-            Bytes::from(bitcoin_address.to_string().as_bytes().to_vec()),
+            Bytes::from(bitcoin_address.as_bytes().to_vec()),
         ))
     }
 
