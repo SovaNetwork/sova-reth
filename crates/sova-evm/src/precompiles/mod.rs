@@ -457,21 +457,27 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
-        let eth_bytes = SovaAddressDeriver::eth_addr_to_bytes(ethereum_address)?;
-        let btc_address = self.address_deriver.derive_bitcoin_address(&eth_bytes)?;
-        debug!("Locally derived Bitcoin address: {}", btc_address);
-        Ok(btc_address.to_string())
+    fn parse_eth_address_bytes(&self, input: &[u8]) -> Result<[u8; 20], PrecompileError> {
+        if input.len() != 20 {
+            warn!("Ethereum address must be 20 bytes, got {}", input.len());
+            return Err(PrecompileError::Other(format!(
+                "Ethereum address must be 20 bytes, got {}",
+                input.len()
+            )));
+        }
+        
+        let mut array = [0u8; 20];
+        array.copy_from_slice(input);
+        Ok(array)
     }
 
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        let encoded = hex::encode(input);
-        let ethereum_address_hex = encoded.as_str();
-        let bitcoin_address = self.derive_btc_address(ethereum_address_hex)?;
-
+        let ethereum_address = self.parse_eth_address_bytes(input)?;
+        let bitcoin_address = self.address_deriver.derive_bitcoin_address(&ethereum_address)?;
+        
         Ok(PrecompileOutput::new(
             gas_used,
-            Bytes::from(bitcoin_address.as_bytes().to_vec()),
+            Bytes::from(bitcoin_address.to_string().as_bytes().to_vec()),
         ))
     }
 

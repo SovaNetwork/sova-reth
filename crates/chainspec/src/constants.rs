@@ -7,6 +7,8 @@ use alloy_primitives::{address, hex, Address, B256, U256};
 use reth_chainspec::{ChainHardforks, EthereumHardfork, ForkCondition, Hardfork};
 use reth_optimism_forks::OpHardfork;
 
+pub const SOVA_ADDR_CONVERT_DOMAIN_TAG: &[u8] = b"sova:evm2btc:v1.0";
+
 pub fn sova_forks() -> ChainHardforks {
     ChainHardforks::new(vec![
         (EthereumHardfork::Frontier.boxed(), ForkCondition::Block(0)),
