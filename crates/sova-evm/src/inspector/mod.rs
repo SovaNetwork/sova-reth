@@ -27,7 +27,9 @@ use reth_revm::{
 use reth_tasks::TaskExecutor;
 use reth_tracing::tracing::{debug, warn};
 
-use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT};
+use sova_chainspec::{
+    L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT, SOVA_BTC_CONTRACT_ADDRESS,
+};
 use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
 
 use crate::precompiles::BitcoinMethod;
@@ -198,6 +200,12 @@ impl SovaInspector {
         context: &mut CTX,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
+        if inputs.target_address == self.cache.bitcoin_precompile_address
+            && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
+        {
+            return None;
+        }
+
         // intercept all BTC broadcast precompile calls and check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             return None;
@@ -365,6 +373,12 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
+        if inputs.target_address == self.cache.bitcoin_precompile_address
+            && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
+        {
+            return;
+        }
+
         // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
         if inputs.target_address != self.cache.bitcoin_precompile_address {
             // CHECK LOCKS FOR ANY SSTORE IN ANY TX
