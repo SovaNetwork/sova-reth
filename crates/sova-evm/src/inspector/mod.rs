@@ -203,7 +203,11 @@ impl SovaInspector {
         if inputs.target_address == self.cache.bitcoin_precompile_address
             && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
         {
-            return None;
+            return Some(Self::create_revert_outcome(
+                "Unauthorized caller for bitcoin precompile".to_string(),
+                inputs.gas_limit,
+                inputs.return_memory_offset.clone(),
+            ));
         }
 
         // intercept all BTC broadcast precompile calls and check locks
@@ -249,7 +253,7 @@ impl SovaInspector {
                     err
                 );
                 return Some(Self::create_revert_outcome(
-                    format!("Failed to get current Bitcoin block height from state: {err}",),
+                    format!("Failed to get current Bitcoin block height from state: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
