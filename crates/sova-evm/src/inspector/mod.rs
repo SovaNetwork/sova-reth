@@ -477,10 +477,8 @@ where
         // Ensure clean cache
         self.clear_cache();
 
-        // Create a checkpoint if one doesn't exist yet
-        if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journal().checkpoint());
-        }
+        // Create a new checkpoint
+        self.checkpoint = Some(context.journal().checkpoint());
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
