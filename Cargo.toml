@@ -132,3 +132,4 @@ thiserror = { version = "2.0.0", default-features = false }
 tokio = { version = "1.44.2", default-features = false }
 toml = "0.8"
 tonic = "0.12.3"
+uuid = { version = "1.17.0", features = ["v4", "serde"] }

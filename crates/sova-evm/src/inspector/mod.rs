@@ -12,6 +12,8 @@ use core::ops::Range;
 use std::{str::FromStr, sync::Arc};
 
 use parking_lot::RwLock;
+use serde_json::json;
+use uuid::Uuid;
 
 use alloy_primitives::{Address, Bytes, U256};
 
@@ -25,7 +27,7 @@ use reth_revm::{
     Inspector, JournalEntry,
 };
 use reth_tasks::TaskExecutor;
-use reth_tracing::tracing::{debug, warn};
+use reth_tracing::tracing::{debug, error, info, warn};
 
 use crate::precompiles::BitcoinMethodHelper;
 
@@ -57,6 +59,8 @@ pub struct SovaInspector {
     pub slot_revert_cache: Vec<(Address, TransitionAccount)>,
     /// Journal checkpoint for the current transaction
     checkpoint: Option<JournalCheckpoint>,
+    /// Unique operation ID for tracking this transaction's slot operations
+    operation_id: Option<Uuid>,
 }
 
 impl SovaInspector {
@@ -74,6 +78,7 @@ impl SovaInspector {
             storage_slot_provider,
             slot_revert_cache: Vec::new(),
             checkpoint: None,
+            operation_id: None,
         })
     }
 
@@ -223,6 +228,55 @@ impl SovaInspector {
         }
     }
 
+    fn log_slot_decision(
+        &self,
+        slot_address: &str,
+        slot_index: &[u8],
+        status: &str,
+        decision: &str,
+        block_number: u64,
+        additional_context: Option<serde_json::Value>,
+    ) {
+        let log_entry = json!({
+            "operation_id": self.operation_id,
+            "event_type": "slot_decision",
+            "contract_address": slot_address,
+            "slot_index": hex::encode(slot_index),
+            "slot_status": status,
+            "decision": decision,
+            "block_number": block_number,
+            "context": additional_context
+        });
+
+        // Choose log level based on status and decision
+    match (status, decision) {
+        // Critical errors that prevent operation
+        ("error", _) | (_, "failed_to_get_btc_height") => {
+            error!(target: "sova_slot_tracker", "{}", log_entry);
+        }
+        // Invalid data or status
+        ("invalid", _) | ("unknown", _) => {
+            error!(target: "sova_slot_tracker", "{}", log_entry);
+        }
+        // Transaction blocking events
+        ("locked", _) | (_, "transaction_reverted") => {
+            warn!(target: "sova_slot_tracker", "{}", log_entry);
+        }
+        // State reversions
+        ("reverted", _) | (_, "slot_reverted_to_previous_value") => {
+            debug!(target: "sova_slot_tracker", "{}", log_entry);
+        }
+        // Routine successful operations
+        ("unlocked", "transaction_continues") | ("checking", "batch_lock_check_started") => {
+            debug!(target: "sova_slot_tracker", "{}", log_entry);
+        }
+        // Default to info for any other combinations
+        _ => {
+            info!(target: "sova_slot_tracker", "{}", log_entry);
+        }
+    }
+    }
+
     /// Triggered at the beginning of any execution step that is a
     /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode.
     /// This inspector hook is primarily used for storage slot lock enforcement.
@@ -286,13 +340,24 @@ impl SovaInspector {
         context: &mut CTX,
         inputs: &CallInputs,
     ) -> Option<CallOutcome> {
+        // Generate unique operation ID for this transaction
+        if self.operation_id.is_none() {
+            self.operation_id = Some(Uuid::new_v4());
+        }
+
+        let block_number = context.block().number();
+
         // load current btc block height from state
         let current_btc_block_height = match Self::get_l1_block_data(context) {
             Ok(height) => height,
             Err(err) => {
-                warn!(
-                    "Failed to get current Bitcoin block height from state: {}",
-                    err
+                self.log_slot_decision(
+                    "system",
+                    &[],
+                    "error",
+                    "failed_to_get_btc_height",
+                    block_number,
+                    Some(json!({ "error": err })),
                 );
                 return Some(Self::create_revert_outcome(
                     format!("Failed to get current Bitcoin block height from state: {err}"),
@@ -302,6 +367,20 @@ impl SovaInspector {
             }
         };
 
+        self.log_slot_decision(
+            "batch",
+            &[],
+            "checking",
+            "batch_lock_check_started",
+            block_number,
+            Some(json!({
+                "btc_block_height": current_btc_block_height,
+                "slots_count": self.cache.broadcast_accessed_storage.0.len(),
+                "caller": inputs.caller.to_string(),
+                "target": inputs.target_address.to_string()
+            })),
+        );
+
         // check if any of the storage slots in broadcast_accessed_storage are locked
         match self.storage_slot_provider.batch_get_locked_status(
             &self.cache.broadcast_accessed_storage,
@@ -310,12 +389,17 @@ impl SovaInspector {
         ) {
             Ok(batch_response) => {
                 for response in batch_response.slots {
-                    debug!("GetSlotStatusResponse: {:?}", response);
-
                     let status = match Status::try_from(response.status) {
                         Ok(status) => status,
                         Err(_) => {
-                            warn!("Unknown status value: {}", response.status);
+                            self.log_slot_decision(
+                                &response.contract_address,
+                                &response.slot_index,
+                                "invalid",
+                                "transaction_reverted",
+                                block_number,
+                                Some(json!({ "invalid_status_value": response.status })),
+                            );
                             return Some(Self::create_revert_outcome(
                                 format!("Invalid status value {} from sentinel", response.status),
                                 inputs.gas_limit,
@@ -328,7 +412,14 @@ impl SovaInspector {
                         Status::Unknown => {
                             // This should have been caught by the provider validation,
                             // but handle it here as well for defense in depth
-                            warn!("CRITICAL: Status::Unknown returned from sentinel despite validation");
+                            self.log_slot_decision(
+                                &response.contract_address,
+                                &response.slot_index,
+                                "unknown",
+                                "transaction_reverted",
+                                block_number,
+                                Some(json!({ "reason": "sentinel_connectivity_issue" })),
+                            );
                             return Some(Self::create_revert_outcome(
                                 "Sentinel returned unknown status".to_string(),
                                 inputs.gas_limit,
@@ -336,7 +427,15 @@ impl SovaInspector {
                             ));
                         }
                         Status::Locked => {
-                            debug!("Storage slot is locked");
+                            self.log_slot_decision(
+                                &response.contract_address,
+                                &response.slot_index,
+                                "locked",
+                                "transaction_reverted",
+                                block_number,
+                                Some(json!({ "reason": "slot_locked" })),
+                            );
+
                             // Clear revert cache on locked status
                             self.slot_revert_cache.clear();
 
@@ -358,10 +457,28 @@ impl SovaInspector {
                             ));
                         }
                         Status::Unlocked => {
-                            debug!("Storage slot is unlocked");
+                            self.log_slot_decision(
+                                &response.contract_address,
+                                &response.slot_index,
+                                "unlocked",
+                                "transaction_continues",
+                                block_number,
+                                None,
+                            );
                         }
                         Status::Reverted => {
-                            debug!("Storage slot to be reverted");
+                            self.log_slot_decision(
+                                &response.contract_address,
+                                &response.slot_index,
+                                "reverted",
+                                "slot_reverted_to_previous_value",
+                                block_number,
+                                Some(json!({
+                                    "revert_value": hex::encode(&response.revert_value),
+                                    "current_value": hex::encode(&response.current_value)
+                                })),
+                            );
+
                             self.handle_revert_status(response);
                         }
                     }
@@ -369,6 +486,18 @@ impl SovaInspector {
                 None
             }
             Err(err) => {
+                self.log_slot_decision(
+                    "batch",
+                    &[],
+                    "error",
+                    "transaction_reverted",
+                    block_number,
+                    Some(json!({
+                        "error_type": format!("{:?}", std::mem::discriminant(&err)),
+                        "error_message": err.to_string()
+                    })),
+                );
+
                 // Handle different error types with appropriate messages and actions
                 match &err {
                     SlotProviderError::BitcoinNodeUnavailable(msg) => {
@@ -502,7 +631,7 @@ impl SovaInspector {
             match BitcoinMethod::try_from(&inputs.input) {
                 Ok(BitcoinMethod::BroadcastTransaction) => {
                     debug!("-> Broadcast call end hook");
-                    
+
                     // Only cache data if call was successful
                     if outcome.result.result == InstructionResult::Return {
                         self.handle_cache_btc_data(context, inputs, outcome);
@@ -593,6 +722,9 @@ where
     fn initialize_interp(&mut self, _interp: &mut Interpreter, context: &mut CTX) {
         // Ensure clean cache
         self.clear_cache();
+
+        // create new operation ID
+        self.operation_id = Some(Uuid::new_v4());
 
         // Create a new checkpoint
         self.checkpoint = Some(context.journal().checkpoint());
