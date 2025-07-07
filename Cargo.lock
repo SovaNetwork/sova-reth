@@ -9597,8 +9597,8 @@ dependencies = [
 
 [[package]]
 name = "sova-sentinel-client"
-version = "0.1.0"
-source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=56eab845eb9df85cff2d859da0ed4bd16b1dd9e6#56eab845eb9df85cff2d859da0ed4bd16b1dd9e6"
+version = "0.1.1"
+source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=40e585da3223a35451d694213474b6d04fcc8e2e#40e585da3223a35451d694213474b6d04fcc8e2e"
 dependencies = [
  "prost",
  "sova-sentinel-proto",
@@ -9609,8 +9609,8 @@ dependencies = [
 
 [[package]]
 name = "sova-sentinel-proto"
-version = "0.1.0"
-source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=56eab845eb9df85cff2d859da0ed4bd16b1dd9e6#56eab845eb9df85cff2d859da0ed4bd16b1dd9e6"
+version = "0.1.1"
+source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=40e585da3223a35451d694213474b6d04fcc8e2e#40e585da3223a35451d694213474b6d04fcc8e2e"
 dependencies = [
  "prost",
  "tonic",
