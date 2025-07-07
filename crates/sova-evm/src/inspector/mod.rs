@@ -528,7 +528,7 @@ impl SovaInspector {
                             message
                         );
                         Some(Self::create_revert_outcome(
-                            format!("Unknown slot status - {}", message),
+                            format!("Unknown slot status - {message}"),
                             inputs.gas_limit,
                             inputs.return_memory_offset.clone(),
                         ))
