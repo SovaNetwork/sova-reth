@@ -249,32 +249,32 @@ impl SovaInspector {
         });
 
         // Choose log level based on status and decision
-    match (status, decision) {
-        // Critical errors that prevent operation
-        ("error", _) | (_, "failed_to_get_btc_height") => {
-            error!(target: "sova_slot_tracker", "{}", log_entry);
+        match (status, decision) {
+            // Critical errors that prevent operation
+            ("error", _) | (_, "failed_to_get_btc_height") => {
+                error!(target: "sova_slot_tracker", "{}", log_entry);
+            }
+            // Invalid data or status
+            ("invalid", _) | ("unknown", _) => {
+                error!(target: "sova_slot_tracker", "{}", log_entry);
+            }
+            // Transaction blocking events
+            ("locked", _) | (_, "transaction_reverted") => {
+                warn!(target: "sova_slot_tracker", "{}", log_entry);
+            }
+            // State reversions
+            ("reverted", _) | (_, "slot_reverted_to_previous_value") => {
+                debug!(target: "sova_slot_tracker", "{}", log_entry);
+            }
+            // Routine successful operations
+            ("unlocked", "transaction_continues") | ("checking", "batch_lock_check_started") => {
+                debug!(target: "sova_slot_tracker", "{}", log_entry);
+            }
+            // Default to info for any other combinations
+            _ => {
+                info!(target: "sova_slot_tracker", "{}", log_entry);
+            }
         }
-        // Invalid data or status
-        ("invalid", _) | ("unknown", _) => {
-            error!(target: "sova_slot_tracker", "{}", log_entry);
-        }
-        // Transaction blocking events
-        ("locked", _) | (_, "transaction_reverted") => {
-            warn!(target: "sova_slot_tracker", "{}", log_entry);
-        }
-        // State reversions
-        ("reverted", _) | (_, "slot_reverted_to_previous_value") => {
-            debug!(target: "sova_slot_tracker", "{}", log_entry);
-        }
-        // Routine successful operations
-        ("unlocked", "transaction_continues") | ("checking", "batch_lock_check_started") => {
-            debug!(target: "sova_slot_tracker", "{}", log_entry);
-        }
-        // Default to info for any other combinations
-        _ => {
-            info!(target: "sova_slot_tracker", "{}", log_entry);
-        }
-    }
     }
 
     /// Triggered at the beginning of any execution step that is a
