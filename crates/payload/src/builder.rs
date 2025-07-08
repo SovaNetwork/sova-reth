@@ -225,7 +225,7 @@ where
                 withdrawals: Some(config.attributes.withdrawals().to_vec()),
                 parent_beacon_block_root: config.attributes.parent_beacon_block_root(),
             },
-            // TODO(powvt): smae comment as above, can we do Some() here safely?
+            // TODO(powvt): same comment as above, can we do Some() here safely?
             transactions: Some(
                 config
                     .attributes
@@ -239,16 +239,11 @@ where
             eip_1559_params: config.attributes.eip_1559_params,
         };
 
-        // Inject Bitcoin data
-        if let Err(err) =
-            SovaPayloadBuilder::<Pool, Client, Evm, T>::inject_bitcoin_data_to_payload_attrs(
-                &self.bitcoin_client,
-                &mut op_payload_attrs,
-            )
-        {
-            warn!(target: "payload_builder", "Failed to inject Bitcoin data: {}", err);
-            // Continue with payload building even if Bitcoin data injection fails
-        }
+        // Inject Bitcoin data - FAIL THE BUILD PROCESS IF THIS FAILS
+        SovaPayloadBuilder::<Pool, Client, Evm, T>::inject_bitcoin_data_to_payload_attrs(
+            &self.bitcoin_client,
+            &mut op_payload_attrs,
+        )?;
 
         // Recreate the OpPayloadBuilderAttributes with the updated OpPayloadAttributes
         let updated_config = PayloadConfig {
@@ -367,20 +362,34 @@ where
     }
 
     /// Inject Bitcoin data into a new block via a deposit transaction
+    /// Returns an error if Bitcoin data cannot be obtained, causing payload build to fail
     pub fn inject_bitcoin_data_to_payload_attrs(
         bitcoin_client: &BitcoinClient,
         attributes: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
         // Fetch the current Bitcoin block info from the Bitcoin client
-        let bitcoin_block_info: SovaL1BlockInfo = match bitcoin_client.get_current_block_info() {
-            Ok(info) => info,
-            Err(err) => {
-                warn!(target: "payload_builder", "Failed to get block info from BTC client: {}", err);
-                SovaL1BlockInfo::default()
-            }
-        };
+        let bitcoin_block_info: SovaL1BlockInfo =
+            bitcoin_client.get_current_block_info().map_err(|err| {
+                PayloadBuilderError::other(RethError::msg(format!(
+                    "Failed to get Bitcoin block info from client: {}",
+                    err
+                )))
+            })?;
 
-        // Generate the deposit transaction bytes with just height and hash
+        // Validate that we received valid Bitcoin data (not default/zero values)
+        if bitcoin_block_info.current_block_height == 0 {
+            return Err(PayloadBuilderError::other(RethError::msg(
+                "Bitcoin client returned invalid block height (0)",
+            )));
+        }
+
+        if bitcoin_block_info.block_hash_six_blocks_back == B256::ZERO {
+            return Err(PayloadBuilderError::other(RethError::msg(
+                "Bitcoin client returned invalid block hash (all zeros)",
+            )));
+        }
+
+        // Generate the deposit transaction bytes
         let btc_tx_bytes = Self::create_bitcoin_data_deposit_tx(
             bitcoin_block_info.current_block_height,
             bitcoin_block_info.block_hash_six_blocks_back,
@@ -396,7 +405,7 @@ where
 
         debug!(
             target: "payload_builder",
-            "Injected Bitcoin data: height={}, hash={:?}",
+            "Successfully injected Bitcoin data: height={}, hash={:?}",
             bitcoin_block_info.current_block_height,
             bitcoin_block_info.block_hash_six_blocks_back,
         );
