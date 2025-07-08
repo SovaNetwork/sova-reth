@@ -9536,6 +9536,7 @@ dependencies = [
  "sova-cli",
  "sova-evm",
  "sova-payload",
+ "sova-sentinel-client",
 ]
 
 [[package]]
