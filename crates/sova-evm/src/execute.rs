@@ -190,8 +190,7 @@ where
                             warn!("Failed to validate Bitcoin block hash: {}", err);
                             // This is now a critical error - we cannot validate, so we must reject
                             return Err(BlockExecutionError::other(RethError::msg(format!(
-                                "Critical: Failed to validate Bitcoin block hash: {}. Cannot proceed without Bitcoin validation.",
-                                err
+                                "Critical: Failed to validate Bitcoin block hash: {err}. Cannot proceed without Bitcoin validation."
                             ))));
                         }
                     }
