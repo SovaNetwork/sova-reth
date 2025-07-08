@@ -22,8 +22,11 @@ use reth_optimism_payload_builder::{
 use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
 
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
+use reth_tracing::tracing::{error, info};
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
+
+use sova_sentinel_client::SlotLockClient;
 
 use sova_cli::{BitcoinConfig, SovaConfig};
 use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
@@ -54,7 +57,7 @@ pub struct SovaNode {
 
 impl SovaNode {
     /// Creates a new instance of the Sova node type.
-    pub fn new(args: SovaArgs) -> Result<Self, bitcoincore_rpc::Error> {
+    pub async fn new(args: SovaArgs) -> Result<Self, Box<dyn std::error::Error>> {
         let btc_config: BitcoinConfig = BitcoinConfig::new(
             args.btc_network.clone().into(),
             &args.btc_network_url,
@@ -73,7 +76,12 @@ impl SovaNode {
         let bitcoin_client = BitcoinClient::new(
             &sova_config.bitcoin_config,
             sova_config.sentinel_confirmation_threshold,
-        )?;
+        )
+        .map_err(|e| format!("Failed to create Bitcoin client: {}", e))?;
+
+        // Perform health checks
+        Self::health_check_bitcoin(&bitcoin_client)?;
+        Self::health_check_sentinel(&args.sentinel_url).await?;
 
         Ok(Self {
             args,
@@ -81,6 +89,65 @@ impl SovaNode {
             sova_config,
             da_config: OpDAConfig::default(),
         })
+    }
+
+    /// Health check for Bitcoin service
+    fn health_check_bitcoin(
+        bitcoin_client: &BitcoinClient,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Performing Bitcoin service health check...");
+
+        match bitcoin_client.get_current_block_info() {
+            Ok(block_info) => {
+                info!(
+                    "Bitcoin service is healthy. Current block height: {}",
+                    block_info.current_block_height
+                );
+                Ok(())
+            }
+            Err(e) => {
+                let error_msg = format!("Bitcoin service health check failed: {}", e);
+                error!("{}", error_msg);
+                Err(error_msg.into())
+            }
+        }
+    }
+
+    /// Health check for Sentinel service - performs both connection and basic RPC test
+    async fn health_check_sentinel(sentinel_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Performing Sentinel service health check...");
+
+        match SlotLockClient::connect(sentinel_url.to_string()).await {
+            Ok(mut client) => {
+                // Test the connection with a simple batch_get_slot_status call with empty slots
+                // This verifies that the service is not just reachable but actually functional
+                match client.batch_get_slot_status(0, 0, vec![]).await {
+                    Ok(_) => {
+                        info!(
+                            "Sentinel service is healthy and functional at {}",
+                            sentinel_url
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let error_msg = format!(
+                            "Sentinel service RPC test failed at {}: {}",
+                            sentinel_url, e
+                        );
+                        error!("{}", error_msg);
+                        Err(error_msg.into())
+                    }
+                }
+            }
+            Err(e) => {
+                let error_msg = format!(
+                    "Sentinel service health check failed: Unable to connect to {}: {}",
+                    sentinel_url, e
+                );
+                error!("{}", error_msg);
+                Err(error_msg.into())
+            }
+        }
     }
 
     /// Configure the data availability configuration for the builder.

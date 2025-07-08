@@ -47,6 +47,7 @@ fn main() {
                 info!(target: "reth::cli", "Launching node");
 
                 let sova_node = SovaNode::new(sova_args)
+                    .await
                     .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
 
                 let handle = builder.launch_node(sova_node).await?;

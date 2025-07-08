@@ -12,6 +12,8 @@ sova-cli.workspace = true
 sova-evm.workspace = true
 sova-payload.workspace = true
 
+sova-sentinel-client.workspace = true
+
 reth-basic-payload-builder.workspace = true
 reth-chainspec.workspace = true
 reth-ethereum-payload-builder.workspace = true
