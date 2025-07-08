@@ -639,7 +639,11 @@ impl SovaInspector {
 
                     // Only cache data if call was successful
                     if outcome.result.result == InstructionResult::Return {
-                        self.handle_cache_btc_data(context, inputs, outcome);
+                        if let Some(revert_outcome) =
+                            self.handle_cache_btc_data(context, inputs, outcome)
+                        {
+                            *outcome = revert_outcome;
+                        }
                     } else {
                         *outcome = Self::create_revert_outcome(
                             "Broadcast btc precompile execution failed".to_string(),
@@ -684,6 +688,18 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) -> Option<CallOutcome> {
+        if outcome.result.output.len() < 32 {
+            warn!(
+                "Broadcast btc precompile output too short: {} bytes",
+                outcome.result.output.len()
+            );
+            return Some(Self::create_revert_outcome(
+                "Broadcast precompile output too short".to_string(),
+                inputs.gas_limit,
+                inputs.return_memory_offset.clone(),
+            ));
+        }
+
         let broadcast_txid = outcome.result.output[..32].to_vec();
 
         // load current btc block height from state
