@@ -46,7 +46,7 @@ make run-sova-regtest
 
 ### For Operators (WIP)
 
-Operators can join the Testnet by staking Testnet Sova and syncing the historical chain data. For more information on how to join the Testnet as an operator view our [Operator Guide]() in the docs. This guide will run you through starting a VM, installing the EigenLayer CLI, registering as an operator, and running the Sova validator.
+Operators are free to join the testnet and sync their own historical chain data from genesis. For more information on how to join the Testnet as an operator view our [Operator Guide](https://docs.sova.io/node-operators/running-sova) in the docs.
 
 ### Devnet
 
@@ -54,9 +54,20 @@ For testing sova-reth in a devnet environment, it is recommended to use [running
 
 ## Precompiles
 
-The Bitcoin precompiles are found at address 0x999 and accept a bytes payload along with a 4 bytes method identifier. The method identifier specifies the bitcoin rpc call that should be called with the payload data.
+The Bitcoin precompiles are found at address 0x999, 0x998, 0x997, 0x996.
 
-For more information on how to use the precompiles see this [section](https://docs.sova.io/developers/bitcoin-precompiles) in the docs.
+ Precompile Name | Address | Description |
+|---|---|---|
+| **Broadcast Transaction** | `0x999` | Broadcasts Bitcoin transactions |
+| **Decode Transaction** | `0x998` | Decodes raw Bitcoin transactions |
+| **Convert Address** | `0x997` | EVM to Bitcoin address conversion |
+| **Vault Spend** | `0x996` | Network vault spending |
+
+For more information on how to use the precompiles see related [docs](https://docs.sova.io/developers/bitcoin-precompiles).
+
+## Sentinel
+
+The sentinel is a custom add-on component to every sove-reth node. It is used by the Sova EVM to enforce Bitcoin finality. Transactions on Sova that have associated Bitcoin transactions are considered final after 6 Bitcoin block confirmations. If a transaction that was flagged by the chain is not confirmed on Bitcoin, the Sova state associated with the flagged Bitcoins tx will be reverted after 21 blocks.
 
 ## License
 
