@@ -207,7 +207,11 @@ impl SovaInspector {
             .contains(&inputs.target_address)
             && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
         {
-            return None;
+            return Some(Self::create_revert_outcome(
+                "Unauthorized caller for bitcoin precompile".to_string(),
+                inputs.gas_limit,
+                inputs.return_memory_offset.clone(),
+            ));
         }
 
         // intercept all BTC broadcast precompile calls and check locks
@@ -259,7 +263,7 @@ impl SovaInspector {
                     err
                 );
                 return Some(Self::create_revert_outcome(
-                    format!("Failed to get current Bitcoin block height from state: {err}",),
+                    format!("Failed to get current Bitcoin block height from state: {err}"),
                     inputs.gas_limit,
                     inputs.return_memory_offset.clone(),
                 ));
@@ -496,10 +500,8 @@ where
         // Ensure clean cache
         self.clear_cache();
 
-        // Create a checkpoint if one doesn't exist yet
-        if self.checkpoint.is_none() {
-            self.checkpoint = Some(context.journal().checkpoint());
-        }
+        // Create a new checkpoint
+        self.checkpoint = Some(context.journal().checkpoint());
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
