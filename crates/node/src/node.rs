@@ -77,7 +77,7 @@ impl SovaNode {
             &sova_config.bitcoin_config,
             sova_config.sentinel_confirmation_threshold,
         )
-        .map_err(|e| format!("Failed to create Bitcoin client: {}", e))?;
+        .map_err(|e| format!("Failed to create Bitcoin client: {e}"))?;
 
         // Perform health checks
         Self::health_check_bitcoin(&bitcoin_client)?;
@@ -106,7 +106,7 @@ impl SovaNode {
                 Ok(())
             }
             Err(e) => {
-                let error_msg = format!("Bitcoin service health check failed: {}", e);
+                let error_msg = format!("Bitcoin service health check failed: {e}");
                 error!("{}", error_msg);
                 Err(error_msg.into())
             }
@@ -130,20 +130,15 @@ impl SovaNode {
                         Ok(())
                     }
                     Err(e) => {
-                        let error_msg = format!(
-                            "Sentinel service RPC test failed at {}: {}",
-                            sentinel_url, e
-                        );
+                        let error_msg =
+                            format!("Sentinel service RPC test failed at {sentinel_url}: {e}");
                         error!("{}", error_msg);
                         Err(error_msg.into())
                     }
                 }
             }
             Err(e) => {
-                let error_msg = format!(
-                    "Sentinel service health check failed: Unable to connect to {}: {}",
-                    sentinel_url, e
-                );
+                let error_msg = format!("Sentinel service health check failed: Unable to connect to {sentinel_url}: {e}");
                 error!("{}", error_msg);
                 Err(error_msg.into())
             }
