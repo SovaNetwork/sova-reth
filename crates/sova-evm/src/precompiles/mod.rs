@@ -10,7 +10,7 @@ use sova_cli::BitcoinConfig;
 
 use std::{env, str::FromStr, sync::Arc};
 
-use reqwest::blocking::Client as ReqwestClient;
+use reqwest::blocking::Client as BlockingRequestClient;
 use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
@@ -80,7 +80,7 @@ struct UtxoUpdate {
 pub struct BitcoinRpcPrecompile {
     bitcoin_client: Arc<BitcoinClient>,
     network: Network,
-    http_client: Arc<ReqwestClient>,
+    http_client: Arc<BlockingRequestClient>,
     network_utxos_url: String,
     sequencer_mode: bool,
     address_deriver: Arc<SovaAddressDeriver>,
@@ -96,7 +96,7 @@ impl Default for BitcoinRpcPrecompile {
         Self {
             bitcoin_client: Arc::new(BitcoinClient::default()),
             network: Network::Regtest,
-            http_client: Arc::new(ReqwestClient::new()),
+            http_client: Arc::new(BlockingRequestClient::new()),
             network_utxos_url: String::new(),
             sequencer_mode: false,
             address_deriver,
@@ -136,7 +136,7 @@ impl BitcoinRpcPrecompile {
         Ok(Self {
             bitcoin_client,
             network,
-            http_client: Arc::new(ReqwestClient::new()),
+            http_client: Arc::new(BlockingRequestClient::new()),
             network_utxos_url,
             sequencer_mode,
             address_deriver,
