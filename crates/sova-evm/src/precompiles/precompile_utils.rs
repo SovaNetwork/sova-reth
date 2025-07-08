@@ -54,7 +54,7 @@ impl BitcoinMethodHelper {
     pub fn calculate_gas_used(method: &BitcoinPrecompileMethod, input_length: usize) -> u64 {
         let config = Self::gas_config(method);
         let input_len_u64 = input_length as u64;
-        
+
         // Use saturating arithmetic to prevent overflow
         let variable_cost = input_len_u64.saturating_mul(config.cost_per_byte);
         config.base_cost.saturating_add(variable_cost)
@@ -116,26 +116,29 @@ mod tests {
     #[test]
     fn test_overflow_protection() {
         let method = BitcoinPrecompileMethod::DecodeTransaction;
-        
+
         // Test with very large input that would cause overflow
         let large_input = usize::MAX;
         let gas_used = BitcoinMethodHelper::calculate_gas_used(&method, large_input);
-        
+
         // Should return u64::MAX when overflow occurs
         assert_eq!(gas_used, u64::MAX);
-        
+
         // Should be detected as exceeding gas limit
-        assert!(BitcoinMethodHelper::is_gas_limit_exceeded(&method, large_input));
+        assert!(BitcoinMethodHelper::is_gas_limit_exceeded(
+            &method,
+            large_input
+        ));
     }
 
     #[test]
     fn test_saturating_arithmetic() {
         let method = BitcoinPrecompileMethod::DecodeTransaction;
-        
+
         // Test saturating version with large input
         let large_input = usize::MAX;
         let gas_used = BitcoinMethodHelper::calculate_gas_used(&method, large_input);
-        
+
         // Should saturate at u64::MAX
         assert_eq!(gas_used, u64::MAX);
     }
@@ -143,12 +146,13 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         let method = BitcoinPrecompileMethod::DecodeTransaction;
-        
+
         // Test with input that causes multiplication overflow
         let config = BitcoinMethodHelper::gas_config(&method);
         if config.cost_per_byte > 0 {
             let overflow_input = (u64::MAX / config.cost_per_byte) + 1;
-            let gas_used = BitcoinMethodHelper::calculate_gas_used(&method, overflow_input as usize);
+            let gas_used =
+                BitcoinMethodHelper::calculate_gas_used(&method, overflow_input as usize);
             assert_eq!(gas_used, u64::MAX);
         }
     }
