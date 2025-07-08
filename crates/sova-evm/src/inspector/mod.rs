@@ -27,12 +27,13 @@ use reth_revm::{
 use reth_tasks::TaskExecutor;
 use reth_tracing::tracing::{debug, warn};
 
+use crate::precompiles::BitcoinMethodHelper;
+
 use sova_chainspec::{
-    L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT, SOVA_BTC_CONTRACT_ADDRESS,
+    BitcoinPrecompileMethod, L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
+    SOVA_BTC_CONTRACT_ADDRESS,
 };
 use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
-
-use crate::precompiles::BitcoinMethod;
 
 /// Represents a storage change recorded during SSTORE operations
 #[derive(Debug, Clone)]
@@ -60,7 +61,7 @@ pub struct SovaInspector {
 
 impl SovaInspector {
     pub fn new(
-        bitcoin_precompile_address: Address,
+        bitcoin_precompile_addresses: [Address; 4],
         excluded_addresses: impl IntoIterator<Item = Address>,
         sentinel_url: String,
         task_executor: TaskExecutor,
@@ -69,7 +70,7 @@ impl SovaInspector {
             Arc::new(StorageSlotProvider::new(sentinel_url, task_executor)?);
 
         Ok(Self {
-            cache: StorageCache::new(bitcoin_precompile_address, excluded_addresses),
+            cache: StorageCache::new(bitcoin_precompile_addresses, excluded_addresses),
             storage_slot_provider,
             slot_revert_cache: Vec::new(),
             checkpoint: None,
@@ -200,20 +201,29 @@ impl SovaInspector {
         context: &mut CTX,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        if inputs.target_address == self.cache.bitcoin_precompile_address
+        if self
+            .cache
+            .bitcoin_precompile_addresses
+            .contains(&inputs.target_address)
             && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
         {
             return None;
         }
 
         // intercept all BTC broadcast precompile calls and check locks
-        if inputs.target_address != self.cache.bitcoin_precompile_address {
+        if !self
+            .cache
+            .bitcoin_precompile_addresses
+            .contains(&inputs.target_address)
+        {
             return None;
         }
         debug!("----- precompile call hook -----");
 
-        match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
+        let method = BitcoinMethodHelper::method_from_address(inputs.target_address);
+
+        match method {
+            Ok(BitcoinPrecompileMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call hook");
 
                 // Process storage journal entries to find sstores before checking locks
@@ -373,14 +383,21 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
-        if inputs.target_address == self.cache.bitcoin_precompile_address
+        if self
+            .cache
+            .bitcoin_precompile_addresses
+            .contains(&inputs.target_address)
             && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
         {
             return;
         }
 
         // For all cases where a BTC precompile is not involved, there could be a SSTORE operation. Check locks
-        if inputs.target_address != self.cache.bitcoin_precompile_address {
+        if !self
+            .cache
+            .bitcoin_precompile_addresses
+            .contains(&inputs.target_address)
+        {
             // CHECK LOCKS FOR ANY SSTORE IN ANY TX
             // Process storage journal entries before checking locks
             self.process_storage_journal_entries(context);
@@ -400,9 +417,11 @@ impl SovaInspector {
         }
         debug!("----- precompile call end hook -----");
 
+        let method = BitcoinMethodHelper::method_from_address(inputs.target_address);
+
         // Update the btc tx data cache
-        match BitcoinMethod::try_from(&inputs.input) {
-            Ok(BitcoinMethod::BroadcastTransaction) => {
+        match method {
+            Ok(BitcoinPrecompileMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call end hook");
                 // only update if call was successful
                 if outcome.result.result != InstructionResult::Return {

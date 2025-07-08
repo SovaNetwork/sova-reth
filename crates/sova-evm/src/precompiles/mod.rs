@@ -5,7 +5,6 @@ mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
-pub use precompile_utils::BitcoinMethod;
 use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
@@ -22,12 +21,32 @@ use reth_tracing::tracing::{debug, info, warn};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
-use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
+use sova_chainspec::{
+    BitcoinPrecompileMethod, BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS,
+    DECODE_TRANSACTION_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS, VAULT_SPEND_ADDRESS,
+};
 
 use crate::precompiles::address_deriver::SovaAddressDeriver;
+pub use crate::precompiles::precompile_utils::BitcoinMethodHelper;
 
-pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
-    PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::run);
+pub const SOVA_BITCOIN_PRECOMPILE_BROADCAST_TRANSACTION: PrecompileWithAddress =
+    PrecompileWithAddress(
+        BROADCAST_TRANSACTION_ADDRESS,
+        BitcoinRpcPrecompile::run_broadcast_transaction,
+    );
+
+pub const SOVA_BITCOIN_PRECOMPILE_DECODE_TRANSACTION: PrecompileWithAddress = PrecompileWithAddress(
+    DECODE_TRANSACTION_ADDRESS,
+    BitcoinRpcPrecompile::run_decode_transaction,
+);
+
+pub const SOVA_BITCOIN_PRECOMPILE_CONVERT_ADDRESS: PrecompileWithAddress = PrecompileWithAddress(
+    CONVERT_ADDRESS_ADDRESS,
+    BitcoinRpcPrecompile::run_convert_address,
+);
+
+pub const SOVA_BITCOIN_PRECOMPILE_VAULT_SPEND: PrecompileWithAddress =
+    PrecompileWithAddress(VAULT_SPEND_ADDRESS, BitcoinRpcPrecompile::run_vault_spend);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -86,12 +105,12 @@ impl Default for BitcoinRpcPrecompile {
 }
 
 #[derive(RlpDecodable, RlpEncodable, Debug)]
-pub struct BitcoinRpcPrecompileInput {
+pub struct VaultSpendInput {
     precompile_input: Bytes,
     precomp_caller: Address,
 }
 
-impl BitcoinRpcPrecompileInput {
+impl VaultSpendInput {
     pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
         Self {
             precompile_input,
@@ -190,11 +209,89 @@ impl BitcoinRpcPrecompile {
         .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
-    pub fn run(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
-        let BitcoinRpcPrecompileInput {
+    pub fn run_broadcast_transaction(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+
+        // Calculate gas used based on input length
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::BroadcastTransaction,
+            input.len(),
+        );
+
+        // Check if gas exceeds method's limit using the new helper method
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::BroadcastTransaction,
+            input.len(),
+        ) {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        let res = btc_precompile.broadcast_btc_tx(input, gas_used);
+
+        if res.is_err() {
+            warn!("Precompile error: {:?}", res);
+        }
+
+        res
+    }
+
+    pub fn run_decode_transaction(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+
+        // Calculate gas used based on input length
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::DecodeTransaction,
+            input.len(),
+        );
+
+        // Check if gas exceeds method's limit using the new helper method
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::DecodeTransaction,
+            input.len(),
+        ) {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        let res = btc_precompile.decode_raw_transaction(input, gas_used);
+
+        if res.is_err() {
+            warn!("Precompile error: {:?}", res);
+        }
+
+        res
+    }
+
+    pub fn run_convert_address(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+
+        // Calculate gas used based on input length
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::ConvertAddress,
+            input.len(),
+        );
+
+        // Check if gas exceeds method's limit using the new helper method
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::ConvertAddress,
+            input.len(),
+        ) {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        let res = btc_precompile.convert_address(input, gas_used);
+
+        if res.is_err() {
+            warn!("Precompile error: {:?}", res);
+        }
+
+        res
+    }
+
+    pub fn run_vault_spend(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+        let VaultSpendInput {
             precompile_input,
             precomp_caller,
-        } = BitcoinRpcPrecompileInput::decode(&mut input.iter().as_ref())
+        } = VaultSpendInput::decode(&mut input.iter().as_ref())
             .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
 
         let input = &precompile_input;
@@ -202,35 +299,21 @@ impl BitcoinRpcPrecompile {
 
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        let method = BitcoinMethod::try_from(input).map_err(|e| {
-            PrecompileError::Other(
-                "Invalid precompile method selector".to_string() + &e.to_string(),
-            )
-        })?;
-
-        // Skip the selector bytes and get the method's input data
-        let input_data = &input[BitcoinMethod::SELECTOR_SIZE..];
-
         // Calculate gas used based on input length
-        let gas_used = method.calculate_gas_used(input_data.len());
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::VaultSpend,
+            input.len(),
+        );
 
         // Check if gas exceeds method's limit using the new helper method
-        if method.is_gas_limit_exceeded(input_data.len()) {
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::VaultSpend,
+            input.len(),
+        ) {
             return Err(PrecompileError::OutOfGas);
         }
 
-        let res = match method {
-            BitcoinMethod::BroadcastTransaction => {
-                btc_precompile.broadcast_btc_tx(input_data, gas_used)
-            }
-            BitcoinMethod::DecodeTransaction => {
-                btc_precompile.decode_raw_transaction(input_data, gas_used)
-            }
-            BitcoinMethod::ConvertAddress => btc_precompile.convert_address(input_data, gas_used),
-            BitcoinMethod::VaultSpend => {
-                btc_precompile.network_spend(input, precomp_caller, gas_used)
-            }
-        };
+        let res = btc_precompile.network_spend(input, precomp_caller, gas_used);
 
         if res.is_err() {
             warn!("Precompile error: {:?}", res);
