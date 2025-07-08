@@ -371,8 +371,7 @@ where
         let bitcoin_block_info: SovaL1BlockInfo =
             bitcoin_client.get_current_block_info().map_err(|err| {
                 PayloadBuilderError::other(RethError::msg(format!(
-                    "Failed to get Bitcoin block info from client: {}",
-                    err
+                    "Failed to get Bitcoin block info from client: {err}"
                 )))
             })?;
 
