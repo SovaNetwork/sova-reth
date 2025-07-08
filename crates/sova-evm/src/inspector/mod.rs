@@ -624,12 +624,17 @@ impl SovaInspector {
         }
 
         // Handle Bitcoin precompile calls
-        if inputs.target_address == self.cache.bitcoin_precompile_address {
+        if self
+            .cache
+            .bitcoin_precompile_addresses
+            .contains(&inputs.target_address)
+        {
             debug!("----- precompile call end hook -----");
 
             // Only process Bitcoin methods for Bitcoin precompile calls
-            match BitcoinMethod::try_from(&inputs.input) {
-                Ok(BitcoinMethod::BroadcastTransaction) => {
+            let method = BitcoinMethodHelper::method_from_address(inputs.target_address);
+            match method {
+                Ok(BitcoinPrecompileMethod::BroadcastTransaction) => {
                     debug!("-> Broadcast call end hook");
 
                     // Only cache data if call was successful
