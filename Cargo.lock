@@ -9487,6 +9487,7 @@ dependencies = [
  "sova-sentinel-proto",
  "tokio",
  "tonic",
+ "uuid",
 ]
 
 [[package]]
@@ -9597,8 +9598,8 @@ dependencies = [
 
 [[package]]
 name = "sova-sentinel-client"
-version = "0.1.0"
-source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=56eab845eb9df85cff2d859da0ed4bd16b1dd9e6#56eab845eb9df85cff2d859da0ed4bd16b1dd9e6"
+version = "0.1.1"
+source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=40e585da3223a35451d694213474b6d04fcc8e2e#40e585da3223a35451d694213474b6d04fcc8e2e"
 dependencies = [
  "prost",
  "sova-sentinel-proto",
@@ -9609,8 +9610,8 @@ dependencies = [
 
 [[package]]
 name = "sova-sentinel-proto"
-version = "0.1.0"
-source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=56eab845eb9df85cff2d859da0ed4bd16b1dd9e6#56eab845eb9df85cff2d859da0ed4bd16b1dd9e6"
+version = "0.1.1"
+source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=40e585da3223a35451d694213474b6d04fcc8e2e#40e585da3223a35451d694213474b6d04fcc8e2e"
 dependencies = [
  "prost",
  "tonic",
@@ -10488,11 +10489,14 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.16.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
+checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
 dependencies = [
  "getrandom 0.3.2",
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]
