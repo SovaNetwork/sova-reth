@@ -663,20 +663,18 @@ impl SovaInspector {
                     )
                 }
             }
-        } else {
-            // For non-Bitcoin precompile calls, check locks for any SSTORE operations
-            // But only if the current outcome is successful
-            if outcome.result.result == InstructionResult::Return {
-                // Process storage journal entries before checking locks
-                self.process_storage_journal_entries(context);
+        }
+        // For non-Bitcoin precompile calls to the SovaBTC contract, check locks for any SSTORE operations
+        else if inputs.target_address == SOVA_BTC_CONTRACT_ADDRESS {
+            // Process storage journal entries before checking locks
+            self.process_storage_journal_entries(context);
 
-                // Check if any storage modifications conflict with locks
-                if let Some(revert_outcome) = self.handle_lock_checks(context, inputs) {
-                    // Replace successful outcome with revert due to lock conflict
-                    *outcome = revert_outcome;
-                    // Clear checkpoint after reverting
-                    self.checkpoint = None;
-                }
+            // Check if any storage modifications conflict with locks
+            if let Some(revert_outcome) = self.handle_lock_checks(context, inputs) {
+                // Replace successful outcome with revert due to lock conflict
+                *outcome = revert_outcome;
+                // Clear checkpoint after reverting
+                self.checkpoint = None;
             }
         }
     }
