@@ -103,6 +103,7 @@ where
     F: ConfigureEvm + WithInspector,
     DB: Database,
 {
+    #[allow(dead_code)]
     fn verify_l1block_transaction(
         &self,
         block: &RecoveredBlock<<<F as ConfigureEvm>::Primitives as NodePrimitives>::Block>,
@@ -334,7 +335,9 @@ where
         };
 
         // === L1Block VERIFICATION ===
-        self.verify_l1block_transaction(block)?;
+        // TODO(powvt): For the same reason the SovaPayloadBuilder::inject_bitcoin_data_to_payload_attrs
+        // is not currently injecting the SovaL1Block we cannot verify the block info here.
+        // self.verify_l1block_transaction(block)?;
 
         // === UPDATE SENTINEL LOCKS ===
         {
@@ -475,7 +478,9 @@ where
         };
 
         // === L1Block VERIFICATION ===
-        self.verify_l1block_transaction(block)?;
+        // TODO(powvt): For the same reason the SovaPayloadBuilder::inject_bitcoin_data_to_payload_attrs
+        // is not currently injecting the SovaL1Block we cannot verify the block info here.
+        // self.verify_l1block_transaction(block)?;
 
         // === UPDATE SENTINEL LOCKS ===
         {
