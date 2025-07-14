@@ -365,7 +365,7 @@ where
     /// Returns an error if Bitcoin data cannot be obtained, causing payload build to fail
     pub fn inject_bitcoin_data_to_payload_attrs(
         bitcoin_client: &BitcoinClient,
-        attributes: &mut OpPayloadAttributes,
+        _: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
         // Fetch the current Bitcoin block info from the Bitcoin client
         let bitcoin_block_info: SovaL1BlockInfo =
@@ -389,25 +389,28 @@ where
         }
 
         // Generate the deposit transaction bytes
-        let btc_tx_bytes = Self::create_bitcoin_data_deposit_tx(
+        let _ = Self::create_bitcoin_data_deposit_tx(
             bitcoin_block_info.current_block_height,
             bitcoin_block_info.block_hash_six_blocks_back,
         );
 
-        // Append the Bitcoin transaction to the existing transactions.
-        if let Some(ref mut txs) = attributes.transactions {
-            txs.push(btc_tx_bytes);
-        } else {
-            // If there are no transactions yet, create a vector with just the Bitcoin transaction
-            attributes.transactions = Some(vec![btc_tx_bytes]);
-        }
+        // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus.
+        // op-node is not expecting 2 txs (SovaL1Block, L1Block) when it derives the l1 block it only sees and expects 1 tx.
+        //
+        // // Append the Bitcoin transaction to the existing transactions.
+        // if let Some(ref mut txs) = attributes.transactions {
+        //     txs.push(btc_tx_bytes);
+        // } else {
+        //     // If there are no transactions yet, create a vector with just the Bitcoin transaction
+        //     attributes.transactions = Some(vec![btc_tx_bytes]);
+        // }
 
-        debug!(
-            target: "payload_builder",
-            "Successfully injected Bitcoin data: height={}, hash={:?}",
-            bitcoin_block_info.current_block_height,
-            bitcoin_block_info.block_hash_six_blocks_back,
-        );
+        // debug!(
+        //     target: "payload_builder",
+        //     "Successfully injected Bitcoin data: height={}, hash={:?}",
+        //     bitcoin_block_info.current_block_height,
+        //     bitcoin_block_info.block_hash_six_blocks_back,
+        // );
 
         Ok(())
     }
