@@ -2,10 +2,11 @@ use std::env;
 
 use clap::Parser;
 
-use reth_optimism_cli::Cli;
+use reth_optimism_cli::{commands::Commands, Cli};
 
 use reth_tracing::tracing::info;
 
+use sova_chainspec::trusted_peers;
 use sova_cli::SovaChainSpecParser;
 use sova_evm::BitcoinRpcPrecompile;
 use sova_node::{SovaArgs, SovaNode};
@@ -35,25 +36,30 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    if let Err(err) =
-        // Using SovaChainSpecParser for inheriting all ethereum forkchoices
-        // Sova args are used to provide flags for auxiliary services
-        Cli::<SovaChainSpecParser, SovaArgs>::parse().run(|builder, sova_args| async move {
-                // Set environment variables for Sova
-                set_env_for_sova(sova_args.clone());
-                // Sanity check to ensure the Sova args are valid
-                let _ = BitcoinRpcPrecompile::from_env();
+    let mut cli = Cli::<SovaChainSpecParser, SovaArgs>::parse();
 
-                info!(target: "reth::cli", "Launching node");
+    // Override the trusted peers if running a node
+    if let Commands::Node(node_commands) = &mut cli.command {
+        let chain_id = node_commands.chain.chain.id();
+        node_commands.network.trusted_peers = trusted_peers(chain_id);
+    }
 
-                let sova_node = SovaNode::new(sova_args)
-                    .await
-                    .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
+    // Run the CLI command
+    if let Err(err) = cli.run(|builder, sova_args| async move {
+        // Set environment variables for Sova
+        set_env_for_sova(sova_args.clone());
+        // Sanity check to ensure the Sova args are valid
+        let _ = BitcoinRpcPrecompile::from_env();
 
-                let handle = builder.launch_node(sova_node).await?;
-                handle.node_exit_future.await
-            })
-    {
+        info!(target: "reth::cli", "Launching node");
+
+        let sova_node = SovaNode::new(sova_args)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
+
+        let handle = builder.launch_node(sova_node).await?;
+        handle.node_exit_future.await
+    }) {
         eprintln!("Error: {err:?}");
         std::process::exit(1);
     }

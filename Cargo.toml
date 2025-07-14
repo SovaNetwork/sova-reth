@@ -45,6 +45,7 @@ reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f47
 reth-execution-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-network = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-network-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
+reth-network-peers = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-node-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }
 reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", rev = "6f8e7258f4733279080e4bd8345ce50538a40d6e" }

@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, str::FromStr};
 
 use alloy_primitives::{address, hex, Address, B256, U256};
 use reth_chainspec::{ChainHardforks, EthereumHardfork, ForkCondition, Hardfork};
+use reth_network_peers::TrustedPeer;
 use reth_optimism_forks::OpHardfork;
 
 pub const SOVA_ADDR_CONVERT_DOMAIN_TAG: &[u8] = b"sova:evm2btc:v1.0";
@@ -55,6 +56,14 @@ pub fn sova_forks() -> ChainHardforks {
         // (OpHardfork::Granite.boxed(), ForkCondition::Timestamp(0)),
         // (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
     ])
+}
+
+pub fn trusted_peers(chain_id: u64) -> Vec<TrustedPeer> {
+    match chain_id {
+        // TODO(deb): Replace with actual enode values
+        120893 => vec![TrustedPeer::from_str("enode://real-enode-values-go-here").unwrap()],
+        _ => vec![],
+    }
 }
 
 /// Represents all available Bitcoin precompile methods with their associated gas parameter
