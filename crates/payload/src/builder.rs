@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use alloy_consensus::{Transaction, Typed2718};
-use alloy_eips::{eip2718::Encodable2718, Decodable2718};
+use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
     Address, Bytes, B256, U256,
@@ -544,22 +544,23 @@ where
             extra_data: ctx.extra_data()?,
         };
 
-        let bitcoin_tx = if let Some(last_tx) = ctx.config.attributes.transactions.last() {
-            // Decode the last transaction to get the Bitcoin block info
-            let bytes = last_tx.encoded_bytes();
-            let mut bytes_slice: &[u8] = bytes.as_ref();
-            if let Ok(info) = TxDeposit::decode_2718(&mut bytes_slice) {
-                info
-            } else {
-                return Err(PayloadBuilderError::other(RethError::msg(
-                    "Failed to decode last transaction for Bitcoin block info",
-                )));
-            }
-        } else {
-            return Err(PayloadBuilderError::other(RethError::msg(
-                "No bitcoin transactions found in payload attributes",
-            )));
-        };
+        // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus
+        // let bitcoin_tx = if let Some(last_tx) = ctx.config.attributes.transactions.last() {
+        //     // Decode the last transaction to get the Bitcoin block info
+        //     let bytes = last_tx.encoded_bytes();
+        //     let mut bytes_slice: &[u8] = bytes.as_ref();
+        //     if let Ok(info) = TxDeposit::decode_2718(&mut bytes_slice) {
+        //         info
+        //     } else {
+        //         return Err(PayloadBuilderError::other(RethError::msg(
+        //             "Failed to decode last transaction for Bitcoin block info",
+        //         )));
+        //     }
+        // } else {
+        //     return Err(PayloadBuilderError::other(RethError::msg(
+        //         "No bitcoin transactions found in payload attributes",
+        //     )));
+        // };
 
         // Get evm_env for the next block
         let evm_env = ctx
@@ -584,19 +585,20 @@ where
         let mut evm =
             evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-        match evm.transact_system_call(
-            L1_BLOCK_CONTRACT_CALLER,
-            L1_BLOCK_CONTRACT_ADDRESS,
-            bitcoin_tx.input,
-        ) {
-            Ok(_result) => {
-                // Explicitly NOT committing state changes here
-                // We're only using this simulation to capture reverts in the inspector
-            }
-            Err(_err) => {
-                // we dont really care about the error here, we just want to capture the revert
-            }
-        };
+        // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus
+        // match evm.transact_system_call(
+        //     L1_BLOCK_CONTRACT_CALLER,
+        //     L1_BLOCK_CONTRACT_ADDRESS,
+        //     bitcoin_tx.input,
+        // ) {
+        //     Ok(_result) => {
+        //         // Explicitly NOT committing state changes here
+        //         // We're only using this simulation to capture reverts in the inspector
+        //     }
+        //     Err(_err) => {
+        //         // we dont really care about the error here, we just want to capture the revert
+        //     }
+        // };
 
         // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
         while let Some(pool_tx) = sim_txs.next(()) {
@@ -1061,6 +1063,7 @@ where
 mod tests {
     use super::*;
 
+    use alloy_eips::Decodable2718;
     use alloy_primitives::B256;
 
     #[test]
