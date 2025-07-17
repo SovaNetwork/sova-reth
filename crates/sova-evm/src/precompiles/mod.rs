@@ -1,30 +1,53 @@
 mod abi;
+mod address_deriver;
 mod btc_client;
 mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
-pub use precompile_utils::BitcoinMethod;
 use reth_evm::precompiles::{DynPrecompile, PrecompileInput};
 use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
 use std::{env, str::FromStr, sync::Arc};
 
-use reqwest::blocking::Client as ReqwestClient;
+use reqwest::blocking::Client as BlockingRequestClient;
 use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
+use alloy_rlp::{RlpDecodable, RlpEncodable, Decodable};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
-use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
+use sova_chainspec::{
+    BitcoinPrecompileMethod, BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS,
+    DECODE_TRANSACTION_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS, VAULT_SPEND_ADDRESS,
+};
 
-pub const SOVA_BITCOIN_PRECOMPILE: PrecompileWithAddress =
-    PrecompileWithAddress(BTC_PRECOMPILE_ADDRESS, BitcoinRpcPrecompile::mock_run);
+use crate::precompiles::address_deriver::SovaAddressDeriver;
+pub use crate::precompiles::precompile_utils::BitcoinMethodHelper;
+
+pub const SOVA_BITCOIN_PRECOMPILE_BROADCAST_TRANSACTION: PrecompileWithAddress =
+    PrecompileWithAddress(
+        BROADCAST_TRANSACTION_ADDRESS,
+        BitcoinRpcPrecompile::run_broadcast_transaction,
+    );
+
+pub const SOVA_BITCOIN_PRECOMPILE_DECODE_TRANSACTION: PrecompileWithAddress = PrecompileWithAddress(
+    DECODE_TRANSACTION_ADDRESS,
+    BitcoinRpcPrecompile::run_decode_transaction,
+);
+
+pub const SOVA_BITCOIN_PRECOMPILE_CONVERT_ADDRESS: PrecompileWithAddress = PrecompileWithAddress(
+    CONVERT_ADDRESS_ADDRESS,
+    BitcoinRpcPrecompile::run_convert_address,
+);
+
+pub const SOVA_BITCOIN_PRECOMPILE_VAULT_SPEND: PrecompileWithAddress =
+    PrecompileWithAddress(VAULT_SPEND_ADDRESS, BitcoinRpcPrecompile::run_vault_spend);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -58,37 +81,44 @@ struct UtxoUpdate {
 pub struct BitcoinRpcPrecompile {
     pub bitcoin_client: Arc<BitcoinClient>,
     network: Network,
-    http_client: Arc<ReqwestClient>,
+    http_client: Arc<BlockingRequestClient>,
     network_utxos_url: String,
     sequencer_mode: bool,
+    address_deriver: Arc<SovaAddressDeriver>,
 }
 
 impl Default for BitcoinRpcPrecompile {
     fn default() -> Self {
+        // Dummy address deriver for default (will panic if used without proper initialization)
+        let dummy_xpub = "xpub123Ab".parse().expect("Invalid dummy xpub");
+
+        let address_deriver = Arc::new(SovaAddressDeriver::new(dummy_xpub, Network::Regtest));
+
         Self {
             bitcoin_client: Arc::new(BitcoinClient::default()),
             network: Network::Regtest,
-            http_client: Arc::new(ReqwestClient::new()),
+            http_client: Arc::new(BlockingRequestClient::new()),
             network_utxos_url: String::new(),
             sequencer_mode: false,
+            address_deriver,
         }
     }
 }
 
-// #[derive(RlpDecodable, RlpEncodable, Debug)]
-// pub struct BitcoinRpcPrecompileInput {
-//     precompile_input: Bytes,
-//     precomp_caller: Address,
-// }
+#[derive(RlpDecodable, RlpEncodable, Debug)]
+pub struct VaultSpendInput {
+    precompile_input: Bytes,
+    precomp_caller: Address,
+}
 
-// impl BitcoinRpcPrecompileInput {
-//     pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
-//         Self {
-//             precompile_input,
-//             precomp_caller,
-//         }
-//     }
-// }
+impl VaultSpendInput {
+    pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
+        Self {
+            precompile_input,
+            precomp_caller,
+        }
+    }
+}
 
 impl BitcoinRpcPrecompile {
     pub fn new(
@@ -96,6 +126,7 @@ impl BitcoinRpcPrecompile {
         network: Network,
         network_utxos_url: String,
         sequencer_mode: bool,
+        address_deriver: Arc<SovaAddressDeriver>,
     ) -> Result<Self, bitcoincore_rpc::Error> {
         // Check for env vars at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
@@ -106,9 +137,10 @@ impl BitcoinRpcPrecompile {
         Ok(Self {
             bitcoin_client,
             network,
-            http_client: Arc::new(ReqwestClient::new()),
+            http_client: Arc::new(BlockingRequestClient::new()),
             network_utxos_url,
             sequencer_mode,
+            address_deriver,
         })
     }
 
@@ -140,6 +172,20 @@ impl BitcoinRpcPrecompile {
         )
     }
 
+    fn address_deriver_from_env(network: Network) -> Arc<SovaAddressDeriver> {
+        let derivation_xpub_str = env::var("SOVA_DERIVATION_XPUB")
+            .expect("SOVA_DERIVATION_XPUB environment variable must be set");
+
+        if derivation_xpub_str.trim().is_empty() {
+            panic!("SOVA_DERIVATION_XPUB environment variable cannot be empty");
+        }
+
+        let derivation_xpub = bitcoin::bip32::Xpub::from_str(&derivation_xpub_str)
+            .expect("Invalid SOVA_DERIVATION_XPUB format");
+
+        Arc::new(SovaAddressDeriver::new(derivation_xpub, network))
+    }
+
     pub fn from_env() -> Self {
         // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
         // to do this, we call this function once (for sanity check) after the env vars are set just before node start
@@ -152,51 +198,123 @@ impl BitcoinRpcPrecompile {
 
         let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
 
-        BitcoinRpcPrecompile::new(bitcoin_client, network, network_utxos_url, sequencer_mode)
-            .expect("Failed to create BitcoinRpcPrecompile from environment")
+        let address_deriver = Self::address_deriver_from_env(network);
+
+        BitcoinRpcPrecompile::new(
+            bitcoin_client,
+            network,
+            network_utxos_url,
+            sequencer_mode,
+            address_deriver,
+        )
+        .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
-    pub fn mock_run(_input: &[u8], _gas_limit: u64) -> PrecompileResult {
-        // Mock implementation that does nothing and returns empty output
-        // This is needed to apply the alternate mapping of the precompile
-        // Else the map doesn't execute
-        Ok(PrecompileOutput::new(0, Bytes::new()))
-    }
-
-    pub fn run(input: &Bytes, precomp_caller: &Address) -> PrecompileResult {
-        debug!("Running BitcoinRpcPrecompile with input: {:?}", input);
-
+    pub fn run_broadcast_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        let method = BitcoinMethod::try_from(input).map_err(|e| {
-            PrecompileError::Other(
-                "Invalid precompile method selector".to_string() + &e.to_string(),
-            )
-        })?;
-
-        // Skip the selector bytes and get the method's input data
-        let input_data = &input[BitcoinMethod::SELECTOR_SIZE..];
-
         // Calculate gas used based on input length
-        let gas_used = method.calculate_gas_used(input_data.len());
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::BroadcastTransaction,
+            input.len(),
+        );
 
         // Check if gas exceeds method's limit using the new helper method
-        if method.is_gas_limit_exceeded(input_data.len()) {
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::BroadcastTransaction,
+            input.len(),
+        ) {
             return Err(PrecompileError::OutOfGas);
         }
 
-        let res = match method {
-            BitcoinMethod::BroadcastTransaction => {
-                btc_precompile.broadcast_btc_tx(input_data, gas_used)
-            }
-            BitcoinMethod::DecodeTransaction => {
-                btc_precompile.decode_raw_transaction(input_data, gas_used)
-            }
-            BitcoinMethod::ConvertAddress => btc_precompile.convert_address(input_data, gas_used),
-            BitcoinMethod::VaultSpend => {
-                btc_precompile.network_spend(input, precomp_caller, gas_used)
-            }
-        };
+        let res = btc_precompile.broadcast_btc_tx(input, gas_used);
+
+        if res.is_err() {
+            warn!("Precompile error: {:?}", res);
+        }
+
+        res
+    }
+
+    pub fn run_decode_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+
+        // Calculate gas used based on input length
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::DecodeTransaction,
+            input.len(),
+        );
+
+        // Check if gas exceeds method's limit using the new helper method
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::DecodeTransaction,
+            input.len(),
+        ) {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        let res = btc_precompile.decode_raw_transaction(input, gas_used);
+
+        if res.is_err() {
+            warn!("Precompile error: {:?}", res);
+        }
+
+        res
+    }
+
+    pub fn run_convert_address(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+
+        // Calculate gas used based on input length
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::ConvertAddress,
+            input.len(),
+        );
+
+        // Check if gas exceeds method's limit using the new helper method
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::ConvertAddress,
+            input.len(),
+        ) {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        let res = btc_precompile.convert_address(input, gas_used);
+
+        if res.is_err() {
+            warn!("Precompile error: {:?}", res);
+        }
+
+        res
+    }
+
+    pub fn run_vault_spend(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+        let VaultSpendInput {
+            precompile_input,
+            precomp_caller,
+        } = VaultSpendInput::decode(&mut input.iter().as_ref())
+            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
+
+        let input = &precompile_input;
+        let precomp_caller = &precomp_caller;
+
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+
+        // Calculate gas used based on input length
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::VaultSpend,
+            input.len(),
+        );
+
+        // Check if gas exceeds method's limit using the new helper method
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::VaultSpend,
+            input.len(),
+        ) {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        let res = btc_precompile.network_spend(input, precomp_caller, gas_used);
 
         if res.is_err() {
             warn!("Precompile error: {:?}", res);
@@ -261,7 +379,7 @@ impl BitcoinRpcPrecompile {
 
     fn format_txid_to_bytes32(&self, txid: bitcoin::Txid) -> Vec<u8> {
         // format to match slot locking service
-        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
+        // Reverse the byte order (Bitcoin hashes are reversed compared to EVM)
         let mut bytes = txid.to_raw_hash().to_byte_array().to_vec();
         bytes.reverse();
 
@@ -423,25 +541,60 @@ impl BitcoinRpcPrecompile {
         ))
     }
 
-    fn derive_btc_address(&self, ethereum_address: &str) -> Result<String, PrecompileError> {
-        // TODO(powvt): can this call fail and the tx execution still succeed?
-        let request = serde_json::json!({ "evm_address": ethereum_address });
+    fn parse_eth_address_bytes(&self, input: &[u8]) -> Result<[u8; 20], PrecompileError> {
+        if input.len() != 20 {
+            warn!("EVM address must be 20 bytes, got {}", input.len());
+            return Err(PrecompileError::Other(format!(
+                "EVM address must be 20 bytes, got {}",
+                input.len()
+            )));
+        }
+
+        let mut array = [0u8; 20];
+        array.copy_from_slice(input);
+        Ok(array)
+    }
+
+    /// Call indexer to derive Bitcoin address (sequencer mode only)
+    /// This ensures the indexer caches the derivation AND adds address to watched set
+    fn derive_btc_address_with_caching(
+        &self,
+        ethereum_address_bytes: &[u8; 20],
+    ) -> Result<String, PrecompileError> {
+        // Convert bytes to hex with 0x prefix for indexer API call
+        let evm_address_hex = format!("0x{}", hex::encode(ethereum_address_bytes));
+
+        let request = serde_json::json!({
+            "evm_address": evm_address_hex
+        });
+
+        debug!("Calling indexer derive-address with: {}", evm_address_hex);
+
         let response: serde_json::Value = self.call_network_utxos("derive-address", &request)?;
 
         debug!("derive-address response: {:?}", response);
 
+        // Extract the Bitcoin address from indexer response
         response["btc_address"]
             .as_str()
             .map(String::from)
             .ok_or_else(|| {
-                PrecompileError::Other("Failed to extract Bitcoin address from response".into())
+                PrecompileError::Other(
+                    "Failed to extract Bitcoin address from indexer response".into(),
+                )
             })
     }
 
     fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        let encoded = hex::encode(input);
-        let ethereum_address_hex = encoded.as_str();
-        let bitcoin_address = self.derive_btc_address(ethereum_address_hex)?;
+        let ethereum_address_bytes = self.parse_eth_address_bytes(input)?;
+
+        let bitcoin_address = if self.sequencer_mode {
+            self.derive_btc_address_with_caching(&ethereum_address_bytes)?
+        } else {
+            self.address_deriver
+                .derive_bitcoin_address(&ethereum_address_bytes)?
+                .to_string()
+        };
 
         Ok(PrecompileOutput::new(
             gas_used,
@@ -529,10 +682,10 @@ impl BitcoinRpcPrecompile {
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 
-    pub fn run_map(_: DynPrecompile) -> DynPrecompile {
-        move |input: PrecompileInput<'_>| -> PrecompileResult {
-            BitcoinRpcPrecompile::run(&Bytes::copy_from_slice(input.data), &input.caller)
-        }
-        .into()
-    }
+    // pub fn run_map(_: DynPrecompile) -> DynPrecompile {
+    //     move |input: PrecompileInput<'_>| -> PrecompileResult {
+    //         BitcoinRpcPrecompile::run(&Bytes::copy_from_slice(input.data), &input.caller)
+    //     }
+    //     .into()
+    // }
 }

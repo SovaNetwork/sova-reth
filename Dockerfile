@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 RUN apt-get update && apt-get -y upgrade && apt-get install -y \
     libclang-dev \
     pkg-config \
-    protobuf-compiler
+    protobuf-compiler \
 
 # Builds a cargo-chef plan
 FROM chef AS planner
@@ -43,6 +43,10 @@ RUN cp /app/target/$BUILD_PROFILE/sova-reth /app/sova-reth
 
 # Use Ubuntu as the release image
 FROM ubuntu AS runtime
+
+RUN apt-get update && apt-get -y upgrade && apt-get install -y \
+    curl
+
 WORKDIR /app
 
 # Copy sova-reth over from the build stage

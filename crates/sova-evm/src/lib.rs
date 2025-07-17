@@ -39,10 +39,18 @@ use op_revm::{
     OpSpecId,
 };
 
-use sova_chainspec::{BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS};
+use sova_chainspec::{
+    BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS, DECODE_TRANSACTION_ADDRESS,
+    L1_BLOCK_CONTRACT_ADDRESS, PRECOMPILE_ADDRESSES, VAULT_SPEND_ADDRESS,
+};
 use sova_cli::SovaConfig;
 
-use crate::{execute::SovaBlockExecutor, precompiles::SOVA_BITCOIN_PRECOMPILE};
+use crate::execute::SovaBlockExecutor;
+use crate::precompiles::{
+    VaultSpendInput, SOVA_BITCOIN_PRECOMPILE_BROADCAST_TRANSACTION,
+    SOVA_BITCOIN_PRECOMPILE_CONVERT_ADDRESS, SOVA_BITCOIN_PRECOMPILE_DECODE_TRANSACTION,
+    SOVA_BITCOIN_PRECOMPILE_VAULT_SPEND,
+};
 
 // Custom precompiles that include Bitcoin precompile
 #[derive(Clone, Default)]
@@ -71,7 +79,12 @@ impl SovaPrecompiles {
         static INSTANCE: OnceBox<Precompiles> = OnceBox::new();
         let precompiles = INSTANCE.get_or_init(|| {
             let mut precompiles = global_precompiles.clone();
-            precompiles.extend([SOVA_BITCOIN_PRECOMPILE]);
+            precompiles.extend([
+                SOVA_BITCOIN_PRECOMPILE_BROADCAST_TRANSACTION,
+                SOVA_BITCOIN_PRECOMPILE_DECODE_TRANSACTION,
+                SOVA_BITCOIN_PRECOMPILE_CONVERT_ADDRESS,
+                SOVA_BITCOIN_PRECOMPILE_VAULT_SPEND,
+            ]);
             Box::new(precompiles)
         });
 
@@ -153,8 +166,14 @@ impl SovaEvmConfig {
         task_executor: TaskExecutor,
     ) -> Result<Self, Box<dyn Error>> {
         let inspector = SovaInspector::new(
-            BTC_PRECOMPILE_ADDRESS,
-            vec![BTC_PRECOMPILE_ADDRESS, L1_BLOCK_CONTRACT_ADDRESS],
+            PRECOMPILE_ADDRESSES,
+            vec![
+                BROADCAST_TRANSACTION_ADDRESS,
+                DECODE_TRANSACTION_ADDRESS,
+                CONVERT_ADDRESS_ADDRESS,
+                VAULT_SPEND_ADDRESS,
+                L1_BLOCK_CONTRACT_ADDRESS,
+            ],
             config.sentinel_url.clone(),
             task_executor,
         )

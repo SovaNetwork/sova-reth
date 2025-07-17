@@ -218,7 +218,7 @@ where
 
         // TODO(powvt): investigate if this can be None?
         if config.attributes.transactions.is_empty() {
-            warn!(target: "payload_builder", "No sequencer txs recieved");
+            warn!(target: "payload_builder", "No sequencer txs received");
         }
 
         let mut op_payload_attrs = OpPayloadAttributes {
@@ -229,7 +229,7 @@ where
                 withdrawals: Some(config.attributes.withdrawals().to_vec()),
                 parent_beacon_block_root: config.attributes.parent_beacon_block_root(),
             },
-            // TODO(powvt): smae comment as above, can we do Some() here safely?
+            // TODO(powvt): same comment as above, can we do Some() here safely?
             transactions: Some(
                 config
                     .attributes
@@ -243,16 +243,11 @@ where
             eip_1559_params: config.attributes.eip_1559_params,
         };
 
-        // Inject Bitcoin data
-        if let Err(err) =
-            SovaPayloadBuilder::<Pool, Client, Evm, T>::inject_bitcoin_data_to_payload_attrs(
-                &self.bitcoin_client,
-                &mut op_payload_attrs,
-            )
-        {
-            warn!(target: "payload_builder", "Failed to inject Bitcoin data: {}", err);
-            // Continue with payload building even if Bitcoin data injection fails
-        }
+        // Inject Bitcoin data - FAIL THE BUILD PROCESS IF THIS FAILS
+        SovaPayloadBuilder::<Pool, Client, Evm, T>::inject_bitcoin_data_to_payload_attrs(
+            &self.bitcoin_client,
+            &mut op_payload_attrs,
+        )?;
 
         // Recreate the OpPayloadBuilderAttributes with the updated OpPayloadAttributes
         let updated_config = PayloadConfig {
@@ -288,7 +283,7 @@ where
     /// Computes the witness for the payload.
     ///
     /// TODO(powvt): Deal with call to Bitcoin node here.
-    /// Ideally that data is already in the attributes recieved from the sequencer.
+    /// Ideally that data is already in the attributes received from the sequencer.
     pub fn payload_witness(
         &self,
         parent: SealedHeader<N::BlockHeader>,
@@ -371,39 +366,55 @@ where
     }
 
     /// Inject Bitcoin data into a new block via a deposit transaction
+    /// Returns an error if Bitcoin data cannot be obtained, causing payload build to fail
     pub fn inject_bitcoin_data_to_payload_attrs(
         bitcoin_client: &BitcoinClient,
-        attributes: &mut OpPayloadAttributes,
+        _: &mut OpPayloadAttributes,
     ) -> Result<(), PayloadBuilderError> {
         // Fetch the current Bitcoin block info from the Bitcoin client
-        let bitcoin_block_info: SovaL1BlockInfo = match bitcoin_client.get_current_block_info() {
-            Ok(info) => info,
-            Err(err) => {
-                warn!(target: "payload_builder", "Failed to get block info from BTC client: {}", err);
-                SovaL1BlockInfo::default()
-            }
-        };
+        let bitcoin_block_info: SovaL1BlockInfo =
+            bitcoin_client.get_current_block_info().map_err(|err| {
+                PayloadBuilderError::other(RethError::msg(format!(
+                    "Failed to get Bitcoin block info from client: {err}"
+                )))
+            })?;
 
-        // Generate the deposit transaction bytes with just height and hash
-        let btc_tx_bytes = Self::create_bitcoin_data_deposit_tx(
-            bitcoin_block_info.current_block_height,
-            bitcoin_block_info.block_hash_six_blocks_back,
-        );
-
-        // Append the Bitcoin transaction to the existing transactions.
-        if let Some(ref mut txs) = attributes.transactions {
-            txs.push(btc_tx_bytes);
-        } else {
-            // If there are no transactions yet, create a vector with just the Bitcoin transaction
-            attributes.transactions = Some(vec![btc_tx_bytes]);
+        // Validate that we received valid Bitcoin data (not default/zero values)
+        if bitcoin_block_info.current_block_height == 0 {
+            return Err(PayloadBuilderError::other(RethError::msg(
+                "Bitcoin client returned invalid block height (0)",
+            )));
         }
 
-        debug!(
-            target: "payload_builder",
-            "Injected Bitcoin data: height={}, hash={:?}",
+        if bitcoin_block_info.block_hash_six_blocks_back == B256::ZERO {
+            return Err(PayloadBuilderError::other(RethError::msg(
+                "Bitcoin client returned invalid block hash (all zeros)",
+            )));
+        }
+
+        // Generate the deposit transaction bytes
+        let _ = Self::create_bitcoin_data_deposit_tx(
             bitcoin_block_info.current_block_height,
             bitcoin_block_info.block_hash_six_blocks_back,
         );
+
+        // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus.
+        // op-node is not expecting 2 txs (SovaL1Block, L1Block) when it derives the l1 block it only sees and expects 1 tx.
+        //
+        // // Append the Bitcoin transaction to the existing transactions.
+        // if let Some(ref mut txs) = attributes.transactions {
+        //     txs.push(btc_tx_bytes);
+        // } else {
+        //     // If there are no transactions yet, create a vector with just the Bitcoin transaction
+        //     attributes.transactions = Some(vec![btc_tx_bytes]);
+        // }
+
+        // debug!(
+        //     target: "payload_builder",
+        //     "Successfully injected Bitcoin data: height={}, hash={:?}",
+        //     bitcoin_block_info.current_block_height,
+        //     bitcoin_block_info.block_hash_six_blocks_back,
+        // );
 
         Ok(())
     }
@@ -539,22 +550,23 @@ where
             extra_data: ctx.extra_data()?,
         };
 
-        let bitcoin_tx = if let Some(last_tx) = ctx.config.attributes.transactions.last() {
-            // Decode the last transaction to get the Bitcoin block info
-            let bytes = last_tx.encoded_bytes();
-            let mut bytes_slice: &[u8] = bytes.as_ref();
-            if let Ok(info) = TxDeposit::decode_2718(&mut bytes_slice) {
-                info
-            } else {
-                return Err(PayloadBuilderError::other(RethError::msg(
-                    "Failed to decode last transaction for Bitcoin block info",
-                )));
-            }
-        } else {
-            return Err(PayloadBuilderError::other(RethError::msg(
-                "No bitcoin transactions found in payload attributes",
-            )));
-        };
+        // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus
+        // let bitcoin_tx = if let Some(last_tx) = ctx.config.attributes.transactions.last() {
+        //     // Decode the last transaction to get the Bitcoin block info
+        //     let bytes = last_tx.encoded_bytes();
+        //     let mut bytes_slice: &[u8] = bytes.as_ref();
+        //     if let Ok(info) = TxDeposit::decode_2718(&mut bytes_slice) {
+        //         info
+        //     } else {
+        //         return Err(PayloadBuilderError::other(RethError::msg(
+        //             "Failed to decode last transaction for Bitcoin block info",
+        //         )));
+        //     }
+        // } else {
+        //     return Err(PayloadBuilderError::other(RethError::msg(
+        //         "No bitcoin transactions found in payload attributes",
+        //     )));
+        // };
 
         // Get evm_env for the next block
         let evm_env = ctx
@@ -579,19 +591,20 @@ where
         let mut evm =
             evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
 
-        match evm.transact_system_call(
-            L1_BLOCK_CONTRACT_CALLER,
-            L1_BLOCK_CONTRACT_ADDRESS,
-            bitcoin_tx.input,
-        ) {
-            Ok(_result) => {
-                // Explicitly NOT committing state changes here
-                // We're only using this simulation to capture reverts in the inspector
-            }
-            Err(_err) => {
-                // we dont really care about the error here, we just want to capture the revert
-            }
-        };
+        // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus
+        // match evm.transact_system_call(
+        //     L1_BLOCK_CONTRACT_CALLER,
+        //     L1_BLOCK_CONTRACT_ADDRESS,
+        //     bitcoin_tx.input,
+        // ) {
+        //     Ok(_result) => {
+        //         // Explicitly NOT committing state changes here
+        //         // We're only using this simulation to capture reverts in the inspector
+        //     }
+        //     Err(_err) => {
+        //         // we dont really care about the error here, we just want to capture the revert
+        //     }
+        // };
 
         // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
         while let Some(pool_tx) = sim_txs.next(()) {
@@ -1065,6 +1078,7 @@ where
 mod tests {
     use super::*;
 
+    use alloy_eips::Decodable2718;
     use alloy_primitives::B256;
 
     #[test]

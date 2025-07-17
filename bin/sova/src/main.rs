@@ -25,7 +25,6 @@ fn set_env_for_sova(args: SovaArgs) {
         "SOVA_SENTINEL_CONFIRMATION_THRESHOLD",
         args.sentinel_confirmation_threshold.to_string(),
     );
-    env::set_var("SOVA_SEQUENCER_MODE", args.sequencer.is_some().to_string());
 }
 
 fn main() {
@@ -48,6 +47,7 @@ fn main() {
                 info!(target: "reth::cli", "Launching node");
 
                 let sova_node = SovaNode::new(sova_args)
+                    .await
                     .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
 
                 let handle = builder.launch_node(sova_node).await?;

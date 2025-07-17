@@ -61,6 +61,7 @@ where
     F: ConfigureEvm + WithInspector,
     DB: Database,
 {
+    #[allow(dead_code)]
     fn verify_l1block_transaction(
         &self,
         block: &RecoveredBlock<<<F as ConfigureEvm>::Primitives as NodePrimitives>::Block>,
@@ -90,8 +91,6 @@ where
                     debug!(target: "execution", "Genesis block - skipping Bitcoin block validation");
                     Ok(())
                 } else if input[0..4] == L1_BLOCK_SATOSHI_SELECTOR {
-                    // TODO(powvt): improve validations of BTC data
-
                     if input.len() < 68 {
                         // 4 bytes selector + 32 bytes blockHeight + 32 bytes blockHash
                         return Err(BlockExecutionError::other(RethError::msg(
@@ -109,35 +108,50 @@ where
                     // Extract block hash from next 32 bytes
                     let tx_block_hash = B256::from_slice(&input[36..68]);
 
-                    // TODO(powvt): Parse setBitcoinBlockDataCompact format from L1Block contract
+                    // Check for invalid (zero) block height
+                    if block_height.is_zero() {
+                        return Err(BlockExecutionError::other(RethError::msg(
+                            "Invalid Bitcoin block height: cannot be zero",
+                        )));
+                    }
 
                     let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-                    // Validate the Bitcoin block hash
+                    // Check for invalid (all-zero) block hash
+                    if tx_block_hash == B256::ZERO {
+                        return Err(BlockExecutionError::other(RethError::msg(
+                            "Invalid Bitcoin block hash: cannot be all zeros",
+                        )));
+                    }
+
+                    let height_u64 = block_height.to::<u64>();
+
+                    // Validate the Bitcoin block hash against the Bitcoin client
                     match btc_precompile
                         .bitcoin_client
-                        .validate_block_hash(block_height.to::<u64>(), tx_block_hash)
+                        .validate_block_hash(height_u64, tx_block_hash)
                     {
                         Ok(true) => {
                             debug!(
                                 target: "execution",
                                 "Verified L1Block transaction: Bitcoin height={}, hash={:?}",
-                                block_height.to::<u64>(),
+                                height_u64,
                                 tx_block_hash
                             );
                             Ok(())
                         }
                         Ok(false) => {
-                            warn!("Bitcoin block hash validation failed: Expected hash {:?} does not match actual hash for block at height {}", tx_block_hash, block_height.to::<u64>() - 6);
+                            warn!("Bitcoin block hash validation failed: Expected hash {:?} does not match actual hash for block at height {}", tx_block_hash, height_u64 - 6);
                             return Err(BlockExecutionError::other(RethError::msg(format!(
                                 "Bitcoin block hash validation failed: Expected hash {:?} does not match actual hash for block at height {}",
-                                tx_block_hash, block_height.to::<u64>() - 6
+                                tx_block_hash, height_u64 - 6
                             ))));
                         }
                         Err(err) => {
                             warn!("Failed to validate Bitcoin block hash: {}", err);
+                            // This is now a critical error - we cannot validate, so we must reject
                             return Err(BlockExecutionError::other(RethError::msg(format!(
-                                "Failed to validate Bitcoin block hash: {err}",
+                                "Critical: Failed to validate Bitcoin block hash: {err}. Cannot proceed without Bitcoin validation."
                             ))));
                         }
                     }
@@ -281,7 +295,9 @@ where
         };
 
         // === L1Block VERIFICATION ===
-        self.verify_l1block_transaction(block)?;
+        // TODO(powvt): For the same reason the SovaPayloadBuilder::inject_bitcoin_data_to_payload_attrs
+        // is not currently injecting the SovaL1Block we cannot verify the block info here.
+        // self.verify_l1block_transaction(block)?;
 
         // === UPDATE SENTINEL LOCKS ===
         {
@@ -424,7 +440,9 @@ where
         };
 
         // === L1Block VERIFICATION ===
-        self.verify_l1block_transaction(block)?;
+        // TODO(powvt): For the same reason the SovaPayloadBuilder::inject_bitcoin_data_to_payload_attrs
+        // is not currently injecting the SovaL1Block we cannot verify the block info here.
+        // self.verify_l1block_transaction(block)?;
 
         // === UPDATE SENTINEL LOCKS ===
         {

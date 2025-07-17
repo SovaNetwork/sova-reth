@@ -95,7 +95,7 @@ impl BitcoinClient {
             current_block_height.saturating_sub(self.sentinel_confirmation_threshold.into());
         let block_hash = self.client.get_block_hash(height_six_blocks_back)?;
 
-        // Reverse the byte order (Bitcoin hashes are reversed compared to Ethereum)
+        // Reverse the byte order (Bitcoin hashes are reversed compared to EVM)
         let mut block_hash_bytes = [0u8; 32];
         block_hash_bytes.copy_from_slice(&block_hash[..]);
         block_hash_bytes.reverse();

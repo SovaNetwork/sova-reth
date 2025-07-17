@@ -9569,7 +9569,7 @@ dependencies = [
 
 [[package]]
 name = "sova-chainspec"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "alloy-genesis",
  "alloy-primitives",
@@ -9583,7 +9583,7 @@ dependencies = [
 
 [[package]]
 name = "sova-cli"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "bitcoin",
  "clap",
@@ -9595,7 +9595,7 @@ dependencies = [
 
 [[package]]
 name = "sova-evm"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -9638,11 +9638,12 @@ dependencies = [
  "sova-sentinel-proto",
  "tokio",
  "tonic",
+ "uuid",
 ]
 
 [[package]]
 name = "sova-node"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "alloy-consensus",
  "alloy-rpc-types-engine",
@@ -9686,11 +9687,12 @@ dependencies = [
  "sova-cli",
  "sova-evm",
  "sova-payload",
+ "sova-sentinel-client",
 ]
 
 [[package]]
 name = "sova-payload"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -9734,7 +9736,7 @@ dependencies = [
 
 [[package]]
 name = "sova-reth"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "clap",
  "eyre",
@@ -9748,8 +9750,8 @@ dependencies = [
 
 [[package]]
 name = "sova-sentinel-client"
-version = "0.1.0"
-source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=56eab845eb9df85cff2d859da0ed4bd16b1dd9e6#56eab845eb9df85cff2d859da0ed4bd16b1dd9e6"
+version = "0.1.1"
+source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=40e585da3223a35451d694213474b6d04fcc8e2e#40e585da3223a35451d694213474b6d04fcc8e2e"
 dependencies = [
  "prost",
  "sova-sentinel-proto",
@@ -9760,8 +9762,8 @@ dependencies = [
 
 [[package]]
 name = "sova-sentinel-proto"
-version = "0.1.0"
-source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=56eab845eb9df85cff2d859da0ed4bd16b1dd9e6#56eab845eb9df85cff2d859da0ed4bd16b1dd9e6"
+version = "0.1.1"
+source = "git+https://github.com/SovaNetwork/sova-sentinel.git?rev=40e585da3223a35451d694213474b6d04fcc8e2e#40e585da3223a35451d694213474b6d04fcc8e2e"
 dependencies = [
  "prost",
  "tonic",
@@ -10670,8 +10672,9 @@ version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
 dependencies = [
- "getrandom 0.3.3",
+ "getrandom 0.3.2",
  "js-sys",
+ "serde",
  "wasm-bindgen",
 ]
 
