@@ -16,13 +16,11 @@ use revm::{
     Context, ExecuteEvm, InspectEvm, Inspector,
 };
 use sova_chainspec::{
-    BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS, DECODE_TRANSACTION_ADDRESS,
-    SOVA_BTC_CONTRACT_ADDRESS, VAULT_SPEND_ADDRESS,
+    BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS, DECODE_TRANSACTION_ADDRESS, VAULT_SPEND_ADDRESS,
 };
 
 use crate::{
-    sova_revm::{DefaultSova, SovaBuilder, SovaContext},
-    BitcoinRpcPrecompile, SovaPrecompiles,
+    precompiles::VaultSpendInput, sova_revm::{DefaultSova, SovaBuilder, SovaContext}, BitcoinRpcPrecompile, SovaPrecompiles
 };
 
 /// Convenience wrapper for SovaEvm that implements Alloy's Evm trait
@@ -371,8 +369,9 @@ impl EvmFactory for SovaEvmFactory {
         evm.precompiles_mut()
             .map_precompile(&VAULT_SPEND_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
+                    let input_bytes = Bytes::from(input.data.to_owned());
                     BitcoinRpcPrecompile::run_vault_spend(
-                        &Bytes::copy_from_slice(input.data),
+                        &Bytes::copy_from_slice(&alloy_rlp::encode(VaultSpendInput::new(input_bytes, input.caller))),
                         input.gas,
                     )
                 }

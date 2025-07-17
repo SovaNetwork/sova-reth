@@ -5,7 +5,6 @@ mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
-use reth_evm::precompiles::{DynPrecompile, PrecompileInput};
 use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
