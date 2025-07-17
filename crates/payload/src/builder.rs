@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use alloy_consensus::{BlockHeader, Transaction, Typed2718};
-use alloy_eips::{eip2718::Encodable2718, Decodable2718};
+use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
     Address, Bytes, B256, U256,

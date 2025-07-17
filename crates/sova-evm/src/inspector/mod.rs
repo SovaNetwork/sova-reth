@@ -6,7 +6,6 @@ use error::SlotProviderError;
 use provider::StorageSlotProvider;
 
 pub use provider::SlotProvider;
-use revm::{context::LocalContextTr, interpreter::CallInput};
 pub use storage_cache::{AccessedStorage, BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -313,16 +312,6 @@ impl SovaInspector {
         debug!("----- precompile call hook -----");
 
         let method = BitcoinMethodHelper::method_from_address(inputs.target_address);
-
-        let precompile_input: Bytes = match &inputs.input {
-            CallInput::Bytes(bytes) => bytes.to_vec(),
-            CallInput::SharedBuffer(range) => context
-                .local()
-                .shared_memory_buffer_slice(range.clone())
-                .map(|slice| slice.to_vec())
-                .unwrap(),
-        }
-        .into();
 
         match method {
             Ok(BitcoinPrecompileMethod::BroadcastTransaction) => {
