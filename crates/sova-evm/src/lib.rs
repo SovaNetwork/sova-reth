@@ -29,9 +29,7 @@ use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::{OpBlockAssembler, OpEvmConfig, OpNextBlockEnvAttributes};
 use reth_optimism_primitives::{OpPrimitives, OpReceipt, OpTransactionSigned};
 use reth_primitives::{SealedBlock, SealedHeader};
-use reth_revm::{
-    Database, State,
-};
+use reth_revm::{Database, State};
 use reth_tasks::TaskExecutor;
 
 use op_revm::{

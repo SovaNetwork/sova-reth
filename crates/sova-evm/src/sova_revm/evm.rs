@@ -6,9 +6,7 @@ use revm::{
         EthFrame, EvmTr, FrameInitOrResult, FrameTr, PrecompileProvider,
     },
     inspector::{InspectorEvmTr, JournalExt},
-    interpreter::{
-        interpreter::EthInterpreter, InterpreterResult,
-    },
+    interpreter::{interpreter::EthInterpreter, InterpreterResult},
     Inspector,
 };
 

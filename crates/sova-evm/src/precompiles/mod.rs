@@ -15,7 +15,7 @@ use reqwest::blocking::Client as BlockingRequestClient;
 use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
-use alloy_rlp::{RlpDecodable, RlpEncodable, Decodable};
+use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 
 use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use reth_tracing::tracing::{debug, info, warn};

@@ -12,11 +12,13 @@ use revm::{
     handler::{instructions::EthInstructions, PrecompileProvider},
     inspector::NoOpInspector,
     interpreter::{interpreter::EthInterpreter, InterpreterResult},
-    Context, ExecuteEvm, InspectEvm, Inspector,
     precompile::PrecompileResult,
+    Context, ExecuteEvm, InspectEvm, Inspector,
 };
-use sova_chainspec::{BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS,
-    DECODE_TRANSACTION_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS, VAULT_SPEND_ADDRESS};
+use sova_chainspec::{
+    BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS, DECODE_TRANSACTION_ADDRESS,
+    SOVA_BTC_CONTRACT_ADDRESS, VAULT_SPEND_ADDRESS,
+};
 
 use crate::{
     sova_revm::{DefaultSova, SovaBuilder, SovaContext},
@@ -265,27 +267,36 @@ impl EvmFactory for SovaEvmFactory {
         };
 
         debug!("Adding Bitcoin RPC precompile at address: {BROADCAST_TRANSACTION_ADDRESS:?}");
-        
+
         evm.precompiles_mut()
             .map_precompile(&BROADCAST_TRANSACTION_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_broadcast_transaction(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_broadcast_transaction(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
-        
+
         evm.precompiles_mut()
             .map_precompile(&DECODE_TRANSACTION_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_decode_transaction(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_decode_transaction(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
-        
+
         evm.precompiles_mut()
             .map_precompile(&CONVERT_ADDRESS_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_convert_address(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_convert_address(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
@@ -293,7 +304,10 @@ impl EvmFactory for SovaEvmFactory {
         evm.precompiles_mut()
             .map_precompile(&VAULT_SPEND_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_vault_spend(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_vault_spend(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
@@ -324,23 +338,32 @@ impl EvmFactory for SovaEvmFactory {
         evm.precompiles_mut()
             .map_precompile(&BROADCAST_TRANSACTION_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_broadcast_transaction(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_broadcast_transaction(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
-        
+
         evm.precompiles_mut()
             .map_precompile(&DECODE_TRANSACTION_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_decode_transaction(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_decode_transaction(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
-        
+
         evm.precompiles_mut()
             .map_precompile(&CONVERT_ADDRESS_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_convert_address(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_convert_address(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
@@ -348,7 +371,10 @@ impl EvmFactory for SovaEvmFactory {
         evm.precompiles_mut()
             .map_precompile(&VAULT_SPEND_ADDRESS, |_| {
                 move |input: PrecompileInput<'_>| -> PrecompileResult {
-                    BitcoinRpcPrecompile::run_vault_spend(&Bytes::copy_from_slice(input.data), input.gas)
+                    BitcoinRpcPrecompile::run_vault_spend(
+                        &Bytes::copy_from_slice(input.data),
+                        input.gas,
+                    )
                 }
                 .into()
             });
