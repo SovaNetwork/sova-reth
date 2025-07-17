@@ -450,6 +450,17 @@ impl BitcoinRpcPrecompile {
                                             )))
                                         }
                                     }
+                                    // TX_MISSING_INPUTS (bad-txns-inputs-missingorspent) (-25)
+                                    -25 => {
+                                        debug!(
+                                            "Json rpc error -25 (inputs missing/spent). Txid: {} msg: {}",
+                                            tx.txid(),
+                                            rpc_error.message
+                                        );
+                                        // Return success since the transaction was likely already processed
+                                        // The sentinel service will verify actual finality on Bitcoin
+                                        Ok(tx.txid())
+                                    }
                                     // Other RPC error
                                     _ => {
                                         warn!(
