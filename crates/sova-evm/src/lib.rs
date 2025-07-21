@@ -1,5 +1,6 @@
 mod evm;
 mod execute;
+mod block_executor;
 mod inspector;
 mod precompiles;
 mod sova_revm;

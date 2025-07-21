@@ -9602,6 +9602,7 @@ dependencies = [
  "alloy-eips",
  "alloy-evm",
  "alloy-op-evm",
+ "alloy-op-hardforks",
  "alloy-primitives",
  "alloy-rlp",
  "alloy-sol-types",
