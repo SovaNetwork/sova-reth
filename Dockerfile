@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 RUN apt-get update && apt-get -y upgrade && apt-get install -y \
     libclang-dev \
     pkg-config \
-    protobuf-compiler \
+    protobuf-compiler
 
 # Builds a cargo-chef plan
 FROM chef AS planner
