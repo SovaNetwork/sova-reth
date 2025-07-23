@@ -14,7 +14,7 @@ pub struct SovaArgs {
     pub btc_network: BitcoinNetwork,
 
     // CLI flag to indicate the bitcoin rpc url
-    #[arg(long, default_value = "http://127.0.0.1")]
+    #[arg(long, default_value = "http://127.0.0.1:18443")]
     pub btc_network_url: String,
 
     /// CLI flag to indicate the bitcoin rpc username
