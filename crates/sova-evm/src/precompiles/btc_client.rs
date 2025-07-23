@@ -23,7 +23,7 @@ impl Default for BitcoinClient {
         // Create default configuration for local regtest node
         let config = BitcoinConfig {
             network: bitcoin::Network::Regtest,
-            network_url: "http://127.0.0.1".to_string(),
+            network_url: "http://127.0.0.1:18443".to_string(),
             rpc_username: "user".to_string(),
             rpc_password: "password".to_string(),
         };
@@ -43,17 +43,9 @@ impl BitcoinClient {
         config: &BitcoinConfig,
         sentinel_confirmation_threshold: u8,
     ) -> Result<Self, bitcoincore_rpc::Error> {
-        let port = match config.network {
-            bitcoin::Network::Bitcoin => 8332,
-            bitcoin::Network::Testnet => 18332,
-            bitcoin::Network::Regtest => 18443,
-            bitcoin::Network::Signet => 38332,
-            _ => unreachable!("unsupported network id"),
-        };
-
         let auth = Auth::UserPass(config.rpc_username.clone(), config.rpc_password.clone());
+        let url = config.network_url.to_string();
 
-        let url = format!("{}:{}", config.network_url, port);
         let client = Client::new(&url, auth)?;
         Ok(Self {
             client,
