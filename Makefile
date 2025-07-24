@@ -175,7 +175,7 @@ run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest
 	$(MAKE) build && NETWORK_UTXOS_API_KEY=$(NETWORK_UTXOS_API_KEY) SOVA_DERIVATION_XPUB=$(SOVA_DERIVATION_XPUB) SOVA_SEQUENCER_MODE=$(SOVA_SEQUENCER_MODE) ./target/release/sova-reth node \
 	--chain dev \
 	--btc-network "regtest" \
-	--btc-network-url "http://127.0.0.1" \
+	--btc-network-url "http://127.0.0.1:18443" \
 	--btc-rpc-username "user" \
 	--btc-rpc-password "password" \
 	--network-utxos-url "http://127.0.0.1:3031" \

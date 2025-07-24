@@ -53,12 +53,20 @@ pub fn sova_forks() -> ChainHardforks {
         (OpHardfork::Ecotone.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Fjord.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Granite.boxed(), ForkCondition::Timestamp(0)),
-        (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
-        (
-            EthereumHardfork::Prague.boxed(),
-            ForkCondition::Timestamp(0),
-        ),
-        (OpHardfork::Isthmus.boxed(), ForkCondition::Timestamp(0)),
+        // NOTE(powvt): The following forks cannot be activated in DEV mode due to not being able to
+        // add eip1559 params to genesis config. All OP genesis:configs:{} need to have this:
+        // "optimism": {
+        //     "eip1559Elasticity": 6,
+        //     "eip1559Denominator": 50,
+        //     "eip1559DenominatorCanyon": 250
+        // }
+        //
+        // (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
+        // (
+        //     EthereumHardfork::Prague.boxed(),
+        //     ForkCondition::Timestamp(0),
+        // ),
+        // (OpHardfork::Isthmus.boxed(), ForkCondition::Timestamp(0)),
     ])
 }
 
