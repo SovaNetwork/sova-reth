@@ -627,7 +627,7 @@ impl BitcoinRpcPrecompile {
 
         let decoded_input: DecodedInput = decode_input(input)?;
 
-        let request = serde_json::json!({
+        let mut request = serde_json::json!({
             "block_height": decoded_input.block_height,
             "amount": decoded_input.amount,
             "destination": decoded_input.destination,
@@ -660,7 +660,8 @@ impl BitcoinRpcPrecompile {
             })?;
 
             let broadcast_txid = self.broadcast_transaction(&signed_tx)?;
-            info!("Broadcast result txid: {}", broadcast_txid);
+
+            debug!("Network spend: Sequencer mode: txid broadcast: {}", broadcast_txid);
 
             let expected_txid = Txid::from_str(txid_str).map_err(|e| {
                 PrecompileError::Other(format!("Invalid txid from signing service: {e:?}"))
@@ -674,6 +675,11 @@ impl BitcoinRpcPrecompile {
 
             self.format_txid_to_bytes32(expected_txid)
         } else {
+            // remove caller field for prepare-transaction calls to indexer
+            if let Some(obj) = request.as_object_mut() {
+                obj.remove("caller");
+            }
+
             let prepare_response: serde_json::Value =
                 self.call_network_utxos("prepare-transaction", &request)?;
 
@@ -681,7 +687,7 @@ impl BitcoinRpcPrecompile {
                 .as_str()
                 .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
 
-            info!("Non-sequencer mode: received txid {}", txid_str);
+            debug!("Network spend: Non-sequencer mode: received txid {}", txid_str);
 
             let txid = Txid::from_str(txid_str)
                 .map_err(|e| PrecompileError::Other(format!("Invalid txid: {e:?}")))?;
