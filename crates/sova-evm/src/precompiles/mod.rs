@@ -661,7 +661,10 @@ impl BitcoinRpcPrecompile {
 
             let broadcast_txid = self.broadcast_transaction(&signed_tx)?;
 
-            debug!("Network spend: Sequencer mode: txid broadcast: {}", broadcast_txid);
+            debug!(
+                "Network spend: Sequencer mode: txid broadcast: {}",
+                broadcast_txid
+            );
 
             let expected_txid = Txid::from_str(txid_str).map_err(|e| {
                 PrecompileError::Other(format!("Invalid txid from signing service: {e:?}"))
@@ -687,7 +690,10 @@ impl BitcoinRpcPrecompile {
                 .as_str()
                 .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
 
-            debug!("Network spend: Non-sequencer mode: received txid {}", txid_str);
+            debug!(
+                "Network spend: Non-sequencer mode: received txid {}",
+                txid_str
+            );
 
             let txid = Txid::from_str(txid_str)
                 .map_err(|e| PrecompileError::Other(format!("Invalid txid: {e:?}")))?;
