@@ -54,6 +54,10 @@ pub fn sova_forks() -> ChainHardforks {
         (OpHardfork::Fjord.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Granite.boxed(), ForkCondition::Timestamp(0)),
         (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
+        (
+            EthereumHardfork::Prague.boxed(),
+            ForkCondition::Timestamp(0),
+        ),
         (OpHardfork::Isthmus.boxed(), ForkCondition::Timestamp(0)),
     ])
 }
