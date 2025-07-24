@@ -29,6 +29,7 @@ pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
             "0000000000000000000000000000000000000000000000000000000000000000"
         ))
         .with_coinbase(address!("0000000000000000000000000000000000000000"))
+        .with_base_fee(Some(0x3b9aca00u128)) // 1 gwei
         .extend_accounts(vec![
             // first dev account in anvil
             // pk: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
