@@ -29,24 +29,56 @@ use sova_chainspec::{
 use crate::precompiles::address_deriver::SovaAddressDeriver;
 pub use crate::precompiles::precompile_utils::BitcoinMethodHelper;
 
+// Wrapper function to convert &[u8] to &Bytes for broadcast transaction
+#[allow(dead_code)]
+fn broadcast_transaction_wrapper(input: &[u8], gas_limit: u64) -> PrecompileResult {
+    let bytes = Bytes::from(input.to_vec());
+    BitcoinRpcPrecompile::run_broadcast_transaction(&bytes, gas_limit)
+}
+
+#[allow(dead_code)]
 pub const SOVA_BITCOIN_PRECOMPILE_BROADCAST_TRANSACTION: PrecompileWithAddress =
     PrecompileWithAddress(
         BROADCAST_TRANSACTION_ADDRESS,
-        BitcoinRpcPrecompile::run_broadcast_transaction,
+        broadcast_transaction_wrapper,
     );
 
+// Wrapper function to convert &[u8] to &Bytes for decode transaction
+#[allow(dead_code)]
+fn decode_transaction_wrapper(input: &[u8], gas_limit: u64) -> PrecompileResult {
+    let bytes = Bytes::from(input.to_vec());
+    BitcoinRpcPrecompile::run_decode_transaction(&bytes, gas_limit)
+}
+
+#[allow(dead_code)]
 pub const SOVA_BITCOIN_PRECOMPILE_DECODE_TRANSACTION: PrecompileWithAddress = PrecompileWithAddress(
     DECODE_TRANSACTION_ADDRESS,
-    BitcoinRpcPrecompile::run_decode_transaction,
+    decode_transaction_wrapper,
 );
 
+// Wrapper function to convert &[u8] to &Bytes for convert address
+#[allow(dead_code)]
+fn convert_address_wrapper(input: &[u8], gas_limit: u64) -> PrecompileResult {
+    let bytes = Bytes::from(input.to_vec());
+    BitcoinRpcPrecompile::run_convert_address(&bytes, gas_limit)
+}
+
+#[allow(dead_code)]
 pub const SOVA_BITCOIN_PRECOMPILE_CONVERT_ADDRESS: PrecompileWithAddress = PrecompileWithAddress(
     CONVERT_ADDRESS_ADDRESS,
-    BitcoinRpcPrecompile::run_convert_address,
+    convert_address_wrapper,
 );
 
+// Wrapper function to convert &[u8] to &Bytes for vault spend
+#[allow(dead_code)]
+fn vault_spend_wrapper(input: &[u8], gas_limit: u64) -> PrecompileResult {
+    let bytes = Bytes::from(input.to_vec());
+    BitcoinRpcPrecompile::run_vault_spend(&bytes, gas_limit)
+}
+
+#[allow(dead_code)]
 pub const SOVA_BITCOIN_PRECOMPILE_VAULT_SPEND: PrecompileWithAddress =
-    PrecompileWithAddress(VAULT_SPEND_ADDRESS, BitcoinRpcPrecompile::run_vault_spend);
+    PrecompileWithAddress(VAULT_SPEND_ADDRESS, vault_spend_wrapper);
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -111,6 +143,7 @@ pub struct VaultSpendInput {
 }
 
 impl VaultSpendInput {
+    #[allow(dead_code)]
     pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
         Self {
             precompile_input,

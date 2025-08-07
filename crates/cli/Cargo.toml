@@ -10,7 +10,7 @@ repository.workspace = true
 sova-chainspec.workspace = true
 
 reth-cli.workspace = true
-reth-optimism-chainspec.workspace = true
+reth-optimism-chainspec = { workspace = true, features = ["serde"] }
 
 bitcoin.workspace = true
 clap.workspace = true

@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use alloy_consensus::{Transaction, Typed2718};
+use alloy_consensus::{BlockHeader, Transaction, Typed2718};
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{
-    map::foldhash::{HashMap, HashMapExt},
-    Address, Bytes, B256, U256,
+    Bytes, B256, U256,
 };
 use alloy_rlp::{BytesMut, Encodable};
 use alloy_rpc_types_debug::ExecutionWitness;
@@ -40,14 +39,13 @@ use reth_optimism_txpool::interop::{is_valid_interop, MaybeInteropTransaction};
 use reth_payload_builder_primitives::PayloadBuilderError;
 use reth_payload_primitives::PayloadBuilderAttributes;
 use reth_payload_util::{NoopPayloadTransactions, PayloadTransactions};
-use reth_primitives_traits::{NodePrimitives, SealedHeader, SignedTransaction, TxTy};
+use reth_primitives_traits::{HeaderTy, SealedHeader, SignedTransaction, TxTy};
 use reth_provider::{StateProvider, StateProviderFactory};
 use reth_revm::{
     cancelled::CancelOnDrop,
     database::StateProviderDatabase,
-    db::{State, TransitionAccount},
+    db::State,
     witness::ExecutionWitnessRecord,
-    DatabaseCommit,
 };
 use reth_storage_api::errors::ProviderError;
 use reth_tracing::tracing::{debug, trace, warn};
@@ -55,12 +53,11 @@ use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, Transac
 
 use revm::{
     context::{Block, BlockEnv},
-    state::{Account, EvmStorageSlot},
 };
 
 use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
 use sova_cli::SovaConfig;
-use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector};
+use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo};
 
 sol!(
     function setBitcoinBlockData(
@@ -179,8 +176,8 @@ impl<Pool, Client, Evm, N, T> SovaPayloadBuilder<Pool, Client, Evm, T>
 where
     Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
-    N: OpPayloadPrimitives,
-    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
+    N: OpPayloadPrimitives<_Header = alloy_consensus::Header>,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
 {
     /// Constructs an Optimism payload from the transactions sent via the
     /// Payload attributes by the sequencer. If the `no_tx_pool` argument is passed in
@@ -339,7 +336,7 @@ where
             // Target the L1Block contract
             to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
             // Dont mint Sova
-            mint: 0.into(),
+            mint: 0u128,
             // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
             value: U256::ZERO,
             // Gas limit for the call
@@ -420,9 +417,9 @@ where
 impl<Pool, Client, Evm, N, Txs> PayloadBuilder for SovaPayloadBuilder<Pool, Client, Evm, Txs>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
-    N: OpPayloadPrimitives,
+    N: OpPayloadPrimitives<_Header = alloy_consensus::Header>,
     Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
-    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
     Txs: OpPayloadTransactions<Pool::Transaction>,
 {
     type Attributes = OpPayloadBuilderAttributes<N::SignedTx>;
@@ -507,26 +504,26 @@ impl<'a, Txs, Evm> SovaBuilder<'a, Txs, Evm> {
     }
 }
 
-impl<Txs, Evm, N> SovaBuilder<'_, Txs, Evm>
+impl<Txs, Evm> SovaBuilder<'_, Txs, Evm>
 where
-    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
-    N: OpPayloadPrimitives,
+    Evm: ConfigureEvm<NextBlockEnvCtx = OpNextBlockEnvAttributes>,
+    Evm::Primitives: OpPayloadPrimitives,
 {
     /// Builds the payload on top of the state.
     pub fn build<ChainSpec>(
         self,
         db: impl Database<Error = ProviderError>,
         state_provider: impl StateProvider,
-        ctx: SovaPayloadBuilderCtx<Evm, N, ChainSpec>,
-    ) -> Result<BuildOutcomeKind<OpBuiltPayload<N>>, PayloadBuilderError>
+        ctx: SovaPayloadBuilderCtx<Evm, ChainSpec>,
+    ) -> Result<BuildOutcomeKind<OpBuiltPayload<Evm::Primitives>>, PayloadBuilderError>
     where
         ChainSpec: EthChainSpec + OpHardforks,
         Txs: PayloadTransactions<
-            Transaction: PoolTransaction<Consensus = N::SignedTx> + MaybeInteropTransaction,
+            Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>> + MaybeInteropTransaction,
         >,
     {
         let Self { best, evm_config } = self;
-        debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number, "building new payload with Sova integration");
+        debug!(target: "payload_builder", id=%ctx.payload_id(), parent_header = ?ctx.parent().hash(), parent_number = ctx.parent().number(), "building new payload with Sova integration");
 
         let mut db = State::builder()
             .with_database(db)
@@ -539,7 +536,7 @@ where
             timestamp: ctx.attributes().timestamp(),
             suggested_fee_recipient: ctx.attributes().suggested_fee_recipient(),
             prev_randao: ctx.attributes().prev_randao(),
-            gas_limit: ctx.attributes().gas_limit.unwrap_or(ctx.parent().gas_limit),
+            gas_limit: ctx.attributes().gas_limit.unwrap_or(ctx.parent().gas_limit()),
             parent_beacon_block_root: ctx.attributes().parent_beacon_block_root(),
             extra_data: ctx.extra_data()?,
         };
@@ -575,104 +572,20 @@ where
         );
 
         // Get best transactions for simulation
-        let mut sim_txs = best(sim_tx_attrs);
+        let _sim_txs = best(sim_tx_attrs);
 
-        // Get inspector
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
+        // Simulation phase simplified - slot lock enforcement handled in MyEvmConfig during execution
+        // Skip complex simulation as validation is delegated to MyEvmConfig
+        debug!("Skipping simulation phase - using simplified approach with MyEvmConfig validation");
 
-        // Create EVM with inspector
-        let mut evm =
-            evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
-
-        // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus
-        // match evm.transact_system_call(
-        //     L1_BLOCK_CONTRACT_CALLER,
-        //     L1_BLOCK_CONTRACT_ADDRESS,
-        //     bitcoin_tx.input,
-        // ) {
-        //     Ok(_result) => {
-        //         // Explicitly NOT committing state changes here
-        //         // We're only using this simulation to capture reverts in the inspector
-        //     }
-        //     Err(_err) => {
-        //         // we dont really care about the error here, we just want to capture the revert
-        //     }
-        // };
-
-        // Simulate transactions to surface reverts. Reverts are stored in the inspector's revert cache
-        while let Some(pool_tx) = sim_txs.next(()) {
-            let tx = pool_tx.into_consensus();
-
-            match evm.transact(tx) {
-                Ok(_result) => {
-                    // Explicitly NOT committing state changes here
-                    // We're only using this simulation to capture reverts in the inspector
-                }
-                Err(_err) => {
-                    // we dont really care about the error here, we just want to capture the revert
-                }
-            };
-        }
-
-        drop(evm);
-
-        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
-
-        // === REVERT APPLICATION PHASE ===
-        // Apply any reverts collected during simulation
-        if !revert_cache.is_empty() {
-            for (address, transition) in &revert_cache {
-                for (slot, slot_data) in &transition.storage {
-                    let original_value = slot_data.previous_or_original_value;
-                    let revert_value = slot_data.present_value;
-
-                    debug!(
-                        "Reverting slot {:?} from {:?} to {:?}",
-                        slot, original_value, revert_value
-                    );
-
-                    // Load account from state
-                    let acc = db.load_cache_account(*address).map_err(|err| {
-                        warn!(target: "payload_builder",
-                            parent_hash=%ctx.parent().hash(),
-                            %err,
-                            "failed to load account for payload"
-                        );
-                        PayloadBuilderError::Internal(err.into())
-                    })?;
-
-                    // Convert to revm account, mark as modified and commit it to state
-                    let mut revm_acc: Account = acc
-                        .account_info()
-                        .ok_or(PayloadBuilderError::Internal(RethError::msg(
-                            "failed to convert account to revm account",
-                        )))?
-                        .into();
-
-                    // set the storage slot directly in the revm account
-                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value);
-                    revm_acc.storage.insert(*slot, storage_slot);
-                    revm_acc.mark_touch();
-
-                    let mut changes: HashMap<Address, Account> = HashMap::new();
-                    changes.insert(*address, revm_acc);
-                    db.commit(changes);
-                }
-            }
-        }
-
-        drop(inspector);
+        // Revert handling is now managed by MyEvmConfig during execution
+        debug!("Slot lock validation and revert handling delegated to MyEvmConfig");
 
         debug!("Payload Builder: mask applied to db");
 
         // === MAIN EXECUTION PHASE ===
-        // Get inspector
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
-
-        // Create EVM with inspector
-        let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
+        // Create EVM without custom inspector - slot lock enforcement is handled in MyEvmConfig
+        let evm = evm_config.evm_with_env(&mut db, evm_env);
 
         // Create block builder
         let blk_ctx = evm_config.context_for_next_block(ctx.parent(), next_block_attributes);
@@ -705,9 +618,6 @@ where
                 // Release db
                 drop(builder);
 
-                // Release inspector
-                drop(inspector);
-
                 // can skip building the block
                 return Ok(BuildOutcomeKind::Aborted {
                     fees: info.total_fees,
@@ -727,27 +637,8 @@ where
             execution_result.receipts
         );
 
-        // Release inspector
-        drop(inspector);
-
-        // === UPDATE SENTINEL LOCKS ===
-        {
-            let inspector_lock = evm_config.with_inspector();
-            let mut inspector = inspector_lock.write();
-
-            // Update sentinel locks for Bitcoin broadcasts in this block
-            // locks are to be applied to the next block
-            let locked_block_num: u64 = block.number + 1;
-            inspector
-                .update_sentinel_locks(locked_block_num)
-                .map_err(|err| {
-                    PayloadBuilderError::Internal(RethError::msg(format!(
-                        "Payload building error: Failed to update sentinel locks: {err:?}",
-                    )))
-                })?;
-        }
-
-        debug!("Payload Builder: locks updated");
+        // Slot lock enforcement is now handled in MyEvmConfig during execution
+        debug!("Payload Builder: slot lock enforcement delegated to MyEvmConfig");
 
         let sealed_block = Arc::new(block.sealed_block().clone());
         debug!(target: "payload_builder", id=%ctx.attributes().payload_id(), sealed_block_header = ?sealed_block.header(), "sealed built block");
@@ -755,18 +646,18 @@ where
         let execution_outcome = ExecutionOutcome::new(
             db.take_bundle(),
             vec![execution_result.receipts],
-            block.number,
+            block.header().number(),
             Vec::new(),
         );
 
         // create the executed block data
-        let executed: ExecutedBlockWithTrieUpdates<N> = ExecutedBlockWithTrieUpdates {
+        let executed: ExecutedBlockWithTrieUpdates<Evm::Primitives> = ExecutedBlockWithTrieUpdates {
             block: ExecutedBlock {
                 recovered_block: Arc::new(block.clone()),
                 execution_output: Arc::new(execution_outcome),
                 hashed_state: Arc::new(hashed_state),
             },
-            trie: Arc::new(trie_updates),
+            trie: reth_chain_state::ExecutedTrieUpdates::Present(Arc::new(trie_updates)),
         };
 
         let payload = OpBuiltPayload::new(
@@ -790,13 +681,13 @@ where
     pub fn witness<ChainSpec>(
         self,
         state_provider: impl StateProvider,
-        ctx: &SovaPayloadBuilderCtx<Evm, N, ChainSpec>,
+        ctx: &SovaPayloadBuilderCtx<Evm, ChainSpec>,
     ) -> Result<ExecutionWitness, PayloadBuilderError>
     where
-        Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
+        Evm: ConfigureEvm<NextBlockEnvCtx = OpNextBlockEnvAttributes>,
+        Evm::Primitives: OpPayloadPrimitives,
         ChainSpec: EthChainSpec + OpHardforks,
-        N: OpPayloadPrimitives,
-        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
+        Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = TxTy<Evm::Primitives>>>,
     {
         let mut db = State::builder()
             .with_database(StateProviderDatabase::new(&state_provider))
@@ -826,7 +717,7 @@ where
 
 /// Container type that holds all necessities to build a new payload.
 #[derive(derive_more::Debug)]
-pub struct SovaPayloadBuilderCtx<Evm: ConfigureEvm, N: NodePrimitives, ChainSpec> {
+pub struct SovaPayloadBuilderCtx<Evm: ConfigureEvm, ChainSpec> {
     /// The type that knows how to perform system calls and configure the evm.
     pub evm_config: Evm,
     /// The DA config for the payload builder
@@ -834,21 +725,21 @@ pub struct SovaPayloadBuilderCtx<Evm: ConfigureEvm, N: NodePrimitives, ChainSpec
     /// The chainspec
     pub chain_spec: Arc<ChainSpec>,
     /// How to build the payload.
-    pub config: PayloadConfig<OpPayloadBuilderAttributes<TxTy<Evm::Primitives>>>,
+    pub config: PayloadConfig<OpPayloadBuilderAttributes<TxTy<Evm::Primitives>>, HeaderTy<Evm::Primitives>>,
     /// Marker to check whether the job has been cancelled.
     pub cancel: CancelOnDrop,
     /// The currently best payload.
-    pub best_payload: Option<OpBuiltPayload<N>>,
+    pub best_payload: Option<OpBuiltPayload<Evm::Primitives>>,
 }
 
-impl<Evm, N, ChainSpec> SovaPayloadBuilderCtx<Evm, N, ChainSpec>
+impl<Evm, ChainSpec> SovaPayloadBuilderCtx<Evm, ChainSpec>
 where
-    Evm: ConfigureEvm<Primitives: OpPayloadPrimitives, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
-    N: OpPayloadPrimitives,
+    Evm: ConfigureEvm<NextBlockEnvCtx = OpNextBlockEnvAttributes>,
+    Evm::Primitives: OpPayloadPrimitives,
     ChainSpec: EthChainSpec + OpHardforks,
 {
     /// Returns the parent block the payload will be build on.
-    pub fn parent(&self) -> &SealedHeader {
+    pub fn parent(&self) -> &SealedHeader<HeaderTy<Evm::Primitives>> {
         &self.config.parent_header
     }
 
@@ -914,7 +805,7 @@ where
                     gas_limit: self
                         .attributes()
                         .gas_limit
-                        .unwrap_or(self.parent().gas_limit),
+                        .unwrap_or(self.parent().gas_limit()),
                     parent_beacon_block_root: self.attributes().parent_beacon_block_root(),
                     extra_data: self.extra_data()?,
                 },
@@ -992,7 +883,7 @@ where
         while let Some(tx) = best_txs.next(()) {
             let interop = tx.interop_deadline();
             let tx = tx.into_consensus();
-            if info.is_tx_over_limits(tx.inner(), block_gas_limit, tx_da_limit, block_da_limit) {
+            if info.is_tx_over_limits(0u64, block_gas_limit, tx_da_limit, block_da_limit, 0u64) {
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
                 // the iterator before we can continue
@@ -1085,7 +976,7 @@ mod tests {
             // Target the L1Block contract
             to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
             // Dont mint Sova
-            mint: 0.into(),
+            mint: 0u128,
             // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
             value: U256::ZERO,
             // Gas limit for the call

@@ -1,40 +1,41 @@
 use std::sync::Arc;
 
-use reth_evm::ConfigureEvm;
-use reth_node_api::{FullNodeComponents, NodeTypes, PrimitivesTy, TxTy};
+use reth_node_api::{FullNodeComponents, NodeTypes};
 use reth_node_builder::{
     components::{
         BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, PayloadBuilderBuilder,
     },
     node::FullNodeTypes,
+    rpc::Identity,
     BuilderContext, DebugNode, Node, NodeAdapter, NodeComponentsBuilder,
 };
+use reth_node_api::{PayloadAttributesBuilder, PayloadTypes};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_node::{
     node::{OpAddOns, OpConsensusBuilder, OpNetworkBuilder, OpPoolBuilder},
     txpool::OpPooledTx,
-    OpEngineTypes,
+    OpEngineTypes, OpNextBlockEnvAttributes,
 };
 use reth_optimism_payload_builder::{
-    builder::OpPayloadTransactions,
-    config::{OpBuilderConfig, OpDAConfig},
+    config::{OpBuilderConfig, OpDAConfig}, 
+    OpPayloadBuilder,
 };
-use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
+use reth_optimism_primitives::{OpPrimitives};
 
-use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
+use reth_provider::{providers::ProviderFactoryBuilder};
 use reth_tracing::tracing::{error, info};
-use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
 
 use sova_sentinel_client::SlotLockClient;
 
 use sova_cli::{BitcoinConfig, SovaConfig};
-use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
+use sova_evm::{BitcoinClient, MyEvmConfig};
 
 use crate::SovaArgs;
 
 /// Storage implementation for Sova
-pub type SovaStorage = EthStorage<OpTransactionSigned>;
+pub type SovaStorage = reth_optimism_storage::OpStorage;
+
 
 /// Type configuration for a regular Sova node.
 #[derive(Debug, Default, Clone)]
@@ -179,6 +180,13 @@ impl SovaNode {
             ..
         } = self.args;
 
+        let sova_payload_builder = SovaPayloadBuilder::new(
+            compute_pending_block,
+            self.da_config.clone()
+        );
+        
+        let payload_service = BasicPayloadServiceBuilder::new(sova_payload_builder);
+
         ComponentsBuilder::default()
             .node_types::<Node>()
             .pool(
@@ -189,27 +197,31 @@ impl SovaNode {
                         self.args.supervisor_safety_level,
                     ),
             )
-            .payload(BasicPayloadServiceBuilder::new(
-                SovaPayloadBuilder::new(
-                    self.sova_config.clone(),
-                    Arc::clone(&self.bitcoin_client),
-                    compute_pending_block,
-                )
-                .with_da_config(self.da_config.clone()),
-            ))
-            .network(OpNetworkBuilder {
-                disable_txpool_gossip,
-                disable_discovery_v4: !discovery_v4,
-            })
             .executor(SovaExecutorBuilder::new(
                 self.sova_config.clone(),
                 Arc::clone(&self.bitcoin_client),
             ))
+            .payload(payload_service)
+            .network(OpNetworkBuilder {
+                disable_txpool_gossip,
+                disable_discovery_v4: !discovery_v4,
+            })
             .consensus(OpConsensusBuilder::default())
     }
 
     pub fn provider_factory_builder() -> ProviderFactoryBuilder<Self> {
         ProviderFactoryBuilder::default()
+    }
+
+    /// Returns a builder for [`OpAddOns`] with the sova configuration
+    pub fn add_ons_builder<NetworkT>(&self) -> reth_optimism_node::OpAddOnsBuilder<NetworkT> {
+        reth_optimism_node::OpAddOnsBuilder::default()
+            .with_sequencer(self.args.sequencer.clone())
+            .with_sequencer_headers(Vec::new())  // SovaArgs doesn't have sequencer_headers
+            .with_da_config(self.da_config.clone())
+            .with_enable_tx_conditional(self.args.enable_tx_conditional)
+            .with_min_suggested_priority_fee(0)
+            .with_historical_rpc(None)  // SovaArgs doesn't have historical_rpc
     }
 }
 
@@ -233,19 +245,20 @@ where
         OpConsensusBuilder,
     >;
 
-    type AddOns =
-        OpAddOns<NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>>;
+    type AddOns = OpAddOns<
+        NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>,
+        reth_optimism_rpc::OpEthApiBuilder,
+        reth_optimism_node::OpEngineValidatorBuilder,
+        reth_optimism_node::OpEngineApiBuilder<reth_optimism_node::OpEngineValidatorBuilder>,
+        Identity,
+    >;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components(self)
     }
 
     fn add_ons(&self) -> Self::AddOns {
-        Self::AddOns::builder()
-            .with_sequencer(self.args.sequencer.clone())
-            .with_da_config(self.da_config.clone())
-            .with_enable_tx_conditional(self.args.enable_tx_conditional)
-            .build()
+        self.add_ons_builder().build()
     }
 }
 
@@ -269,6 +282,12 @@ where
             },
         }
     }
+
+    fn local_payload_attributes_builder(
+        _chain_spec: &Self::ChainSpec,
+    ) -> impl PayloadAttributesBuilder<<<Self as NodeTypes>::Payload as PayloadTypes>::PayloadAttributes> {
+        reth_engine_local::LocalPayloadAttributesBuilder::new(Arc::new(_chain_spec.clone()))
+    }
 }
 
 impl NodeTypes for SovaNode {
@@ -279,142 +298,55 @@ impl NodeTypes for SovaNode {
     type Payload = OpEngineTypes;
 }
 
-/// A Sova payload builder service
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct SovaPayloadBuilder<Txs = ()> {
-    pub config: SovaConfig,
-    pub bitcoin_client: Arc<BitcoinClient>,
-    /// By default the pending block equals the latest block
-    /// to save resources and not leak txs from the tx-pool,
-    /// this flag enables computing of the pending block
-    /// from the tx-pool instead.
-    ///
-    /// If `compute_pending_block` is not enabled, the payload builder
-    /// will use the payload attributes from the latest block. Note
-    /// that this flag is not yet functional.
+/// Sova payload builder that wraps OpPayloadBuilder with slot lock enforcement
+#[derive(Debug, Clone)]
+pub struct SovaPayloadBuilder {
     pub compute_pending_block: bool,
-    /// The type responsible for yielding the best transactions for the payload if mempool
-    /// transactions are allowed.
-    pub best_transactions: Txs,
-    /// This data availability configuration specifies constraints for the payload builder
-    /// when assembling payloads
     pub da_config: OpDAConfig,
 }
 
 impl SovaPayloadBuilder {
-    /// Create a new instance with the given `compute_pending_block` flag and data availability config.
-    pub fn new(
-        config: SovaConfig,
-        bitcoin_client: Arc<BitcoinClient>,
-        compute_pending_block: bool,
-    ) -> Self {
+    pub fn new(compute_pending_block: bool, da_config: OpDAConfig) -> Self {
         Self {
-            config,
-            bitcoin_client,
             compute_pending_block,
-            best_transactions: (),
-            da_config: OpDAConfig::default(),
-        }
-    }
-
-    /// Configure the data availability configuration for the OP payload builder.
-    pub fn with_da_config(mut self, da_config: OpDAConfig) -> Self {
-        self.da_config = da_config;
-        self
-    }
-}
-
-impl<Txs> SovaPayloadBuilder<Txs> {
-    /// Configures the type responsible for yielding the transactions that should be included in the
-    /// payload.
-    pub fn with_transactions<T>(self, best_transactions: T) -> SovaPayloadBuilder<T> {
-        let Self {
-            config,
-            bitcoin_client,
-            compute_pending_block,
-            da_config,
-            ..
-        } = self;
-        SovaPayloadBuilder {
-            config,
-            bitcoin_client,
-            compute_pending_block,
-            best_transactions,
             da_config,
         }
     }
-
-    /// A helper method to initialize [`sova_payload::SovaPayloadBuilder`] with the
-    /// given EVM config.
-    pub fn build<Node, Evm, Pool>(
-        self,
-        evm_config: Evm,
-        ctx: &BuilderContext<Node>,
-        pool: Pool,
-    ) -> eyre::Result<sova_payload::SovaPayloadBuilder<Pool, Node::Provider, Evm, Txs>>
-    where
-        Node: FullNodeTypes<
-            Types: NodeTypes<
-                Payload = OpEngineTypes,
-                ChainSpec = OpChainSpec,
-                Primitives = OpPrimitives,
-            >,
-        >,
-        Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
-            + Unpin
-            + 'static,
-        Evm: ConfigureEvm<Primitives = PrimitivesTy<Node::Types>>,
-        Txs: OpPayloadTransactions<Pool::Transaction>,
-    {
-        let payload_builder = sova_payload::SovaPayloadBuilder::with_builder_config(
-            pool,
-            ctx.provider().clone(),
-            evm_config,
-            OpBuilderConfig {
-                da_config: self.da_config.clone(),
-            },
-        )
-        .with_sova_integration(self.config.clone(), self.bitcoin_client.clone())
-        .with_transactions(self.best_transactions.clone())
-        .set_compute_pending_block(self.compute_pending_block);
-        Ok(payload_builder)
-    }
 }
 
-impl<Node, Pool, Txs> PayloadBuilderBuilder<Node, Pool> for SovaPayloadBuilder<Txs>
+impl<Node, Pool, Evm> PayloadBuilderBuilder<Node, Pool, Evm> for SovaPayloadBuilder
 where
     Node: FullNodeTypes<
         Types: NodeTypes<
-            Payload = OpEngineTypes,
             ChainSpec = OpChainSpec,
             Primitives = OpPrimitives,
+            Storage = SovaStorage,
+            Payload = OpEngineTypes,
         >,
     >,
-    Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
-        + Unpin
-        + 'static,
-    Txs: OpPayloadTransactions<Pool::Transaction>,
-    <Pool as TransactionPool>::Transaction: OpPooledTx,
+    Pool: reth_transaction_pool::TransactionPool<Transaction: OpPooledTx<Consensus = reth_optimism_primitives::OpTransactionSigned>> + Unpin + 'static,
+    Evm: reth_evm::ConfigureEvm<Primitives = OpPrimitives, NextBlockEnvCtx = OpNextBlockEnvAttributes> + 'static,
 {
-    type PayloadBuilder = sova_payload::SovaPayloadBuilder<Pool, Node::Provider, MyEvmConfig, Txs>;
+    type PayloadBuilder = OpPayloadBuilder<Pool, Node::Provider, Evm, ()>;
 
     async fn build_payload_builder(
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
+        evm_config: Evm,
     ) -> eyre::Result<Self::PayloadBuilder> {
-        let evm_config =
-            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
-                |e| {
-                    eyre::eyre!(
-                        "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
-                        e
-                    )
-                },
-            )?;
+        let payload_builder = OpPayloadBuilder::with_builder_config(
+            pool,
+            ctx.provider().clone(),
+            evm_config,
+            OpBuilderConfig {
+                da_config: self.da_config,
+            },
+        )
+        .set_compute_pending_block(self.compute_pending_block)
+        .with_transactions(());
 
-        self.build(evm_config, ctx, pool)
+        Ok(payload_builder)
     }
 }
 
@@ -443,12 +375,11 @@ where
     Node: FullNodeTypes<Types = Types>,
 {
     type EVM = MyEvmConfig;
-    type Executor = SovaBlockExecutorProvider<MyEvmConfig>;
 
     async fn build_evm(
         self,
         ctx: &BuilderContext<Node>,
-    ) -> eyre::Result<(Self::EVM, Self::Executor)> {
+    ) -> eyre::Result<Self::EVM> {
         let evm_config =
             MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
                 |e| {
@@ -459,9 +390,6 @@ where
                 },
             )?;
 
-        Ok((
-            evm_config.clone(),
-            SovaBlockExecutorProvider::new(evm_config, self.bitcoin_client),
-        ))
+        Ok(evm_config)
     }
 }

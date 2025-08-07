@@ -171,6 +171,8 @@ endef
 
 .PHONY: run-sova-regtest
 run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest and accompanying services
+	# NOTE: Dev mode requires launch_with_debug_capabilities() instead of launch_node() 
+	# for automatic block production to work. See bin/sova/src/main.rs
 	if [ "$(clean)" = "clean" ]; then $(MAKE) clean-data; fi
 	$(MAKE) build && NETWORK_UTXOS_API_KEY=$(NETWORK_UTXOS_API_KEY) SOVA_DERIVATION_XPUB=$(SOVA_DERIVATION_XPUB) SOVA_SEQUENCER_MODE=$(SOVA_SEQUENCER_MODE) ./target/release/sova-reth node \
 	--chain dev \

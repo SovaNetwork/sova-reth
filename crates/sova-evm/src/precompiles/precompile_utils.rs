@@ -66,6 +66,7 @@ impl BitcoinMethodHelper {
     }
 
     /// Matches returns precompile enum for an address
+    #[allow(dead_code)]
     pub fn method_from_address(
         address: Address,
     ) -> Result<BitcoinPrecompileMethod, Box<dyn std::error::Error>> {

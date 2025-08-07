@@ -50,7 +50,7 @@ fn main() {
                     .await
                     .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
 
-                let handle = builder.launch_node(sova_node).await?;
+                let handle = builder.node(sova_node).launch_with_debug_capabilities().await?;
                 handle.node_exit_future.await
             })
     {
