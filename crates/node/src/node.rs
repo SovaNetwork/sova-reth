@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use reth_evm::ConfigureEvm;
-use reth_node_api::{FullNodeComponents, NodeTypes, PrimitivesTy, TxTy};
+use reth_node_api::{FullNodeComponents, NodeTypes, PayloadTypes, PrimitivesTy, TxTy};
 use reth_node_builder::{
     components::{
         BasicPayloadServiceBuilder, ComponentsBuilder, ExecutorBuilder, PayloadBuilderBuilder,
@@ -11,7 +11,7 @@ use reth_node_builder::{
 };
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_node::{
-    node::{OpAddOns, OpConsensusBuilder, OpNetworkBuilder, OpPoolBuilder},
+    node::{OpAddOns, OpAddOnsBuilder, OpConsensusBuilder, OpNetworkBuilder, OpPoolBuilder},
     txpool::OpPooledTx,
     OpEngineTypes,
 };
@@ -19,9 +19,11 @@ use reth_optimism_payload_builder::{
     builder::OpPayloadTransactions,
     config::{OpBuilderConfig, OpDAConfig},
 };
-use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
+use reth_engine_local::LocalPayloadAttributesBuilder;
+use reth_optimism_primitives::OpPrimitives;
 
-use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
+use reth_provider::providers::ProviderFactoryBuilder;
+use reth_optimism_storage::OpStorage;
 use reth_tracing::tracing::{error, info};
 use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use reth_trie_db::MerklePatriciaTrie;
@@ -29,12 +31,12 @@ use reth_trie_db::MerklePatriciaTrie;
 use sova_sentinel_client::SlotLockClient;
 
 use sova_cli::{BitcoinConfig, SovaConfig};
-use sova_evm::{BitcoinClient, MyEvmConfig, SovaBlockExecutorProvider};
+use sova_evm::{BitcoinClient, SovaEvmConfig};
 
 use crate::SovaArgs;
 
 /// Storage implementation for Sova
-pub type SovaStorage = EthStorage<OpTransactionSigned>;
+pub type SovaStorage = OpStorage;
 
 /// Type configuration for a regular Sova node.
 #[derive(Debug, Default, Clone)]
@@ -189,6 +191,7 @@ impl SovaNode {
                         self.args.supervisor_safety_level,
                     ),
             )
+            .executor(SovaExecutorBuilder::new(self.sova_config.clone(), Arc::clone(&self.bitcoin_client)))
             .payload(BasicPayloadServiceBuilder::new(
                 SovaPayloadBuilder::new(
                     self.sova_config.clone(),
@@ -201,15 +204,19 @@ impl SovaNode {
                 disable_txpool_gossip,
                 disable_discovery_v4: !discovery_v4,
             })
-            .executor(SovaExecutorBuilder::new(
-                self.sova_config.clone(),
-                Arc::clone(&self.bitcoin_client),
-            ))
             .consensus(OpConsensusBuilder::default())
     }
 
     pub fn provider_factory_builder() -> ProviderFactoryBuilder<Self> {
         ProviderFactoryBuilder::default()
+    }
+    
+    /// Returns a builder for the add-ons
+    pub fn add_ons_builder(&self) -> OpAddOnsBuilder<op_alloy_network::Optimism> {
+        OpAddOnsBuilder::default()
+            .with_sequencer(self.args.sequencer.clone())
+            .with_da_config(self.da_config.clone())
+            .with_enable_tx_conditional(self.args.enable_tx_conditional)
     }
 }
 
@@ -234,18 +241,19 @@ where
     >;
 
     type AddOns =
-        OpAddOns<NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>>;
+        OpAddOns<
+            NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>,
+            reth_optimism_rpc::OpEthApiBuilder,
+            reth_optimism_node::OpEngineValidatorBuilder,
+            reth_optimism_node::OpEngineApiBuilder<reth_optimism_node::OpEngineValidatorBuilder>,
+        >;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components(self)
     }
 
     fn add_ons(&self) -> Self::AddOns {
-        Self::AddOns::builder()
-            .with_sequencer(self.args.sequencer.clone())
-            .with_da_config(self.da_config.clone())
-            .with_enable_tx_conditional(self.args.enable_tx_conditional)
-            .build()
+        self.add_ons_builder().build()
     }
 }
 
@@ -268,6 +276,12 @@ where
                 ..Default::default()
             },
         }
+    }
+
+    fn local_payload_attributes_builder(
+        chain_spec: &<Self as NodeTypes>::ChainSpec,
+    ) -> impl reth_node_api::PayloadAttributesBuilder<<<Self as NodeTypes>::Payload as PayloadTypes>::PayloadAttributes> {
+        reth_engine_local::LocalPayloadAttributesBuilder::new(Arc::new(chain_spec.clone()))
     }
 }
 
@@ -382,7 +396,7 @@ impl<Txs> SovaPayloadBuilder<Txs> {
     }
 }
 
-impl<Node, Pool, Txs> PayloadBuilderBuilder<Node, Pool> for SovaPayloadBuilder<Txs>
+impl<Node, Pool, Txs> PayloadBuilderBuilder<Node, Pool, SovaEvmConfig> for SovaPayloadBuilder<Txs>
 where
     Node: FullNodeTypes<
         Types: NodeTypes<
@@ -397,23 +411,14 @@ where
     Txs: OpPayloadTransactions<Pool::Transaction>,
     <Pool as TransactionPool>::Transaction: OpPooledTx,
 {
-    type PayloadBuilder = sova_payload::SovaPayloadBuilder<Pool, Node::Provider, MyEvmConfig, Txs>;
+    type PayloadBuilder = sova_payload::SovaPayloadBuilder<Pool, Node::Provider, SovaEvmConfig, Txs>;
 
     async fn build_payload_builder(
         self,
         ctx: &BuilderContext<Node>,
         pool: Pool,
+        evm_config: SovaEvmConfig,
     ) -> eyre::Result<Self::PayloadBuilder> {
-        let evm_config =
-            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
-                |e| {
-                    eyre::eyre!(
-                        "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
-                        e
-                    )
-                },
-            )?;
-
         self.build(evm_config, ctx, pool)
     }
 }
@@ -442,26 +447,36 @@ where
     Types: NodeTypes<ChainSpec = OpChainSpec, Primitives = OpPrimitives>,
     Node: FullNodeTypes<Types = Types>,
 {
-    type EVM = MyEvmConfig;
-    type Executor = SovaBlockExecutorProvider<MyEvmConfig>;
+    type EVM = SovaEvmConfig;
+    // Executor type removed in v1.6.0 - functionality moved to EVM type
 
     async fn build_evm(
         self,
         ctx: &BuilderContext<Node>,
-    ) -> eyre::Result<(Self::EVM, Self::Executor)> {
-        let evm_config =
-            MyEvmConfig::new(&self.config, ctx.chain_spec(), ctx.task_executor().clone()).map_err(
-                |e| {
-                    eyre::eyre!(
-                        "ExecutorBuilder::build_evm: Failed to create EVM config: {}",
-                        e
-                    )
-                },
-            )?;
+    ) -> eyre::Result<Self::EVM> {
+        // Create SentinelClient for the worker
+        let sentinel_url = std::env::var("SOVA_SENTINEL_URL")
+            .unwrap_or_else(|_| "http://[::1]:50051".to_string());
+        let confirmation_threshold = std::env::var("SOVA_SENTINEL_CONFIRMATION_THRESHOLD")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(6);
+        let sentinel_client = sova_evm::SentinelClient::new(sentinel_url, confirmation_threshold);
+        
+        // Create SentinelWorker with bounded capacity
+        let sentinel_worker = Arc::new(sova_evm::SentinelWorker::start(sentinel_client, 1000)
+            .map_err(|e| eyre::eyre!("Failed to start sentinel worker: {}", e))?);
+        
+        info!("SOVA: Started sentinel worker for Bitcoin L2 slot locking");
+        
+        // Create the Sova EVM configuration that implements BlockExecutorFactory
+        let evm_config = SovaEvmConfig::new(
+            ctx.chain_spec().clone(),
+            self.bitcoin_client.clone(),
+            sentinel_worker
+        );
 
-        Ok((
-            evm_config.clone(),
-            SovaBlockExecutorProvider::new(evm_config, self.bitcoin_client),
-        ))
+        // In v1.6.0, we only return the EVM config which implements BlockExecutorFactory
+        Ok(evm_config)
     }
 }

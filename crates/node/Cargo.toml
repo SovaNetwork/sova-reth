@@ -42,8 +42,11 @@ reth-optimism-forks.workspace = true
 reth-optimism-payload-builder.workspace = true
 reth-optimism-primitives.workspace = true
 reth-optimism-node.workspace = true
+reth-optimism-storage.workspace = true
+reth-engine-local.workspace = true
 
 alloy-consensus.workspace = true
+op-alloy-network.workspace = true
 alloy-rpc-types-engine.workspace = true
 alloy-rpc-types-eth.workspace = true
 op-alloy-consensus.workspace = true

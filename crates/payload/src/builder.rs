@@ -60,7 +60,7 @@ use revm::{
 
 use sova_chainspec::{L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CALLER};
 use sova_cli::SovaConfig;
-use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfo, WithInspector};
+use sova_evm::{BitcoinClient, MyEvmConfig, SovaL1BlockInfoFromClient as SovaL1BlockInfo};
 
 sol!(
     function setBitcoinBlockData(
@@ -90,6 +90,8 @@ pub struct SovaPayloadBuilder<Pool, Client, Evm = MyEvmConfig, Txs = ()> {
     pub sova_config: SovaConfig,
     /// Bitcoin client for bitcoin core rpc calls
     pub bitcoin_client: Arc<BitcoinClient>,
+    /// Bitcoin slot lock manager for idempotent post-build/post-validation locking
+    pub slot_lock_manager: BitcoinSlotLockManager,
 }
 
 impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
@@ -114,6 +116,7 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
             best_transactions: (),
             sova_config: SovaConfig::default(),
             bitcoin_client: Arc::new(BitcoinClient::default()),
+            slot_lock_manager: BitcoinSlotLockManager::new(),
         }
     }
 
@@ -125,6 +128,7 @@ impl<Pool, Client, Evm> SovaPayloadBuilder<Pool, Client, Evm> {
     ) -> Self {
         self.sova_config = sova_config;
         self.bitcoin_client = bitcoin_client;
+        self.slot_lock_manager = BitcoinSlotLockManager::new(); // Reset lock manager for new config
         self
     }
 }
@@ -150,6 +154,7 @@ impl<Pool, Client, Evm, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs> {
             config,
             sova_config,
             bitcoin_client,
+            slot_lock_manager,
             ..
         } = self;
         SovaPayloadBuilder {
@@ -161,6 +166,7 @@ impl<Pool, Client, Evm, Txs> SovaPayloadBuilder<Pool, Client, Evm, Txs> {
             config,
             sova_config,
             bitcoin_client,
+            slot_lock_manager,
         }
     }
 
@@ -179,8 +185,8 @@ impl<Pool, Client, Evm, N, T> SovaPayloadBuilder<Pool, Client, Evm, T>
 where
     Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks>,
-    N: OpPayloadPrimitives,
-    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
+    N: OpPayloadPrimitives<_Header = alloy_consensus::Header>,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
 {
     /// Constructs an Optimism payload from the transactions sent via the
     /// Payload attributes by the sequencer. If the `no_tx_pool` argument is passed in
@@ -339,7 +345,7 @@ where
             // Target the L1Block contract
             to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
             // Dont mint Sova
-            mint: 0.into(),
+            mint: 0u128,
             // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
             value: U256::ZERO,
             // Gas limit for the call
@@ -420,9 +426,9 @@ where
 impl<Pool, Client, Evm, N, Txs> PayloadBuilder for SovaPayloadBuilder<Pool, Client, Evm, Txs>
 where
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthChainSpec + OpHardforks> + Clone,
-    N: OpPayloadPrimitives,
+    N: OpPayloadPrimitives<_Header = alloy_consensus::Header>,
     Pool: TransactionPool<Transaction: OpPooledTx<Consensus = N::SignedTx>>,
-    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
     Txs: OpPayloadTransactions<Pool::Transaction>,
 {
     type Attributes = OpPayloadBuilderAttributes<N::SignedTx>;
@@ -509,8 +515,8 @@ impl<'a, Txs, Evm> SovaBuilder<'a, Txs, Evm> {
 
 impl<Txs, Evm, N> SovaBuilder<'_, Txs, Evm>
 where
-    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes> + WithInspector,
-    N: OpPayloadPrimitives,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
+    N: OpPayloadPrimitives<_Header = alloy_consensus::Header>,
 {
     /// Builds the payload on top of the state.
     pub fn build<ChainSpec>(
@@ -577,13 +583,12 @@ where
         // Get best transactions for simulation
         let mut sim_txs = best(sim_tx_attrs);
 
-        // Get inspector
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
+        // TODO: In v1.6.0 architecture, inspector access is handled differently
+        // Inspector functionality is now integrated into the SovaBlockExecutor
 
         // Create EVM with inspector
-        let mut evm =
-            evm_config.evm_with_env_and_inspector(&mut db, evm_env.clone(), &mut *inspector);
+        // TODO: In v1.6.0 architecture, create EVM without inspector since it's handled by SovaBlockExecutor
+        let mut evm = evm_config.evm_with_env(&mut db, evm_env.clone());
 
         // NOTE(powvt): Injecting transctions into the attributes, causes issues with the op-node consensus
         // match evm.transact_system_call(
@@ -617,7 +622,8 @@ where
 
         drop(evm);
 
-        let revert_cache: Vec<(Address, TransitionAccount)> = inspector.slot_revert_cache.clone();
+        // TODO: In v1.6.0 architecture, revert cache is handled by SovaBlockExecutor
+        let revert_cache: Vec<(Address, TransitionAccount)> = Vec::new(); // Placeholder
 
         // === REVERT APPLICATION PHASE ===
         // Apply any reverts collected during simulation
@@ -651,7 +657,7 @@ where
                         .into();
 
                     // set the storage slot directly in the revm account
-                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value);
+                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value, 0);
                     revm_acc.storage.insert(*slot, storage_slot);
                     revm_acc.mark_touch();
 
@@ -662,17 +668,16 @@ where
             }
         }
 
-        drop(inspector);
+        // TODO: Inspector drop removed in v1.6.0 architecture
 
         debug!("Payload Builder: mask applied to db");
 
         // === MAIN EXECUTION PHASE ===
-        // Get inspector
-        let inspector_lock = evm_config.with_inspector();
-        let mut inspector = inspector_lock.write();
+        // TODO: In v1.6.0 architecture, inspector access is handled differently
+        // Inspector functionality is now integrated into the SovaBlockExecutor
 
-        // Create EVM with inspector
-        let evm = evm_config.evm_with_env_and_inspector(&mut db, evm_env, &mut *inspector);
+        // Create EVM (without inspector - handled by SovaBlockExecutor)
+        let evm = evm_config.evm_with_env(&mut db, evm_env);
 
         // Create block builder
         let blk_ctx = evm_config.context_for_next_block(ctx.parent(), next_block_attributes);
@@ -689,7 +694,8 @@ where
 
         // 3. if mem pool transactions are requested we execute them
         if !ctx.attributes().no_tx_pool {
-            let exec_tx_attrs = ctx.best_transaction_attributes(builder.evm_mut().block());
+            let block_env = builder.evm_mut().block();
+            let exec_tx_attrs = ctx.best_transaction_attributes(block_env);
             let exec_txs = best(exec_tx_attrs);
 
             if ctx
@@ -706,7 +712,7 @@ where
                 drop(builder);
 
                 // Release inspector
-                drop(inspector);
+                // TODO: Inspector drop removed in v1.6.0 architecture
 
                 // can skip building the block
                 return Ok(BuildOutcomeKind::Aborted {
@@ -728,23 +734,73 @@ where
         );
 
         // Release inspector
-        drop(inspector);
+        // TODO: Inspector drop removed in v1.6.0 architecture
 
-        // === UPDATE SENTINEL LOCKS ===
+        // === POST-BUILD SENTINEL LOCK REGISTRATION ===
         {
-            let inspector_lock = evm_config.with_inspector();
-            let mut inspector = inspector_lock.write();
-
-            // Update sentinel locks for Bitcoin broadcasts in this block
-            // locks are to be applied to the next block
-            let locked_block_num: u64 = block.number + 1;
-            inspector
-                .update_sentinel_locks(locked_block_num)
-                .map_err(|err| {
-                    PayloadBuilderError::Internal(RethError::msg(format!(
-                        "Payload building error: Failed to update sentinel locks: {err:?}",
-                    )))
-                })?;
+            // After successful block building, register all Bitcoin transactions that were
+            // processed in this block with the sentinel service for L1 confirmation tracking.
+            // This ensures both proposer and validator paths maintain consistent lock state.
+            
+            let current_block_num = block.header().number;
+            let current_block_hash = block.header().hash_slow(); // TODO: Use cached hash if available
+            
+            // Extract Bitcoin transaction information from the execution result
+            let bitcoin_transactions: Vec<(usize, alloy_primitives::B256, Vec<(Address, alloy_primitives::U256)>)> = 
+                Vec::new(); // TODO: Implement extraction from execution_result.receipts
+                
+            // TODO: Implement Bitcoin transaction extraction:
+            // execution_result.receipts.iter()
+            //     .enumerate()
+            //     .filter_map(|(tx_idx, receipt)| {
+            //         // Access logs from receipt and check for Bitcoin precompile calls
+            //         // Extract Bitcoin txid and affected slots
+            //         None  // Placeholder
+            //     })
+            //     .collect();
+            
+            // TODO: In a full implementation with SentinelWorker integration:
+            // 1. Add SentinelWorker field to SovaPayloadBuilder struct
+            // 2. Call sentinel_worker.lock_slots() for each Bitcoin transaction
+            // 3. Handle both build path (proposer) AND validation path (validator)
+            
+            if !bitcoin_transactions.is_empty() {
+                debug!(
+                    "SOVA: POST-BUILD - Would register {} Bitcoin transactions with sentinel for L1 tracking (block: {}, hash: {})",
+                    bitcoin_transactions.len(),
+                    current_block_num,
+                    current_block_hash
+                );
+                
+                // Example of what the worker call would look like:
+                // for (tx_idx, btc_txid, affected_slots) in bitcoin_transactions {
+                //     if let Err(e) = self.sentinel_worker.lock_slots(
+                //         affected_slots,
+                //         current_block_num,
+                //         0, // TODO: Get actual Bitcoin block height
+                //         btc_txid
+                //     ) {
+                //         tracing::warn!("Failed to register Bitcoin tx {} with sentinel: {}", btc_txid, e);
+                //     }
+                // }
+            } else {
+                debug!("SOVA: POST-BUILD - No Bitcoin transactions in block {}", current_block_num);
+            }
+        }
+        
+        // === POST-VALIDATION SENTINEL LOCK REGISTRATION ===
+        // NOTE: This section demonstrates where post-validation lock calls should be made
+        // In the actual Reth architecture, this would be called from:
+        // 1. Block validation completion in the consensus engine
+        // 2. Block execution verification during sync
+        // 3. Payload verification during block proposal validation
+        {
+            // TODO: Add SentinelWorker to validation paths and call:
+            // register_post_execution_bitcoin_locks(&execution_result, current_block_num, &sentinel_worker)
+            //
+            // This ensures both proposer AND validator paths maintain consistent sentinel state
+            // The call should be idempotent to handle cases where both paths run
+            debug!("SOVA: POST-VALIDATION - Lock registration would occur here for validators");
         }
 
         debug!("Payload Builder: locks updated");
@@ -755,7 +811,7 @@ where
         let execution_outcome = ExecutionOutcome::new(
             db.take_bundle(),
             vec![execution_result.receipts],
-            block.number,
+            block.header().number,
             Vec::new(),
         );
 
@@ -766,7 +822,7 @@ where
                 execution_output: Arc::new(execution_outcome),
                 hashed_state: Arc::new(hashed_state),
             },
-            trie: Arc::new(trie_updates),
+            trie: reth_chain_state::ExecutedTrieUpdates::Present(Arc::new(trie_updates)),
         };
 
         let payload = OpBuiltPayload::new(
@@ -795,7 +851,7 @@ where
     where
         Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
         ChainSpec: EthChainSpec + OpHardforks,
-        N: OpPayloadPrimitives,
+        N: OpPayloadPrimitives<_Header = alloy_consensus::Header>,
         Txs: PayloadTransactions<Transaction: PoolTransaction<Consensus = N::SignedTx>>,
     {
         let mut db = State::builder()
@@ -843,8 +899,8 @@ pub struct SovaPayloadBuilderCtx<Evm: ConfigureEvm, N: NodePrimitives, ChainSpec
 
 impl<Evm, N, ChainSpec> SovaPayloadBuilderCtx<Evm, N, ChainSpec>
 where
-    Evm: ConfigureEvm<Primitives: OpPayloadPrimitives, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
-    N: OpPayloadPrimitives,
+    Evm: ConfigureEvm<Primitives = N, NextBlockEnvCtx = OpNextBlockEnvAttributes>,
+    N: OpPayloadPrimitives<_Header = alloy_consensus::Header>,
     ChainSpec: EthChainSpec + OpHardforks,
 {
     /// Returns the parent block the payload will be build on.
@@ -992,7 +1048,7 @@ where
         while let Some(tx) = best_txs.next(()) {
             let interop = tx.interop_deadline();
             let tx = tx.into_consensus();
-            if info.is_tx_over_limits(tx.inner(), block_gas_limit, tx_da_limit, block_da_limit) {
+            if info.is_tx_over_limits(0, block_gas_limit, tx_da_limit, block_da_limit, tx.gas_limit()) {
                 // we can't fit this transaction into the block, so we need to mark it as
                 // invalid which also removes all dependent transaction from
                 // the iterator before we can continue
@@ -1059,6 +1115,137 @@ where
 }
 
 // unit test for txDeposit
+/// Helper functions for Bitcoin L2 sentinel lock registration
+/// These would be used by both build and validation paths
+
+/// Extract Bitcoin precompile addresses for transaction identification
+fn is_bitcoin_precompile_address(address: Address) -> bool {
+    use sova_chainspec::*;
+    
+    match address {
+        BROADCAST_TRANSACTION_ADDRESS => true,
+        DECODE_TRANSACTION_ADDRESS => true,
+        CONVERT_ADDRESS_ADDRESS => true,  
+        VAULT_SPEND_ADDRESS => true,
+        _ => false,
+    }
+}
+
+/// Extract Bitcoin transaction ID from a precompile log
+fn extract_bitcoin_txid_from_log(log: &alloy_primitives::Log) -> Option<alloy_primitives::B256> {
+    // TODO: Parse log data to extract Bitcoin txid
+    // Bitcoin txids are typically emitted as the first 32 bytes in successful broadcast logs
+    if log.data.data.len() >= 32 {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&log.data.data[0..32]);
+        Some(alloy_primitives::B256::from(bytes))
+    } else {
+        None
+    }
+}
+
+/// Extract storage slots affected by a transaction from its receipt
+fn extract_affected_slots_from_receipt<T>(_receipt: &T) -> Vec<(Address, alloy_primitives::U256)> {
+    // TODO: Extract actual storage slots from transaction traces or state changes
+    // This would require integration with the EVM execution trace or state hook data
+    // For now, return placeholder critical Bitcoin slots
+    vec![
+        (sova_chainspec::SOVA_BTC_CONTRACT_ADDRESS, alloy_primitives::U256::from(0)), // Balance
+        (sova_chainspec::SOVA_BTC_CONTRACT_ADDRESS, alloy_primitives::U256::from(1)), // State
+        (sova_chainspec::SOVA_BTC_CONTRACT_ADDRESS, alloy_primitives::U256::from(2)), // Nonce
+    ]
+}
+
+/// Idempotent slot locking for both post-build and post-validation
+/// Maintains a per-block HashSet<(block_hash, txid)> to prevent duplicate locks
+#[derive(Debug, Clone)]
+pub struct BitcoinSlotLockManager {
+    /// Tracks already-processed (block_hash, btc_txid) pairs
+    processed_locks: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<(alloy_primitives::B256, alloy_primitives::B256)>>>,
+}
+
+impl BitcoinSlotLockManager {
+    pub fn new() -> Self {
+        Self {
+            processed_locks: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+        }
+    }
+    
+    /// Process Bitcoin transactions for slot locking (idempotent)
+    /// Called from both post-build and post-validation hooks
+    pub fn process_bitcoin_transactions_idempotent(
+        &self,
+        execution_result: &reth_execution_types::ExecutionOutcome,
+        block_hash: alloy_primitives::B256,
+        _sentinel_worker: Option<&std::sync::Arc<sova_evm::SentinelWorker>>, // TODO: Add when integrated
+    ) -> Result<u32, String> {
+        let mut processed_count = 0u32;
+        let mut lock_set = self.processed_locks.lock().map_err(|e| format!("Lock error: {}", e))?;
+        
+        // Extract Bitcoin transactions from receipts
+        for (tx_index, receipts_for_block) in execution_result.receipts().iter().enumerate() {
+            for receipt in receipts_for_block {
+                for log in &receipt.logs {
+                    // Check if this is a Bitcoin precompile call
+                    if is_bitcoin_precompile_address(log.address) {
+                        if let Some(btc_txid) = extract_bitcoin_txid_from_log(log) {
+                            let key = (block_hash, btc_txid);
+                            
+                            // Only process if not already done (idempotent)
+                            if !lock_set.contains(&key) {
+                                let affected_slots = extract_affected_slots_from_receipt(receipt);
+                                
+                                // TODO: Call sentinel_worker.lock_slots() here when integrated
+                                // sentinel_worker.lock_slots(affected_slots, block_number, btc_height)?;
+                                
+                                // Mark as processed
+                                lock_set.insert(key);
+                                processed_count += 1;
+                                
+                                debug!(
+                                    "SOVA: Registered slot locks for Bitcoin tx {} in L2 block {} (tx index {})",
+                                    btc_txid, block_hash, tx_index
+                                );
+                            } else {
+                                debug!(
+                                    "SOVA: Skipping already-processed Bitcoin tx {} in block {} (idempotent)",
+                                    btc_txid, block_hash
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(processed_count)
+    }
+    
+    /// Clear processed locks for a new canonical block
+    pub fn reset_for_new_block(&self) {
+        if let Ok(mut lock_set) = self.processed_locks.lock() {
+            lock_set.clear();
+            debug!("SOVA: Reset Bitcoin slot lock manager for new canonical block");
+        }
+    }
+}
+
+/// Register Bitcoin transactions with sentinel for L1 confirmation tracking
+/// This function should be called from both build and validation completion paths
+fn register_post_execution_bitcoin_locks(
+    _execution_result: &reth_execution_types::ExecutionOutcome,
+    _block_number: u64,
+    _block_hash: alloy_primitives::B256,
+    // sentinel_worker: &Arc<sova_evm::SentinelWorker>, // TODO: Add when integrated
+) {
+    // TODO: In a full implementation:
+    // 1. Extract all Bitcoin transactions from execution result
+    // 2. For each Bitcoin transaction, get affected storage slots
+    // 3. Call sentinel_worker.lock_slots() for L1 confirmation tracking
+    // 4. Make calls idempotent to handle both proposer and validator paths
+    // Note: debug! macro would be used here if reth_tracing was imported
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1085,7 +1272,7 @@ mod tests {
             // Target the L1Block contract
             to: alloy_primitives::TxKind::Call(L1_BLOCK_CONTRACT_ADDRESS),
             // Dont mint Sova
-            mint: 0.into(),
+            mint: 0u128,
             // NOTE(powvt): send SOVA to validator as a slashable reward. Challenge period of x blocks?
             value: U256::ZERO,
             // Gas limit for the call

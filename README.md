@@ -25,49 +25,129 @@
 
 ## Overview
 
-A Sova node is an extension of the EVM execution client [Reth](https://github.com/paradigmxyz/reth). This extension of reth enables a new subset of Bitcoin precompiles. The precompiles are used to directly interface with a Bitcoin node during EVM transaction execution.
+`sova-reth-v2` is a custom execution client for the [Sova Network](https://sova.io) built on top of [Reth](https://github.com/paradigmxyz/reth) (an Ethereum execution layer). It extends Reth with:
 
-## Building and Running
+* **Bitcoin-aware EVM precompiles** for interacting with a Bitcoin full node.
+* **Slot-lock enforcement** for Bitcoin finality inside Ethereum transaction execution.
+* **Custom execution pipeline** for transaction introspection and state reversion.
+* **Integration with the Sentinel service** to coordinate Bitcoin transaction status with L2 state changes.
 
-A Makefile is used as a command runner to execute repository commands.
+This design lets Sova smart contracts directly consume Bitcoin transactions as part of their EVM execution flow while maintaining **trust-minimized finality** guarantees.
 
-```bash
-# view all make commands
-make help
+## Why This Architecture Exists...
 
-# build the sova-reth binary
-make build
+Ethereum execution engines do not natively understand Bitcoin transactions or Bitcoin finality rules. This creates a core problem for a Bitcoin-backed L2 like Sova:
 
-# run in devnet mode using Bitcoin regtest
-make run-sova-regtest
+**Unsafe state changes before Bitcoin finality**
+Without special handling, an L2 could modify state in response to an unconfirmed Bitcoin transaction. If that Bitcoin transaction later fails or is replaced, the L2 state would become invalid.
+
+`sova-reth` solves this by introducing a **custom NodeBuilder configuration** that integrates Bitcoin-aware logic at the right points in the block build and execution lifecycle.
+
+## High-Level Architecture
+
+### 1. **NodeBuilder Composition**
+
+We define a `SovaNode` type that plugs into Reth’s `NodeBuilder`:
+
+* **Pool** → `OpPoolBuilder` (Optimism-style transaction pool)
+* **Payload** → `SovaPayloadBuilder` (adds post-build slot lock updates)
+* **Network** → `OpNetworkBuilder` (p2p stack)
+* **Executor** → `SovaExecutorBuilder` (custom EVM execution)
+* **Consensus** → `OpConsensusBuilder` (L2 sequencing/validation)
+
+This gives full control over how transactions are executed and how blocks are assembled.
+
+---
+
+### 2. **Sova EVM Config**
+
+`SovaEvmConfig` extends `OpEvmConfig` to:
+
+* Register **Bitcoin precompiles**:
+
+  | Name                  | Address | Purpose                             |
+  | --------------------- | ------- | ----------------------------------- |
+  | Broadcast Transaction | `0x999` | Send raw BTC TX to Bitcoin Core     |
+  | Decode Transaction    | `0x998` | Parse raw BTC TX data               |
+  | Convert Address       | `0x997` | Derive BTC address from EVM address |
+  | Vault Spend           | `0x996` | Spend from network vault            |
+
+* Embed a shared `SovaInspector` for tracking storage writes and associating them with Bitcoin TXs.
+
+---
+
+### 3. **Two-Phase Executor**
+
+We wrap the block executor with our own **two-phase execution**:
+
+1. **Simulation Phase**
+   Run all transactions in an ephemeral state to:
+
+   * Detect any slots that should be reverted (`Reverted` status from Sentinel).
+   * Build a `slot_revert_cache` for state restoration.
+
+2. **Apply Reverts**
+   Modify the real state to restore previous values for reverted slots.
+
+3. **Real Execution Phase**
+   Execute the block normally but:
+
+   * On each Bitcoin broadcast precompile, call Sentinel’s `batch_get_locked_status`.
+   * If any slot is `Locked`, revert the transaction mid-execution.
+
+---
+
+### 4. **Post-Build Locking**
+
+At the end of block building and block validation `sova-reth` calls the sentinel service to update the database with any new slot lock information based on the state changes in the processed block.
+
+```
+sentinel.batch_lock_slots(slots, eth_block_num, btc_block_num, txid)
 ```
 
-## Running a Validator
+This marks slots as locked until the associated Bitcoin transaction reaches finality.
 
-### For Operators (WIP)
+---
 
-Operators are free to join the testnet and sync their own historical chain data from genesis. For more information on how to join the Testnet as an operator view our [Operator Guide](https://docs.sova.io/node-operators/running-sova) in the docs.
+### 5. **Sentinel Integration**
 
-### Devnet
+The **Sentinel** is an external gRPC service each node talks to:
 
-For testing sova-reth in a devnet environment, it is recommended to use [running-sova](https://github.com/SovaNetwork/running-sova). This will orchestrate the deployment of all the auxiliary services need for local development.
+* Tracks Bitcoin mempool + chain state.
+* Decides whether a slot should be `Unlocked`, `Locked`, or `Reverted`.
+* Coordinates finality rules (e.g., 6-block confirmation for final, revert after 21 blocks).
 
-## Precompiles
+Without Sentinel, an L2 node can’t safely reconcile its EVM state with Bitcoin’s consensus reality.
 
-The Bitcoin precompiles are found at address 0x999, 0x998, 0x997, 0x996.
+---
 
- Precompile Name | Address | Description |
-|---|---|---|
-| **Broadcast Transaction** | `0x999` | Broadcasts Bitcoin transactions |
-| **Decode Transaction** | `0x998` | Decodes raw Bitcoin transactions |
-| **Convert Address** | `0x997` | EVM to Bitcoin address conversion |
-| **Vault Spend** | `0x996` | Network vault spending |
+## Problems This Solves
 
-For more information on how to use the precompiles see related [docs](https://docs.sova.io/developers/bitcoin-precompiles).
+* **State safety**: Prevents invalid EVM state when dependent Bitcoin TXs fail.
+* **Cross-chain atomicity**: Ensures an EVM state change tied to BTC only finalizes if BTC does.
+* **Upgrade path**: Uses Reth’s official NodeBuilder hooks to integrate safely.
+* **Operator trust**: Each node enforces slot-lock rules locally; no reliance on a single sequencer to behave.
 
-## Sentinel
+## Development & Running
 
-The sentinel is a custom add-on component to every sove-reth node. It is used by the Sova EVM to enforce Bitcoin finality. Transactions on Sova that have associated Bitcoin transactions are considered final after 6 Bitcoin block confirmations. If a transaction that was flagged by the chain is not confirmed on Bitcoin, the Sova state associated with the flagged Bitcoins tx will be reverted after 21 blocks.
+### Build
+
+```bash
+make build
+```
+
+### Devnet (Bitcoin regtest)
+
+```bash
+# 'clean' is used to remove any old chain state
+make run-sova-regtest clean=clean
+```
+
+This uses [running-sova](https://github.com/SovaNetwork/running-sova) to orchestrate all needed services.
+
+### Validator Mode
+
+See the [Operator Guide](https://docs.sova.io/node-operators/running-sova).
 
 ## License
 

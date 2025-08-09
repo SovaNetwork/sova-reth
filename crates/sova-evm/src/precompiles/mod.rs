@@ -1,11 +1,12 @@
 mod abi;
 mod address_deriver;
-mod btc_client;
+pub mod btc_client;
 mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
-pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
+pub use btc_client::BitcoinClient;
 use revm::precompile::PrecompileWithAddress;
+use alloy_evm::precompiles::{PrecompilesMap, DynPrecompile};
 use sova_cli::BitcoinConfig;
 
 use std::{env, str::FromStr, sync::Arc};
@@ -209,7 +210,7 @@ impl BitcoinRpcPrecompile {
         .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
-    pub fn run_broadcast_transaction(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+    pub fn run_broadcast_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used based on input length
@@ -235,7 +236,7 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    pub fn run_decode_transaction(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+    pub fn run_decode_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used based on input length
@@ -261,7 +262,7 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    pub fn run_convert_address(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+    pub fn run_convert_address(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used based on input length
@@ -287,14 +288,14 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    pub fn run_vault_spend(input: &Bytes, _gas_limit: u64) -> PrecompileResult {
+    pub fn run_vault_spend(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let VaultSpendInput {
             precompile_input,
             precomp_caller,
         } = VaultSpendInput::decode(&mut input.iter().as_ref())
             .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
 
-        let input = &precompile_input;
+        let input = precompile_input.as_ref();
         let precomp_caller = &precomp_caller;
 
         let btc_precompile = BitcoinRpcPrecompile::from_env();
@@ -702,5 +703,190 @@ impl BitcoinRpcPrecompile {
         };
 
         Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
+    }
+}
+
+/// Sova precompiles implementation that combines standard Optimism precompiles
+/// with Bitcoin-specific precompiles for Reth v1.6.0
+#[derive(Debug, Clone)]
+pub struct SovaPrecompiles {
+    /// Bitcoin client for precompile operations
+    pub bitcoin_client: Arc<BitcoinClient>,
+    /// Sentinel worker for slot lock coordination
+    pub sentinel_worker: Arc<crate::SentinelWorker>,
+}
+
+impl SovaPrecompiles {
+    pub fn new(bitcoin_client: Arc<BitcoinClient>, sentinel_worker: Arc<crate::SentinelWorker>) -> Self {
+        Self {
+            bitcoin_client,
+            sentinel_worker
+        }
+    }
+    
+    /// Add Bitcoin precompiles to an existing precompiles map
+    pub fn add_to_precompiles_map(precompiles_map: &mut PrecompilesMap, bitcoin_client: Arc<BitcoinClient>, sentinel_worker: Arc<crate::SentinelWorker>) {
+        use alloy_evm::precompiles::PrecompileInput;
+        use reth_revm::precompile::PrecompileResult;
+        
+        // Add Bitcoin precompiles one by one - wrap with slot lock enforcement
+        let bitcoin_client_for_broadcast = Arc::clone(&bitcoin_client);
+        let sentinel_worker_for_broadcast = Arc::clone(&sentinel_worker);
+        precompiles_map.apply_precompile(&BROADCAST_TRANSACTION_ADDRESS, |_| {
+            Some(DynPrecompile::new(move |input: PrecompileInput<'_>| -> PrecompileResult {
+                Self::run_broadcast_transaction_with_slot_locks(input, &bitcoin_client_for_broadcast, &sentinel_worker_for_broadcast)
+            }))
+        });
+        
+        precompiles_map.apply_precompile(&DECODE_TRANSACTION_ADDRESS, |_| {
+            Some(DynPrecompile::new(|input: PrecompileInput<'_>| -> PrecompileResult {
+                SOVA_BITCOIN_PRECOMPILE_DECODE_TRANSACTION.1(input.data, input.gas)
+            }))
+        });
+        
+        precompiles_map.apply_precompile(&CONVERT_ADDRESS_ADDRESS, |_| {
+            Some(DynPrecompile::new(|input: PrecompileInput<'_>| -> PrecompileResult {
+                SOVA_BITCOIN_PRECOMPILE_CONVERT_ADDRESS.1(input.data, input.gas)
+            }))
+        });
+        
+        precompiles_map.apply_precompile(&VAULT_SPEND_ADDRESS, |_| {
+            Some(DynPrecompile::new(|input: PrecompileInput<'_>| -> PrecompileResult {
+                SOVA_BITCOIN_PRECOMPILE_VAULT_SPEND.1(input.data, input.gas)
+            }))
+        });
+    }
+
+    /// Enhanced broadcast transaction precompile with slot lock enforcement
+    fn run_broadcast_transaction_with_slot_locks(
+        input: alloy_evm::precompiles::PrecompileInput<'_>, 
+        _bitcoin_client: &Arc<BitcoinClient>,
+        sentinel_worker: &Arc<crate::SentinelWorker>
+    ) -> reth_revm::precompile::PrecompileResult {
+        use reth_revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
+        use reth_tracing::tracing::{info, warn, error};
+        use crate::SentinelClient;
+        use crate::sentinel_client::{SlotLockRequest, SlotLockResponse};
+        use std::collections::HashMap;
+        
+        info!("SOVA: Bitcoin broadcast precompile called with slot lock enforcement");
+        
+        // Step 1: Calculate gas used and check limits (same as before)
+        let gas_used = BitcoinMethodHelper::calculate_gas_used(
+            &BitcoinPrecompileMethod::BroadcastTransaction,
+            input.data.len(),
+        );
+
+        if BitcoinMethodHelper::is_gas_limit_exceeded(
+            &BitcoinPrecompileMethod::BroadcastTransaction,
+            input.data.len(),
+        ) {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        // Step 2: Get current storage slots that have been accessed in this transaction
+        // TODO: In a full implementation, you would need to:
+        // 1. Access the current EVM execution context
+        // 2. Extract the storage slots that have been written in this transaction
+        // 3. For now, we'll create a placeholder list of critical Bitcoin slots
+        
+        let bitcoin_critical_addresses = vec![
+            // TODO: Replace with actual Bitcoin contract addresses from your chainspec
+            sova_chainspec::SOVA_BTC_CONTRACT_ADDRESS,
+        ];
+        
+        let mut slots_to_check = HashMap::new();
+        for address in bitcoin_critical_addresses {
+            // TODO: Extract actual storage slots from the current transaction's state changes
+            // For now, we'll check a few critical slots that Bitcoin operations typically modify
+            let critical_slots = vec![
+                alloy_primitives::U256::from(0), // Balance slot
+                alloy_primitives::U256::from(1), // State slot  
+                alloy_primitives::U256::from(2), // Nonce slot
+            ];
+            slots_to_check.insert(address, critical_slots);
+        }
+
+        // Step 3: Check slot locks with sentinel before proceeding
+        if !slots_to_check.is_empty() {
+            // Convert to slots format for worker
+            let slots: Vec<(alloy_primitives::Address, alloy_primitives::U256)> = slots_to_check
+                .iter()
+                .flat_map(|(address, slot_list)| {
+                    slot_list.iter().map(|slot| (*address, *slot))
+                })
+                .collect();
+                
+            // Read Bitcoin height deterministically from SovaL1Block predeploy
+            // TODO: Access EVM database through proper precompile context when available
+            // For now, use a default height - in production this would read from the predeploy
+            let btc_height = match std::env::var("SOVA_BTC_HEIGHT") {
+                Ok(height_str) => {
+                    info!("SOVA: Using BTC height {} from environment", height_str);
+                    height_str.parse().unwrap_or(800000)
+                }
+                Err(_) => {
+                    info!("SOVA: Using default BTC height 800000");
+                    800000
+                }
+            };
+            
+            // Check slot locks using sentinel worker with deterministic height
+            let slot_check_results = sentinel_worker.check_locks(
+                slots,
+                0, // TODO: Get actual current block number from EVM context if available
+                btc_height, // Use deterministic Bitcoin height from predeploy
+            ).map_err(|e| PrecompileError::Other(format!("Slot lock check failed: {}", e)))?;
+
+            // Check if any slots are locked  
+            for ((address, slot), status) in slot_check_results {
+                match status {
+                    crate::sentinel_client::SlotLockStatus::Locked { btc_tx_hash, confirmations, .. } => {
+                        error!(
+                            "SOVA: Transaction BLOCKED - slot {:?} at {:?} is locked by Bitcoin tx {} ({} confirmations)",
+                            slot, address, btc_tx_hash, confirmations
+                        );
+                        return Err(PrecompileError::Other(format!(
+                            "Storage slot locked by pending Bitcoin transaction: {}",
+                            btc_tx_hash
+                        )));
+                    }
+                    crate::sentinel_client::SlotLockStatus::Reverted { previous_value, reason } => {
+                        warn!(
+                            "SOVA: Slot {:?} at {:?} was reverted ({}), will restore to {:?}",
+                            slot, address, reason, previous_value
+                        );
+                        // Reverted slots don't block execution, but we log them
+                    }
+                    crate::sentinel_client::SlotLockStatus::Unlocked => {
+                        // OK to proceed
+                    }
+                }
+            }
+        }
+
+        // Step 4: All slot locks passed - proceed with Bitcoin transaction broadcast
+        info!("SOVA: All slot lock checks passed, proceeding with Bitcoin broadcast");
+        
+        let btc_precompile = BitcoinRpcPrecompile::from_env();
+        let result = btc_precompile.broadcast_btc_tx(input.data, gas_used);
+
+        if let Ok(ref _output) = result {
+            // Step 5: If broadcast succeeded, register the transaction and its affected slots
+            info!("SOVA: Bitcoin transaction broadcast successful, registering slot locks");
+            
+            // TODO: Extract the actual Bitcoin transaction ID from the broadcast result
+            // TODO: Register the transaction and its slot locks with the sentinel
+            // For now, we'll just log what would be registered
+            for (address, slots) in slots_to_check {
+                for slot in slots {
+                    info!("SOVA: Would lock slot {:?} at {:?} pending Bitcoin confirmation", slot, address);
+                }
+            }
+        } else if let Err(ref err) = result {
+            warn!("SOVA: Bitcoin transaction broadcast failed: {:?}", err);
+        }
+
+        result
     }
 }

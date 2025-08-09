@@ -1,261 +1,255 @@
-use core::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
-use alloy_evm::{Database, Evm, EvmEnv, EvmFactory};
-use alloy_primitives::{Address, Bytes, TxKind, U256};
-use op_alloy_consensus::OpTxType;
-use op_revm::{OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
-use revm::{
-    context::{BlockEnv, TxEnv},
-    context_interface::result::{EVMError, ResultAndState},
-    handler::{instructions::EthInstructions, PrecompileProvider},
-    inspector::NoOpInspector,
-    interpreter::{interpreter::EthInterpreter, InterpreterResult},
-    Context, ExecuteEvm, InspectEvm, Inspector,
+use alloy_evm::{
+    block::{BlockExecutorFactory, BlockExecutorFor},
+    precompiles::PrecompilesMap,
+    Database, Evm, EvmFactory,
 };
+use reth_evm::EvmEnv;
+use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor, OpEvm, OpEvmFactory};
+use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_evm::{OpEvmConfig, OpRethReceiptBuilder};
+use reth_op::OpReceipt;
+use reth_optimism_primitives::OpTransactionSigned;
+use reth_evm::{InspectorFor, ConfigureEvm};
+use revm::database::State;
+use op_revm::{OpSpecId, OpContext, OpHaltReason};
+use revm::context_interface::result::EVMError;
+use revm_context::TxEnv;
+use alloy_consensus::{Header, Block};
+use reth_primitives::{SealedBlock, SealedHeader};
+use reth_optimism_primitives::OpPrimitives;
+use reth_optimism_evm::{OpBlockAssembler, OpNextBlockEnvAttributes};
+use reth_tracing::tracing::debug;
 
-use crate::{
-    sova_revm::{DefaultSova, SovaBuilder, SovaContext},
-    SovaPrecompiles,
-};
+use crate::{BitcoinClient, SentinelWorker, SovaBlockExecutor, precompiles::SovaPrecompiles, state_hook::SharedSovaStateHook};
 
-/// Convenience wrapper for SovaEvm that implements Alloy's Evm trait
-/// https://github.com/alloy-rs/evm/blob/main/crates/op-evm/src/lib.rs#L42
-pub struct SovaEvm<DB: Database, I, P = SovaPrecompiles> {
-    inner: crate::sova_revm::SovaEvm<
-        SovaContext<DB>,
-        I,
-        EthInstructions<EthInterpreter, SovaContext<DB>>,
-        P,
-    >,
-    inspect: bool,
+/// Sova EVM configuration that integrates Bitcoin L2 functionality
+/// with the Optimism execution model using Reth v1.6.0 patterns.
+#[derive(Debug, Clone)]
+pub struct SovaEvmConfig {
+    /// Base Optimism EVM configuration that we delegate to
+    inner: OpEvmConfig,
+    /// Bitcoin client for precompile operations and L1 validation
+    bitcoin_client: Arc<BitcoinClient>,
+    /// Our custom EVM factory with Bitcoin precompiles
+    evm_factory: SovaEvmFactory,
+    /// State hook for capturing storage writes during execution
+    state_hook: SharedSovaStateHook,
+    /// Sentinel worker for slot lock coordination
+    sentinel_worker: Arc<SentinelWorker>,
 }
 
-impl<DB: Database, I, P> SovaEvm<DB, I, P>
-where
-    DB::Error: Send + Sync + 'static,
-{
-    /// Creates a new SovaEvm instance
-    pub fn new(
-        evm: crate::sova_revm::SovaEvm<
-            SovaContext<DB>,
-            I,
-            EthInstructions<EthInterpreter, SovaContext<DB>>,
-            P,
-        >,
-        inspect: bool,
-    ) -> Self {
+impl SovaEvmConfig {
+    /// Creates a new Sova EVM configuration.
+    pub fn new(chain_spec: Arc<OpChainSpec>, bitcoin_client: Arc<BitcoinClient>, sentinel_worker: Arc<SentinelWorker>) -> Self {
+        let inner = OpEvmConfig::new(chain_spec, OpRethReceiptBuilder::default());
+        
+        // Create SovaEvmFactory with Bitcoin precompiles integrated
+        let evm_factory = SovaEvmFactory::new(
+            inner.evm_factory().clone(), 
+            Arc::clone(&bitcoin_client),
+            Arc::clone(&sentinel_worker)
+        );
+        
+        // Create shared state hook for capturing storage writes
+        let state_hook = SharedSovaStateHook::new();
+        
         Self {
-            inner: evm,
-            inspect,
+            inner,
+            bitcoin_client,
+            evm_factory,
+            state_hook,
+            sentinel_worker,
         }
     }
 
-    /// Provides a reference to the EVM context.
-    pub const fn ctx(&self) -> &SovaContext<DB> {
-        &self.inner.0.data.ctx
+    /// Gets a reference to the state hook for accessing captured writes
+    pub fn state_hook(&self) -> &SharedSovaStateHook {
+        &self.state_hook
     }
 
-    /// Provides a mutable reference to the EVM context.
-    pub fn ctx_mut(&mut self) -> &mut SovaContext<DB> {
-        &mut self.inner.0.data.ctx
-    }
-
-    /// Provides a mutable reference to the EVM inspector.
-    pub fn inspector_mut(&mut self) -> &mut I {
-        &mut self.inner.0.data.inspector
+    /// Returns the inner Optimism EVM config.
+    pub fn inner(&self) -> &OpEvmConfig {
+        &self.inner
     }
 }
 
-impl<DB: Database, I, P> Deref for SovaEvm<DB, I, P> {
-    type Target = SovaContext<DB>;
+/// Implementation of BlockExecutorFactory for Sova
+/// This is the key trait that Reth v1.6.0 uses to create custom executors
+impl BlockExecutorFactory for SovaEvmConfig {
+    type EvmFactory = SovaEvmFactory;
+    type ExecutionCtx<'a> = OpBlockExecutionCtx;
+    type Transaction = OpTransactionSigned;
+    type Receipt = OpReceipt;
 
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.ctx()
+    fn evm_factory(&self) -> &Self::EvmFactory {
+        &self.evm_factory
+    }
+
+    fn create_executor<'a, DB, I>(
+        &'a self,
+        evm: OpEvm<&'a mut State<DB>, I, PrecompilesMap>,
+        ctx: OpBlockExecutionCtx,
+    ) -> impl BlockExecutorFor<'a, Self, DB, I>
+    where
+        DB: Database + 'a,
+        I: InspectorFor<Self, &'a mut State<DB>> + 'a,
+    {
+        // Create the underlying Optimism executor
+        let op_executor = OpBlockExecutor::new(
+            evm,
+            ctx,
+            self.inner.chain_spec().clone(),
+            *self.inner.executor_factory.receipt_builder(),
+        );
+
+        // Wrap it in our Sova executor that adds slot locking functionality
+        // TODO: Extract actual block number from context or database - using 0 for now
+        let current_block_number = 0u64; // Placeholder - should be extracted from execution context
+        SovaBlockExecutor::new(op_executor, Arc::clone(&self.bitcoin_client), Arc::clone(&self.sentinel_worker), current_block_number)
     }
 }
 
-impl<DB: Database, I, P> DerefMut for SovaEvm<DB, I, P> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ctx_mut()
-    }
+/// Sova EVM Factory that creates EVMs with Bitcoin precompiles
+#[derive(Debug, Clone)]
+pub struct SovaEvmFactory {
+    /// Base Optimism EVM factory
+    inner: OpEvmFactory,
+    /// Bitcoin precompiles
+    precompiles: SovaPrecompiles,
 }
-
-impl<DB, I, P> Evm for SovaEvm<DB, I, P>
-where
-    DB: Database,
-    I: Inspector<SovaContext<DB>>,
-    P: PrecompileProvider<SovaContext<DB>, Output = InterpreterResult>,
-{
-    type DB = DB;
-    type Tx = OpTransaction<TxEnv>;
-    type Error = EVMError<DB::Error, OpTransactionError>;
-    type HaltReason = OpHaltReason;
-    type Spec = OpSpecId;
-
-    fn block(&self) -> &BlockEnv {
-        &self.block
-    }
-
-    fn chain_id(&self) -> u64 {
-        self.cfg.chain_id
-    }
-
-    fn transact_raw(
-        &mut self,
-        tx: Self::Tx,
-    ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
-        if self.inspect {
-            self.inner.set_tx(tx);
-            self.inner.inspect_replay()
-        } else {
-            self.inner.transact(tx)
-        }
-    }
-
-    fn transact_system_call(
-        &mut self,
-        caller: Address,
-        contract: Address,
-        data: Bytes,
-    ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
-        let tx = OpTransaction {
-            base: TxEnv {
-                caller,
-                kind: TxKind::Call(contract),
-                // Explicitly set nonce to 0 so revm does not do any nonce checks
-                nonce: 0,
-                gas_limit: 30_000_000,
-                value: U256::ZERO,
-                data,
-                // Setting the gas price to zero enforces that no value is transferred as part of
-                // the call, and that the call will not count against the block's
-                // gas limit
-                gas_price: 0,
-                // The chain ID check is not relevant here and is disabled if set to None
-                chain_id: None,
-                // Setting the gas priority fee to None ensures the effective gas price is derived
-                // from the `gas_price` field, which we need to be zero
-                gas_priority_fee: None,
-                access_list: Default::default(),
-                // blob fields can be None for this tx
-                blob_hashes: Vec::new(),
-                max_fee_per_blob_gas: 0,
-                tx_type: OpTxType::Deposit as u8,
-                authorization_list: Default::default(),
-            },
-            // The L1 fee is not charged for the EIP-4788 transaction, submit zero bytes for the
-            // enveloped tx size.
-            enveloped_tx: Some(Bytes::default()),
-            deposit: Default::default(),
-        };
-
-        let mut gas_limit = tx.base.gas_limit;
-        let mut basefee = 0;
-        let mut disable_nonce_check = true;
-
-        // ensure the block gas limit is >= the tx
-        core::mem::swap(&mut self.block.gas_limit, &mut gas_limit);
-        // disable the base fee check for this call by setting the base fee to zero
-        core::mem::swap(&mut self.block.basefee, &mut basefee);
-        // disable the nonce check
-        core::mem::swap(&mut self.cfg.disable_nonce_check, &mut disable_nonce_check);
-
-        let mut res = self.transact(tx);
-
-        // swap back to the previous gas limit
-        core::mem::swap(&mut self.block.gas_limit, &mut gas_limit);
-        // swap back to the previous base fee
-        core::mem::swap(&mut self.block.basefee, &mut basefee);
-        // swap back to the previous nonce check flag
-        core::mem::swap(&mut self.cfg.disable_nonce_check, &mut disable_nonce_check);
-
-        // NOTE: We assume that only the contract storage is modified. Revm currently marks the
-        // caller and block beneficiary accounts as "touched" when we do the above transact calls,
-        // and includes them in the result.
-        //
-        // We're doing this state cleanup to make sure that changeset only includes the changed
-        // contract storage.
-        if let Ok(res) = &mut res {
-            res.state.retain(|addr, _| *addr == contract);
-        }
-
-        res
-    }
-
-    fn db_mut(&mut self) -> &mut Self::DB {
-        &mut self.journaled_state.database
-    }
-
-    fn finish(self) -> (Self::DB, EvmEnv<Self::Spec>) {
-        let Context {
-            block: block_env,
-            cfg: cfg_env,
-            journaled_state,
-            ..
-        } = self.inner.0.data.ctx;
-
-        (journaled_state.database, EvmEnv { block_env, cfg_env })
-    }
-
-    fn set_inspector_enabled(&mut self, enabled: bool) {
-        self.inspect = enabled;
-    }
-}
-
-/// Factory producing [`SovaEvm`]s.
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct SovaEvmFactory {}
 
 impl SovaEvmFactory {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(inner: OpEvmFactory, bitcoin_client: Arc<BitcoinClient>, sentinel_worker: Arc<SentinelWorker>) -> Self {
+        Self {
+            inner,
+            precompiles: SovaPrecompiles::new(bitcoin_client, sentinel_worker),
+        }
     }
 }
 
 impl EvmFactory for SovaEvmFactory {
-    type Evm<DB: Database, I: Inspector<SovaContext<DB>>> = SovaEvm<DB, I>;
-    type Context<DB: Database> = SovaContext<DB>;
-    type Tx = OpTransaction<TxEnv>;
-    type Error<DBError: core::error::Error + Send + Sync + 'static> =
-        EVMError<DBError, OpTransactionError>;
+    type Evm<DB: Database, I: revm::Inspector<OpContext<DB>>> = OpEvm<DB, I, PrecompilesMap>;
+    type Context<DB: Database> = OpContext<DB>;
+    type Tx = op_revm::OpTransaction<TxEnv>;
+    type Error<DBError: std::error::Error + Send + Sync + 'static> = EVMError<DBError, op_revm::OpTransactionError>;
     type HaltReason = OpHaltReason;
     type Spec = OpSpecId;
+    type Precompiles = PrecompilesMap;
 
     fn create_evm<DB: Database>(
         &self,
         db: DB,
-        input: EvmEnv<OpSpecId>,
-    ) -> Self::Evm<DB, NoOpInspector> {
-        let sova_precompiles = SovaPrecompiles::new();
-
-        SovaEvm {
-            inner: Context::sova()
-                .with_db(db)
-                .with_block(input.block_env)
-                .with_cfg(input.cfg_env)
-                .build_sova_op_with_inspector(NoOpInspector {}, sova_precompiles),
-            inspect: false,
-        }
+        env: alloy_evm::EvmEnv<Self::Spec>,
+    ) -> Self::Evm<DB, revm::inspector::NoOpInspector> {
+        use revm::Context;
+        use op_revm::{precompiles::OpPrecompiles, DefaultOp, OpBuilder};
+        use revm::inspector::NoOpInspector;
+        
+        let spec_id = env.cfg_env.spec;
+        
+        // Start with base OP precompiles
+        let base_precompiles = OpPrecompiles::new_with_spec(spec_id);
+        let mut precompiles_map = PrecompilesMap::from_static(base_precompiles.precompiles());
+        
+        // Add our Bitcoin precompiles
+        SovaPrecompiles::add_to_precompiles_map(&mut precompiles_map, self.precompiles.bitcoin_client.clone(), self.precompiles.sentinel_worker.clone());
+        
+        // Build the OpEvm using the proper constructor
+        let op_evm_inner = Context::op()
+            .with_db(db)
+            .with_block(env.block_env)
+            .with_cfg(env.cfg_env)
+            .build_op_with_inspector(NoOpInspector {})
+            .with_precompiles(precompiles_map);
+        
+        let op_evm = OpEvm::new(op_evm_inner, false);
+        
+        debug!("SOVA: Created EVM with Bitcoin precompiles integrated");
+        op_evm
     }
 
-    fn create_evm_with_inspector<DB: Database, I: Inspector<Self::Context<DB>>>(
+    fn create_evm_with_inspector<DB: Database, I: revm::Inspector<Self::Context<DB>>>(
         &self,
         db: DB,
-        input: EvmEnv<OpSpecId>,
+        env: alloy_evm::EvmEnv<Self::Spec>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let sova_precompiles = SovaPrecompiles::new();
-
-        SovaEvm {
-            inner: Context::sova()
-                .with_db(db)
-                .with_block(input.block_env)
-                .with_cfg(input.cfg_env)
-                .build_sova_op_with_inspector(inspector, sova_precompiles),
-            inspect: true,
-        }
+        use revm::Context;
+        use op_revm::{precompiles::OpPrecompiles, DefaultOp, OpBuilder};
+        
+        let spec_id = env.cfg_env.spec;
+        
+        // Start with base OP precompiles
+        let base_precompiles = OpPrecompiles::new_with_spec(spec_id);
+        let mut precompiles_map = PrecompilesMap::from_static(base_precompiles.precompiles());
+        
+        // Add our Bitcoin precompiles
+        SovaPrecompiles::add_to_precompiles_map(&mut precompiles_map, self.precompiles.bitcoin_client.clone(), self.precompiles.sentinel_worker.clone());
+        
+        // Build the OpEvm using the proper constructor
+        let op_evm_inner = Context::op()
+            .with_db(db)
+            .with_block(env.block_env)
+            .with_cfg(env.cfg_env)
+            .build_op_with_inspector(inspector)
+            .with_precompiles(precompiles_map);
+        
+        let op_evm = OpEvm::new(op_evm_inner, true);
+        
+        debug!("SOVA: Created EVM with inspector and Bitcoin precompiles integrated");
+        op_evm
     }
+}
+
+/// Implementation of ConfigureEvm for SovaEvmConfig
+/// This delegates most functionality to the inner OpEvmConfig while adding Bitcoin L2 capabilities
+impl ConfigureEvm for SovaEvmConfig {
+    type Primitives = OpPrimitives;
+    type Error = <OpEvmConfig as ConfigureEvm>::Error;
+    type NextBlockEnvCtx = OpNextBlockEnvAttributes;
+    type BlockExecutorFactory = Self;
+    type BlockAssembler = OpBlockAssembler<OpChainSpec>;
+
+    fn block_executor_factory(&self) -> &Self::BlockExecutorFactory {
+        self
+    }
+
+    fn block_assembler(&self) -> &Self::BlockAssembler {
+        self.inner.block_assembler()
+    }
+
+    fn evm_env(&self, header: &Header) -> EvmEnv<OpSpecId> {
+        self.inner.evm_env(header)
+    }
+
+    fn next_evm_env(
+        &self,
+        parent: &Header,
+        attributes: &OpNextBlockEnvAttributes,
+    ) -> Result<EvmEnv<OpSpecId>, Self::Error> {
+        self.inner.next_evm_env(parent, attributes)
+    }
+
+    fn context_for_block(
+        &self,
+        block: &SealedBlock<Block<OpTransactionSigned>>,
+    ) -> OpBlockExecutionCtx {
+        self.inner.context_for_block(block)
+    }
+
+    fn context_for_next_block(
+        &self,
+        parent: &SealedHeader,
+        attributes: Self::NextBlockEnvCtx,
+    ) -> OpBlockExecutionCtx {
+        self.inner.context_for_next_block(parent, attributes)
+    }
+}
+
+/// Legacy trait for backwards compatibility during migration
+pub trait WithInspector {
+    // This trait is no longer needed in v1.6.0 since we don't use inspector hooks
+    // Keeping it for now to avoid compilation errors during migration
 }
