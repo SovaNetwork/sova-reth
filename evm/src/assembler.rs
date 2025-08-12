@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use alloy_consensus::Header;
 use alloy_evm::block::{BlockExecutionError, BlockExecutorFactory};
 use alloy_op_evm::OpBlockExecutionCtx;
@@ -9,7 +11,6 @@ use reth_op::{node::OpBlockAssembler, DepositReceipt};
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_primitives::OpPrimitives;
 use reth_primitives_traits::NodePrimitives;
-use std::sync::Arc;
 
 // SlotLockManager DI imports
 use slot_lock_manager::{SentinelClientImpl, SlotLockManager, SlotLockManagerConfig};

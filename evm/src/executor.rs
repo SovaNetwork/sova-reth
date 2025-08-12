@@ -1,9 +1,8 @@
 use crate::{
     alloy::{SovaEvm, SovaEvmFactory},
-    l1block_reader::StorageReader,
     SovaEvmConfig, SovaTxEnv,
 };
-use alloy_consensus::transaction::{Recovered, Transaction};
+use alloy_consensus::transaction::Recovered;
 use alloy_evm::{
     block::{
         BlockExecutionError, BlockExecutionResult, BlockExecutor, BlockExecutorFactory,
@@ -20,65 +19,12 @@ use reth_op::OpReceipt;
 use reth_op::OpTransactionSigned;
 use reth_optimism_chainspec::OpChainSpec;
 use revm::{context::result::ExecutionResult, database::State};
-use slot_lock_manager::{
-    SlotLockManager, StorageCache, TransactionContext, BITCOIN_PRECOMPILE_ADDRESSES,
-};
-use sova_chainspec::{
-    BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS, DECODE_TRANSACTION_ADDRESS,
-    VAULT_SPEND_ADDRESS,
-};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use uuid;
 
 pub struct SovaBlockExecutor<Evm> {
     inner: OpBlockExecutor<Evm, OpRethReceiptBuilder, Arc<OpChainSpec>>,
-    slot_lock_mgr: Arc<SlotLockManager>,
     revert_plan: BTreeMap<(Address, U256), U256>, // (addr, slot) -> prev
-}
-
-// DB adapter for reads (and later: writes)
-struct DbStorageReader<'a, Evm> {
-    evm: &'a Evm,
-}
-
-impl<'a, Evm> StorageReader for DbStorageReader<'a, Evm> {
-    fn storage(&self, _addr: Address, _slot: U256) -> Result<U256> {
-        // TODO: read storage from self.evm's REVM DB snapshot (pure read)
-        eyre::bail!("DbStorageReader::storage not implemented yet")
-    }
-}
-
-impl<E> SovaBlockExecutor<E> {
-    fn simulate_tx_capture(
-        &mut self,
-        _tx: OpTransactionSigned,
-    ) -> Result<StorageCache, BlockExecutionError> {
-        // TODO: Implement actual simulation with StorageCache
-        // This requires proper trait bounds and EVM access
-        let cache = StorageCache::new(BITCOIN_PRECOMPILE_ADDRESSES, vec![]);
-        tracing::debug!("TODO: simulate_tx_capture needs implementation");
-        Ok(cache)
-    }
-
-    fn tx_to_context(_tx: &OpTransactionSigned) -> TransactionContext {
-        // TODO: fill from your tx type (hash, from, nonce, gas, etc.)
-        TransactionContext {
-            operation_id: uuid::Uuid::new_v4(),
-            caller: Address::ZERO,
-            target: Address::ZERO,
-            checkpoint: None,
-        }
-    }
-
-    fn current_eth_block_number(&self) -> u64 {
-        // TODO: extract from context or EVM state
-        0
-    }
-}
-
-fn map_to_reth_exec_error(reason: String) -> BlockExecutionError {
-    BlockExecutionError::msg(reason)
 }
 
 impl<'db, DB, E> BlockExecutor for SovaBlockExecutor<E>
@@ -107,19 +53,6 @@ where
         tx: impl ExecutableTx<Self>,
         f: impl FnOnce(&ExecutionResult<<Self::Evm as Evm>::HaltReason>) -> CommitChanges,
     ) -> Result<Option<u64>, BlockExecutionError> {
-        // Log if this is a Bitcoin precompile transaction
-        if let Some(to) = tx.tx().to() {
-            if matches!(
-                to,
-                BROADCAST_TRANSACTION_ADDRESS
-                    | DECODE_TRANSACTION_ADDRESS
-                    | CONVERT_ADDRESS_ADDRESS
-                    | VAULT_SPEND_ADDRESS
-            ) {
-                tracing::debug!("Executing transaction to Bitcoin precompile at {}", to);
-            }
-        }
-
         // TODO: Add SlotLockManager check here (async challenge)
         // 1. Extract OpTransactionSigned from ExecutableTx
         // 2. Call simulate_tx_capture to get StorageCache
@@ -178,7 +111,6 @@ impl BlockExecutorFactory for SovaEvmConfig {
                 self.inner.chain_spec().clone(),
                 *self.inner.executor_factory.receipt_builder(),
             ),
-            slot_lock_mgr: self.slot_lock_mgr.clone(),
             revert_plan: BTreeMap::new(),
         }
     }

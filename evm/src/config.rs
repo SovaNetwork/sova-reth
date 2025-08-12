@@ -10,7 +10,6 @@ use reth_op::node::{OpEvmConfig, OpNextBlockEnvAttributes, OpRethReceiptBuilder}
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_primitives::OpPrimitives;
 use reth_primitives_traits::NodePrimitives;
-use slot_lock_manager::SlotLockManager;
 use std::sync::Arc;
 
 use crate::{alloy::SovaEvmFactory, SovaBlockAssembler};
@@ -20,16 +19,14 @@ pub struct SovaEvmConfig {
     pub(super) inner: OpEvmConfig,
     pub(super) block_assembler: SovaBlockAssembler,
     pub(super) sova_evm_factory: SovaEvmFactory,
-    pub(super) slot_lock_mgr: Arc<SlotLockManager>,
 }
 
 impl SovaEvmConfig {
-    pub fn new(chain_spec: Arc<OpChainSpec>, slot_lock_mgr: Arc<SlotLockManager>) -> Self {
+    pub fn new(chain_spec: Arc<OpChainSpec>) -> Self {
         Self {
             inner: OpEvmConfig::new(chain_spec.clone(), OpRethReceiptBuilder::default()),
             block_assembler: SovaBlockAssembler::new(chain_spec),
             sova_evm_factory: SovaEvmFactory::new(),
-            slot_lock_mgr,
         }
     }
 }
