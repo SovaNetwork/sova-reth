@@ -14,7 +14,6 @@ use reqwest::blocking::Client as BlockingRequestClient;
 use serde::Deserialize;
 
 use alloy_primitives::{Address, Bytes};
-use alloy_rlp::{Decodable, RlpDecodable, RlpEncodable};
 
 use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
@@ -103,20 +102,6 @@ impl Default for BitcoinRpcPrecompile {
     }
 }
 
-#[derive(RlpDecodable, RlpEncodable, Debug)]
-pub struct VaultSpendInput {
-    precompile_input: Bytes,
-    precomp_caller: Address,
-}
-
-impl VaultSpendInput {
-    pub fn new(precompile_input: Bytes, precomp_caller: Address) -> Self {
-        Self {
-            precompile_input,
-            precomp_caller,
-        }
-    }
-}
 
 impl BitcoinRpcPrecompile {
     pub fn new(
@@ -208,7 +193,14 @@ impl BitcoinRpcPrecompile {
         .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
-    pub fn run_broadcast_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+    pub fn run_broadcast_transaction(input: &[u8], _gas_limit: u64, caller: &Address) -> PrecompileResult {
+        // only the native bitcoin wrapper contract can call this method
+        if caller != &SOVA_BTC_CONTRACT_ADDRESS {
+            return Err(
+                PrecompileError::Other("Unauthorized precompile caller. Only the enshrined SovaBTC contract may broadcast transactions.".to_string())
+            );
+        }
+
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used based on input length
@@ -264,7 +256,6 @@ impl BitcoinRpcPrecompile {
     }
 
     pub fn run_convert_address(input: &[u8], _gas_limit: u64) -> PrecompileResult {
-        info!("run_convert_address!");
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used based on input length
@@ -291,33 +282,24 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    pub fn run_vault_spend(input: &[u8], _gas_limit: u64) -> PrecompileResult {
-        let VaultSpendInput {
-            precompile_input,
-            precomp_caller,
-        } = VaultSpendInput::decode(&mut input.iter().as_ref())
-            .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
-
-        let _input = &precompile_input;
-        let precomp_caller = &precomp_caller;
-
+    pub fn run_vault_spend(input: &[u8], _gas_limit: u64, caller: &Address) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used based on input length
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::VaultSpend,
-            precompile_input.len(),
+            input.len(),
         );
 
         // Check if gas exceeds method's limit using the new helper method
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::VaultSpend,
-            precompile_input.len(),
+            input.len(),
         ) {
             return Err(PrecompileError::OutOfGas);
         }
 
-        let res = btc_precompile.network_spend(&precompile_input, precomp_caller, gas_used);
+        let res = btc_precompile.network_spend(input, caller, gas_used);
 
         if res.is_err() {
             warn!("Precompile error: {:?}", res);
@@ -516,7 +498,6 @@ impl BitcoinRpcPrecompile {
     }
 
     pub fn broadcast_btc_tx(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        info!("broadcast_btc_tx!");
         // Deserialize the Bitcoin transaction
         let tx: bitcoin::Transaction = match deserialize(input) {
             Ok(tx) => tx,
@@ -644,7 +625,7 @@ impl BitcoinRpcPrecompile {
         });
 
         let response: Vec<u8> = if self.sequencer_mode {
-            info!("Sequencer signing and broadcasting Bitcoin transaction");
+            info!("Processing Bitcoin withdrawal as sequencer");
 
             let sign_response: serde_json::Value =
                 self.call_network_utxos("sign-transaction", &request)?;
@@ -656,6 +637,7 @@ impl BitcoinRpcPrecompile {
             let txid_str = sign_response["txid"]
                 .as_str()
                 .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
+            info!("Signed txid {txid_str}");
 
             let signed_tx_bytes = hex::decode(signed_tx_hex).map_err(|e| {
                 PrecompileError::Other(format!("Failed to decode signed transaction: {e:?}"))
@@ -669,10 +651,7 @@ impl BitcoinRpcPrecompile {
 
             let broadcast_txid = self.broadcast_transaction(&signed_tx)?;
 
-            debug!(
-                "Network spend: Sequencer mode: txid broadcast: {}",
-                broadcast_txid
-            );
+            debug!("Broadcast txid: {broadcast_txid}");
 
             let expected_txid = Txid::from_str(txid_str).map_err(|e| {
                 PrecompileError::Other(format!("Invalid txid from signing service: {e:?}"))
