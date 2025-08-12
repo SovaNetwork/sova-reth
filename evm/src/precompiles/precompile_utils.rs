@@ -1,4 +1,4 @@
-use sova_chainspec::{BitcoinPrecompileMethod};
+use sova_chainspec::BitcoinPrecompileMethod;
 
 pub struct BitcoinMethodHelper;
 
