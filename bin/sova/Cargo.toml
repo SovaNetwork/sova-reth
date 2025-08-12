@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+sova-chainspec.workspace = true
+sova-evm.workspace = true
 sova-reth.workspace = true
 
 # reth

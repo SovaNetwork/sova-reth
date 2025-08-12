@@ -9,14 +9,20 @@ keywords = ["bitcoin", "blockchain", "evm", "reth", "sova-reth"]
 [workspace]
 members = [
     "bin/sova/",
-    "src/",
+    "chainspec",
+    "evm",
+    "node",
+    "slot-lock-manager",
 ]
 default-members = ["bin/sova/"]
 resolver = "2"
 
 [workspace.dependencies]
-# sova-reth
-sova-reth = { path = "src" }
+# sova crates
+sova-reth = { path = "node" }
+sova-chainspec = { path = "chainspec" }
+sova-evm = { path = "evm" }
+slot-lock-manager = { path = "slot-lock-manager" }
 
 # sova external
 sova-sentinel-client = { git = "https://github.com/SovaNetwork/sova-sentinel.git", rev = "40e585da3223a35451d694213474b6d04fcc8e2e" }
@@ -50,7 +56,7 @@ reth-optimism-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8
 reth-optimism-forks = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb" }
 reth-optimism-node = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb" }
 reth-optimism-payload-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb" }
-reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb", features = ["serde", "reth-codec"]}
+reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb", features = ["serde", "serde-bincode-compat", "reth-codec"]}
 reth-optimism-storage = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb" }
 reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb" }
 reth-optimism-txpool = { git = "https://github.com/paradigmxyz/reth.git", rev = "d8451e54e7267f9f1634118d6d279b2216f7e2bb" }

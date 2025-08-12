@@ -1,9 +1,13 @@
+use std::env;
+
 use clap::Parser;
+
 use reth_optimism_cli::Cli;
 use reth_tracing::tracing::info;
-use sova_reth::precompiles::BitcoinRpcPrecompile;
-use sova_reth::{chainspec::SovaChainSpecParser, SovaArgs, SovaNode};
-use std::env;
+
+use sova_chainspec::SovaChainSpecParser;
+use sova_evm::BitcoinRpcPrecompile;
+use sova_reth::{SovaArgs, SovaNode};
 
 #[global_allocator]
 static ALLOC: reth_cli_util::allocator::Allocator = reth_cli_util::allocator::new_allocator();
