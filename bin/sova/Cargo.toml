@@ -1,20 +1,20 @@
 [package]
-name = "sova-reth"
+name = "sova"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 license.workspace = true
-repository.workspace = true
 
 [dependencies]
-sova-cli.workspace = true
-sova-evm.workspace = true
-sova-node.workspace = true
+sova-reth.workspace = true
 
+# reth
+reth-cli.workspace = true
 reth-cli-util.workspace = true
-reth-tracing.workspace = true
+reth-node-builder.workspace = true
 reth-optimism-cli.workspace = true
+reth-optimism-node.workspace = true
 
+# misc
 clap.workspace = true
 eyre.workspace = true
 

@@ -1,14 +1,8 @@
-use std::env;
-
 use clap::Parser;
-
 use reth_optimism_cli::Cli;
-
-use reth_tracing::tracing::info;
-
-use sova_cli::SovaChainSpecParser;
-use sova_evm::BitcoinRpcPrecompile;
-use sova_node::{SovaArgs, SovaNode};
+use sova_reth::precompiles::BitcoinRpcPrecompile;
+use sova_reth::{chainspec::SovaChainSpecParser, SovaArgs, SovaNode};
+use std::env;
 
 #[global_allocator]
 static ALLOC: reth_cli_util::allocator::Allocator = reth_cli_util::allocator::new_allocator();
@@ -26,6 +20,10 @@ fn set_env_for_sova(args: SovaArgs) {
         "SOVA_SENTINEL_CONFIRMATION_THRESHOLD",
         args.sentinel_confirmation_threshold.to_string(),
     );
+    // Sequencer mode from CLI takes precedence; otherwise leave existing env as-is
+    if args.sequencer.is_some() {
+        env::set_var("SOVA_SEQUENCER_MODE", "true");
+    }
 }
 
 fn main() {
@@ -37,23 +35,19 @@ fn main() {
     }
 
     if let Err(err) =
-        // Using SovaChainSpecParser for inheriting all ethereum forkchoices
-        // Sova args are used to provide flags for auxiliary services
         Cli::<SovaChainSpecParser, SovaArgs>::parse().run(|builder, sova_args| async move {
-                // Set environment variables for Sova
-                set_env_for_sova(sova_args.clone());
-                // Sanity check to ensure the Sova args are valid
-                let _ = BitcoinRpcPrecompile::from_env();
+            // Set environment variables for Sova
+            set_env_for_sova(&sova_args);
 
-                info!(target: "reth::cli", "Launching node");
+            // Fail fast if BTC RPC config is invalid - this will panic if config is missing
+            let _ = BitcoinRpcPrecompile::from_env();
 
-                let sova_node = SovaNode::new(sova_args)
-                    .await
-                    .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
-
-                let handle = builder.launch_node(sova_node).await?;
-                handle.node_exit_future.await
-            })
+            let handle = builder
+                .node(SovaNode::default())
+                .launch_with_debug_capabilities()
+                .await?;
+            handle.node_exit_future.await
+        })
     {
         eprintln!("Error: {err:?}");
         std::process::exit(1);
