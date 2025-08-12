@@ -1,5 +1,6 @@
 use clap::Parser;
 use reth_optimism_cli::Cli;
+use reth_tracing::tracing::info;
 use sova_reth::precompiles::BitcoinRpcPrecompile;
 use sova_reth::{chainspec::SovaChainSpecParser, SovaArgs, SovaNode};
 use std::env;
@@ -7,8 +8,8 @@ use std::env;
 #[global_allocator]
 static ALLOC: reth_cli_util::allocator::Allocator = reth_cli_util::allocator::new_allocator();
 
-fn set_env_for_sova(args: &SovaArgs) {
-    // set only if not already provided in environment
+fn set_env_for_sova(args: SovaArgs) {
+    // Set environment variables for Sova
     let set_if_absent = |k: &str, v: String| {
         if env::var_os(k).is_none() {
             env::set_var(k, v);
@@ -24,10 +25,6 @@ fn set_env_for_sova(args: &SovaArgs) {
         "SOVA_SENTINEL_CONFIRMATION_THRESHOLD",
         args.sentinel_confirmation_threshold.to_string(),
     );
-    // Sequencer mode from CLI takes precedence; otherwise leave existing env as-is
-    if args.sequencer.is_some() {
-        env::set_var("SOVA_SEQUENCER_MODE", "true");
-    }
 }
 
 fn main() {
@@ -41,10 +38,11 @@ fn main() {
     if let Err(err) =
         Cli::<SovaChainSpecParser, SovaArgs>::parse().run(|builder, sova_args| async move {
             // Set environment variables for Sova
-            set_env_for_sova(&sova_args);
-
-            // Fail fast if BTC RPC config is invalid - this will panic if config is missing
+            set_env_for_sova(sova_args.clone());
+            // Sanity check to ensure the Sova args are valid
             let _ = BitcoinRpcPrecompile::from_env();
+
+            info!(target: "reth::cli", "Launching node");
 
             let handle = builder
                 .node(SovaNode::default())

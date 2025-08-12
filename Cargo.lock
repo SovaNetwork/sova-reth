@@ -9709,6 +9709,7 @@ dependencies = [
  "reth-node-builder",
  "reth-optimism-cli",
  "reth-optimism-node",
+ "reth-tracing",
  "sova-reth",
 ]
 

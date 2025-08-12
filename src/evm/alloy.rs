@@ -113,38 +113,31 @@ impl EvmFactory for CustomEvmFactory {
     ) -> Self::Evm<DB, NoOpInspector> {
         let mut op_evm = self.0.create_evm(db, input);
 
-        // Build one shared instance from env just once.
-        let btc = Arc::new(BitcoinRpcPrecompile::from_env());
-
         let (_, _, precompiles) = op_evm.components_mut();
         precompiles.ensure_dynamic_precompiles();
 
         // Install stateful closures for each Sova precompile
         precompiles.apply_precompile(&BROADCAST_TRANSACTION_ADDRESS, |_| {
-            let btc = btc.clone();
             Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| btc.broadcast_btc_tx(pi.data, pi.gas),
+                move |pi: PrecompileInput<'_>| BitcoinRpcPrecompile::run_broadcast_transaction(pi.data, pi.gas),
             ))
         });
 
         precompiles.apply_precompile(&DECODE_TRANSACTION_ADDRESS, |_| {
-            let btc = btc.clone();
             Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| btc.decode_raw_transaction(pi.data, pi.gas),
+                move |pi: PrecompileInput<'_>| BitcoinRpcPrecompile::run_decode_transaction(pi.data, pi.gas),
             ))
         });
 
         precompiles.apply_precompile(&CONVERT_ADDRESS_ADDRESS, |_| {
-            let btc = btc.clone();
             Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| btc.convert_address(pi.data, pi.gas),
+                move |pi: PrecompileInput<'_>| BitcoinRpcPrecompile::run_convert_address(pi.data, pi.gas),
             ))
         });
 
         precompiles.apply_precompile(&VAULT_SPEND_ADDRESS, |_| {
-            let btc = btc.clone();
             Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| btc.network_spend(pi.data, &pi.caller, pi.gas),
+                move |pi: PrecompileInput<'_>| BitcoinRpcPrecompile::run_vault_spend(pi.data, pi.gas),
             ))
         });
 

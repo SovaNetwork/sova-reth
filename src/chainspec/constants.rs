@@ -75,13 +75,10 @@ pub fn sova_forks() -> ChainHardforks {
 pub enum BitcoinPrecompileMethod {
     /// Broadcasts a Bitcoin transaction
     BroadcastTransaction,
-
     /// Decodes a raw Bitcoin transaction
     DecodeTransaction,
-
     /// Converts EVM address to Bitcoin address
     ConvertAddress,
-
     /// Creates, signs, and broadcasts a Bitcoin transaction from a specified signer
     VaultSpend,
 }
