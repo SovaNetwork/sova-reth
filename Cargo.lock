@@ -9808,6 +9808,7 @@ dependencies = [
  "reth-optimism-cli",
  "reth-optimism-node",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "reth-optimism-payload-builder",
  "reth-optimism-primitives",
  "reth-optimism-rpc",
@@ -9873,6 +9874,9 @@ dependencies = [
  "sova-cli",
  "sova-evm",
 =======
+=======
+ "reth-tracing",
+>>>>>>> 6eed71d (baseline with precompiles)
  "sova-reth",
 >>>>>>> f94dffa (pre-baseline)
 ]
