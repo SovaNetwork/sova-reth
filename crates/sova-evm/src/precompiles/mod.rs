@@ -160,8 +160,7 @@ impl BitcoinRpcPrecompile {
 
         let bitcoin_config = BitcoinRpcPrecompile::config_from_env();
 
-        let connection_type =
-            env::var("SOVA_RPC_CONNECTION_TYPE").unwrap_or_else(|_| "bitcoincore".to_string());
+        let connection_type = env::var("SOVA_RPC_CONNECTION_TYPE").unwrap();
 
         Arc::new(
             BitcoinClient::new(
