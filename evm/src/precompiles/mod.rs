@@ -763,11 +763,10 @@ impl BitcoinRpcPrecompile {
             block_context: BlockContext {
                 number: l2_block_number,
                 btc_block_height: l1.btc_height,
-                btc_block_hash: l1.btc_hash,
             },
             precompile_call: Some(PrecompileCall {
                 method: BroadcastTransaction,
-                // TODO: fill other required fields from actual precompile call context
+                // TODO: fill required fields from actual precompile call context
                 caller: alloy_primitives::Address::ZERO,
                 target: alloy_primitives::Address::ZERO,
                 input: alloy_primitives::Bytes::new(),
@@ -782,9 +781,9 @@ impl BitcoinRpcPrecompile {
             .map_err(|e| PrecompileError::Other(format!("SlotLockManager error: {e}")))?;
 
         match response.decision {
-            SlotLockDecision::Allow => Ok(()),
-            SlotLockDecision::Revert { reason } => Err(PrecompileError::Other(reason)),
-            SlotLockDecision::RevertWithSlotData { slots } => {
+            SlotLockDecision::AllowTx => Ok(()),
+            SlotLockDecision::BlockTx { reason } => Err(PrecompileError::Other(reason)),
+            SlotLockDecision::RevertTxWithSlotData { slots } => {
                 for slot_revert in slots {
                     // evm_handle.db_mut().set_storage(slot_revert.address, slot_revert.slot, slot_revert.revert_to);
                     tracing::debug!(
@@ -823,6 +822,5 @@ fn current_tx_context(
         operation_id: uuid::Uuid::new_v4(),
         caller: alloy_primitives::Address::ZERO,
         target: alloy_primitives::Address::ZERO,
-        checkpoint: None,
     })
 }

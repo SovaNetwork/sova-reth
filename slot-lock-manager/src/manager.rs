@@ -4,35 +4,14 @@ use crate::{
     error::SlotLockError,
     types::*,
 };
-use alloy_primitives::{address, Address, U256};
+use alloy_primitives::{Address, U256};
 use parking_lot::RwLock;
 use serde_json::json;
+use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_BTC_CONTRACT_ADDRESS};
 use sova_sentinel_proto::proto::get_slot_status_response::Status;
 use std::{str::FromStr, sync::Arc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-
-// Constants from sova-chainspec
-pub const L1_BLOCK_CONTRACT_ADDRESS: Address =
-    address!("0x2100000000000000000000000000000000000015");
-pub const L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT: U256 = U256::ZERO;
-pub const SOVA_BTC_CONTRACT_ADDRESS: Address =
-    address!("0x2100000000000000000000000000000000000020");
-
-// Bitcoin precompile addresses
-pub const BROADCAST_TRANSACTION_ADDRESS: Address =
-    address!("0000000000000000000000000000000000000999");
-pub const DECODE_TRANSACTION_ADDRESS: Address =
-    address!("0000000000000000000000000000000000000998");
-pub const CONVERT_ADDRESS_ADDRESS: Address = address!("0000000000000000000000000000000000000997");
-pub const VAULT_SPEND_ADDRESS: Address = address!("0000000000000000000000000000000000000996");
-
-pub const BITCOIN_PRECOMPILE_ADDRESSES: [Address; 4] = [
-    BROADCAST_TRANSACTION_ADDRESS,
-    DECODE_TRANSACTION_ADDRESS,
-    CONVERT_ADDRESS_ADDRESS,
-    VAULT_SPEND_ADDRESS,
-];
 
 /// Configuration for the SlotLockManager
 #[derive(Debug)]
@@ -123,7 +102,7 @@ impl SlotLockManager {
         }
     }
 
-    /// Check if a precompile call should be allowed
+    /// Check if a Bitcoin precompile call should be allowed
     pub async fn check_precompile_call(
         &self,
         request: SlotLockRequest,
@@ -135,7 +114,7 @@ impl SlotLockManager {
                     self.handle_broadcast_transaction(request).await
                 }
                 _ => Ok(SlotLockResponse {
-                    decision: SlotLockDecision::Allow,
+                    decision: SlotLockDecision::AllowTx,
                     broadcast_result: None,
                 }),
             }
@@ -145,7 +124,7 @@ impl SlotLockManager {
                 self.check_storage_locks(request).await
             } else {
                 Ok(SlotLockResponse {
-                    decision: SlotLockDecision::Allow,
+                    decision: SlotLockDecision::AllowTx,
                     broadcast_result: None,
                 })
             }
@@ -163,7 +142,7 @@ impl SlotLockManager {
         // Check locks
         let decision = self.check_locks(&request).await?;
 
-        if matches!(decision, SlotLockDecision::Allow) {
+        if matches!(decision, SlotLockDecision::AllowTx) {
             // Cache broadcast data
             let broadcast_result = BroadcastResult {
                 txid: None, // Will be set by the actual precompile execution
@@ -221,7 +200,7 @@ impl SlotLockManager {
         let accessed_storage = &cache.broadcast_accessed_storage;
 
         if accessed_storage.0.is_empty() {
-            return Ok(SlotLockDecision::Allow);
+            return Ok(SlotLockDecision::AllowTx);
         }
 
         let response = self
@@ -241,7 +220,7 @@ impl SlotLockManager {
 
             match status {
                 Status::Unknown => {
-                    return Ok(SlotLockDecision::Revert {
+                    return Ok(SlotLockDecision::BlockTx {
                         reason: "Sentinel returned unknown status".to_string(),
                     });
                 }
@@ -254,7 +233,7 @@ impl SlotLockManager {
                         request.block_context.number,
                     );
 
-                    return Ok(SlotLockDecision::Revert {
+                    return Ok(SlotLockDecision::BlockTx {
                         reason: format!(
                             "Storage slot is locked: {}:{}",
                             slot_response.contract_address,
@@ -290,11 +269,11 @@ impl SlotLockManager {
             let mut revert_cache = self.slot_revert_cache.write();
             revert_cache.extend(revert_slots.clone());
 
-            Ok(SlotLockDecision::RevertWithSlotData {
+            Ok(SlotLockDecision::RevertTxWithSlotData {
                 slots: revert_slots,
             })
         } else {
-            Ok(SlotLockDecision::Allow)
+            Ok(SlotLockDecision::AllowTx)
         }
     }
 
@@ -378,13 +357,13 @@ impl SlotLockManager {
     /// This completes the two-phase broadcast flow:
     /// 1. check_precompile_call() - validates and caches storage accesses
     /// 2. finalize_broadcast() - commits with actual txid for future locking
-    pub fn finalize_broadcast(&self, txid: Vec<u8>, btc_block: u64) {
+    pub fn finalize_broadcast(&self, btc_txid: Vec<u8>, btc_block: u64) {
         let mut cache = self.cache.write();
 
         // The broadcast_accessed_storage has the slots that were accessed
         // before the broadcast call. Now we commit them with the actual txid.
         let broadcast_result = BroadcastResult {
-            txid: Some(txid),
+            txid: Some(btc_txid),
             block: Some(btc_block),
         };
 

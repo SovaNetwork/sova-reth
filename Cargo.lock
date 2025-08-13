@@ -9734,6 +9734,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "sova-chainspec",
  "sova-sentinel-client",
  "sova-sentinel-proto",
  "thiserror 2.0.12",
