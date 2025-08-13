@@ -25,6 +25,10 @@ pub struct SovaArgs {
     #[arg(long, default_value = "password")]
     pub btc_rpc_password: String,
 
+    /// RPC connection type (bitcoincore, external)
+    #[arg(long, value_parser = parse_connection_type, default_value = "bitcoincore")]
+    pub rpc_connection_type: String,
+
     /// CLI flag to indicate the network signing url
     #[arg(long, default_value = "http://127.0.0.1:3031")]
     pub network_utxos_url: String,
@@ -97,6 +101,7 @@ impl Default for SovaArgs {
             btc_network_url: "http://127.0.0.1".to_string(),
             btc_rpc_username: "user".to_string(),
             btc_rpc_password: "password".to_string(),
+            rpc_connection_type: "bitcoincore".to_string(),
             network_utxos_url: "http://127.0.0.1:3031".to_string(),
             sentinel_url: "http://[::1]:50051".to_string(),
             sentinel_confirmation_threshold: 6,
@@ -114,6 +119,13 @@ impl Default for SovaArgs {
 
 fn parse_network_to_wrapper(s: &str) -> Result<BitcoinNetwork, &'static str> {
     parse_network(s).map(BitcoinNetwork::from)
+}
+
+fn parse_connection_type(s: &str) -> Result<String, &'static str> {
+    match s.to_lowercase().as_str() {
+        "bitcoincore" | "external" => Ok(s.to_lowercase()),
+        _ => Err("Invalid connection type. Use 'bitcoincore' or 'external'"),
+    }
 }
 
 fn parse_network(s: &str) -> Result<Network, &'static str> {

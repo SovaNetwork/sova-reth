@@ -12,6 +12,7 @@ pub struct BitcoinConfig {
     pub network_url: String,
     pub rpc_username: String,
     pub rpc_password: String,
+    pub rpc_connection_type: String,
 }
 
 impl BitcoinConfig {
@@ -26,7 +27,13 @@ impl BitcoinConfig {
             network_url: network_url.to_owned(),
             rpc_username: rpc_username.to_owned(),
             rpc_password: rpc_password.to_owned(),
+            rpc_connection_type: "bitcoincore".to_owned(),
         }
+    }
+
+    pub fn with_connection_type(mut self, connection_type: &str) -> Self {
+        self.rpc_connection_type = connection_type.to_owned();
+        self
     }
 }
 
@@ -37,6 +44,7 @@ impl Default for BitcoinConfig {
             network_url: String::new(),
             rpc_username: String::new(),
             rpc_password: String::new(),
+            rpc_connection_type: "bitcoincore".to_owned(),
         }
     }
 }

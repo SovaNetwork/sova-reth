@@ -4,7 +4,7 @@ mod btc_client;
 mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
-pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
+pub use btc_client::{BitcoinClient, BitcoinClientError, SovaL1BlockInfo};
 use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
 
@@ -151,6 +151,7 @@ impl BitcoinRpcPrecompile {
             &env::var("SOVA_BTC_RPC_USERNAME").unwrap(),
             &env::var("SOVA_BTC_RPC_PASSWORD").unwrap(),
         )
+        .with_connection_type(&env::var("SOVA_RPC_CONNECTION_TYPE").unwrap())
     }
 
     pub fn client_from_env() -> Arc<BitcoinClient> {
@@ -166,6 +167,7 @@ impl BitcoinRpcPrecompile {
                     .unwrap()
                     .parse::<u8>()
                     .unwrap(),
+                &bitcoin_config.rpc_connection_type,
             )
             .unwrap(),
         )
@@ -410,8 +412,10 @@ impl BitcoinRpcPrecompile {
                 // - RPC_VERIFY_REJECTED or RPC_TRANSACTION_REJECTED (-26)
                 debug!("Failed to broadcast transaction: {}", e);
                 match &e {
-                    // Handle JsonRpc errors
-                    bitcoincore_rpc::Error::JsonRpc(jsonrpc_err) => {
+                    // Handle BitcoinCoreRpc errors
+                    BitcoinClientError::BitcoinCoreRpc(bitcoincore_rpc::Error::JsonRpc(
+                        jsonrpc_err,
+                    )) => {
                         match jsonrpc_err {
                             bitcoincore_rpc::jsonrpc::error::Error::Rpc(rpc_error) => {
                                 match rpc_error.code {
@@ -484,7 +488,9 @@ impl BitcoinRpcPrecompile {
                         }
                     }
                     // Handle ReturnedError
-                    bitcoincore_rpc::Error::ReturnedError(err_msg) => {
+                    BitcoinClientError::BitcoinCoreRpc(bitcoincore_rpc::Error::ReturnedError(
+                        err_msg,
+                    )) => {
                         if err_msg.contains("already in block chain")
                             || err_msg.contains("already in the mempool")
                             || err_msg.contains("already known")
@@ -497,6 +503,41 @@ impl BitcoinRpcPrecompile {
                             Err(PrecompileError::Other(format!(
                                 "Bitcoin returned error: {err_msg}",
                             )))
+                        }
+                    }
+                    // Handle other BitcoinClientError types
+                    BitcoinClientError::Reqwest(reqwest_err) => {
+                        // For external RPC client, check for common broadcast error patterns
+                        let err_msg = reqwest_err.to_string();
+                        if err_msg.contains("already in block chain")
+                            || err_msg.contains("already in the mempool")
+                            || err_msg.contains("already known")
+                            || err_msg.contains("duplicate transaction")
+                        {
+                            debug!(
+                                "Transaction already known via external client: {} ({err_msg})",
+                                tx.txid()
+                            );
+                            Ok(tx.txid())
+                        } else {
+                            warn!("WARNING: External RPC client error: {reqwest_err}");
+                            Err(PrecompileError::Other(format!(
+                                "External RPC client error: {reqwest_err}",
+                            )))
+                        }
+                    }
+                    BitcoinClientError::RpcError(err_msg) => {
+                        // Handle custom RPC errors from external client
+                        if err_msg.contains("already in block chain")
+                            || err_msg.contains("already in the mempool")
+                            || err_msg.contains("already known")
+                            || err_msg.contains("duplicate transaction")
+                        {
+                            debug!("Transaction already known: {} ({err_msg})", tx.txid());
+                            Ok(tx.txid())
+                        } else {
+                            warn!("WARNING: RPC error: {err_msg}");
+                            Err(PrecompileError::Other(format!("RPC error: {err_msg}",)))
                         }
                     }
                     // All other error types
@@ -537,8 +578,10 @@ impl BitcoinRpcPrecompile {
         let data = self
             .bitcoin_client
             .decode_raw_transaction(&tx)
-            .map_err(|_| {
-                PrecompileError::Other("Decode raw transaction bitcoin rpc call failed".into())
+            .map_err(|e| {
+                PrecompileError::Other(format!(
+                    "Decode raw transaction bitcoin rpc call failed: {e}"
+                ))
             })?;
 
         let encoded_data = abi_encode_tx_data(&data, &self.network).map_err(|e| {
