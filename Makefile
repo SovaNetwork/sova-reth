@@ -178,6 +178,7 @@ run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest
 	--btc-network-url "http://127.0.0.1:18443" \
 	--btc-rpc-username "user" \
 	--btc-rpc-password "password" \
+	--rpc-connection-type "bitcoincore" \
 	--network-utxos-url "http://127.0.0.1:3031" \
 	--sentinel-url "http://[::1]:50051" \
 	--sentinel-confirmation-threshold 6 \

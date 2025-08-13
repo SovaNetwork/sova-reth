@@ -63,7 +63,8 @@ impl SovaNode {
             &args.btc_network_url,
             &args.btc_rpc_username,
             &args.btc_rpc_password,
-        );
+        )
+        .with_connection_type(&args.rpc_connection_type);
 
         let sova_config = SovaConfig::new(
             btc_config,
@@ -76,6 +77,7 @@ impl SovaNode {
         let bitcoin_client = BitcoinClient::new(
             &sova_config.bitcoin_config,
             sova_config.sentinel_confirmation_threshold,
+            &sova_config.bitcoin_config.rpc_connection_type,
         )
         .map_err(|e| format!("Failed to create Bitcoin client: {e}"))?;
 
