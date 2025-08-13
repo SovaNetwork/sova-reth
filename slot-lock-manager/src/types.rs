@@ -7,7 +7,6 @@ use uuid::Uuid;
 pub struct BlockContext {
     pub number: u64,
     pub btc_block_height: u64,
-    pub btc_block_hash: B256,
 }
 
 /// Represents the context of a transaction being executed
@@ -16,7 +15,6 @@ pub struct TransactionContext {
     pub operation_id: Uuid,
     pub caller: Address,
     pub target: Address,
-    pub checkpoint: Option<u64>, // Journal checkpoint for reverting
 }
 
 /// Storage access during transaction execution
@@ -74,9 +72,9 @@ pub struct SlotLockRequest {
 /// Decision made about a slot lock
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SlotLockDecision {
-    Allow,
-    Revert { reason: String },
-    RevertWithSlotData { slots: Vec<SlotRevert> },
+    AllowTx,
+    BlockTx { reason: String },
+    RevertTxWithSlotData { slots: Vec<SlotRevert> },
 }
 
 /// Slot lock response

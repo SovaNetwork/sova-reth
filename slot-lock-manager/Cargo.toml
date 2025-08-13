@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Sova
+sova-chainspec.workspace = true
+
 # Core types
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rlp.workspace = true

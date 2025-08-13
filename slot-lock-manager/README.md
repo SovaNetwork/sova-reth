@@ -1,12 +1,11 @@
 # SlotLockManager
 
-A standalone slot lock manager service for Bitcoin L2 rollup finality tracking and enforcement. This service extracts the slot lock logic from sova-reth's inspector to provide a clean, reusable component for managing Bitcoin finality guarantees in EVM state transitions.
+A standalone slot lock manager service for Bitcoin L2 rollup finality tracking and enforcement. This service provides a clean and reusable component for managing Bitcoin finality guarantees in EVM state transitions.
 
 ## Overview
 
 The SlotLockManager enforces "slot locks" - a mechanism that tracks EVM storage slot changes and ensures Bitcoin finality before allowing state modifications. It provides:
 
-- **Bitcoin Finality Tracking**: Links EVM state changes to Bitcoin transaction finality
 - **Slot Lock Enforcement**: Prevents state modifications when Bitcoin finality hasn't been reached
 - **Slot Reversion**: Reverts EVM slots to previous values when Bitcoin transactions fail
 - **Sentinel Integration**: Communicates with the sentinel service for lock status
@@ -16,21 +15,20 @@ The SlotLockManager enforces "slot locks" - a mechanism that tracks EVM storage 
 ### SlotLockManager
 The main service that:
 - Processes EVM storage access patterns
-- Enforces slot locks before Bitcoin precompile calls
+- Enforces slot locks before any Bitcoin precompile calls which are tied to a Bitcoin transaction
 - Manages slot reverts when Bitcoin finality isn't reached
 - Interfaces with the sentinel service for lock status
 
 ### StorageCache
 Tracks storage slot changes:
 - Records storage accesses during transaction execution
-- Maintains history of slot values for reversion
+- Maintains history of slot values for tracking in the sentinel
 - Manages broadcast transaction data for locking
 
 ### SentinelClient
 Interfaces with the sentinel service:
 - Checks slot lock status before transactions
-- Locks slots after successful Bitcoin broadcasts
-- Handles various error conditions gracefully
+- Update slot locks after a block has been processed
 
 ## Two-Phase Broadcast Flow
 

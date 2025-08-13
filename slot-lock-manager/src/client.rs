@@ -149,7 +149,7 @@ impl SentinelClient for SentinelClientImpl {
             .await
             .map_err(Self::map_client_error)?;
 
-        // Validate response format and check for UNKNOWN statuses
+        // Validate response
         Self::validate_response(&response)?;
 
         Ok(response)
