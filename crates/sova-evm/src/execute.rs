@@ -182,17 +182,17 @@ where
                         }
                         Ok(false) => {
                             warn!("Bitcoin block hash validation failed: Expected hash {:?} does not match actual hash for block at height {}", tx_block_hash, height_u64 - 6);
-                            return Err(BlockExecutionError::other(RethError::msg(format!(
+                            Err(BlockExecutionError::other(RethError::msg(format!(
                                 "Bitcoin block hash validation failed: Expected hash {:?} does not match actual hash for block at height {}",
                                 tx_block_hash, height_u64 - 6
-                            ))));
+                            ))))
                         }
                         Err(err) => {
                             warn!("Failed to validate Bitcoin block hash: {}", err);
                             // This is now a critical error - we cannot validate, so we must reject
-                            return Err(BlockExecutionError::other(RethError::msg(format!(
+                            Err(BlockExecutionError::other(RethError::msg(format!(
                                 "Critical: Failed to validate Bitcoin block hash: {err}. Cannot proceed without Bitcoin validation."
-                            ))));
+                            ))))
                         }
                     }
                 } else {
