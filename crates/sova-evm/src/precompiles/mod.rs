@@ -4,6 +4,7 @@ mod btc_client;
 mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
+use btc_client::BitcoinRpcError;
 pub use btc_client::{BitcoinClient, SovaL1BlockInfo};
 use revm::precompile::PrecompileWithAddress;
 use sova_cli::BitcoinConfig;
@@ -126,7 +127,7 @@ impl BitcoinRpcPrecompile {
         network_utxos_url: String,
         sequencer_mode: bool,
         address_deriver: Arc<SovaAddressDeriver>,
-    ) -> Result<Self, bitcoincore_rpc::Error> {
+    ) -> Result<Self, BitcoinRpcError> {
         // Check for env vars at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
         if api_key.is_empty() && sequencer_mode {
@@ -159,6 +160,9 @@ impl BitcoinRpcPrecompile {
 
         let bitcoin_config = BitcoinRpcPrecompile::config_from_env();
 
+        let connection_type =
+            env::var("SOVA_RPC_CONNECTION_TYPE").unwrap_or_else(|_| "bitcoincore".to_string());
+
         Arc::new(
             BitcoinClient::new(
                 &bitcoin_config,
@@ -166,6 +170,7 @@ impl BitcoinRpcPrecompile {
                     .unwrap()
                     .parse::<u8>()
                     .unwrap(),
+                &connection_type,
             )
             .unwrap(),
         )
@@ -411,7 +416,7 @@ impl BitcoinRpcPrecompile {
                 debug!("Failed to broadcast transaction: {}", e);
                 match &e {
                     // Handle JsonRpc errors
-                    bitcoincore_rpc::Error::JsonRpc(jsonrpc_err) => {
+                    BitcoinRpcError::BitcoinCore(bitcoincore_rpc::Error::JsonRpc(jsonrpc_err)) => {
                         match jsonrpc_err {
                             bitcoincore_rpc::jsonrpc::error::Error::Rpc(rpc_error) => {
                                 match rpc_error.code {
@@ -484,7 +489,9 @@ impl BitcoinRpcPrecompile {
                         }
                     }
                     // Handle ReturnedError
-                    bitcoincore_rpc::Error::ReturnedError(err_msg) => {
+                    BitcoinRpcError::BitcoinCore(bitcoincore_rpc::Error::ReturnedError(
+                        err_msg,
+                    )) => {
                         if err_msg.contains("already in block chain")
                             || err_msg.contains("already in the mempool")
                             || err_msg.contains("already known")

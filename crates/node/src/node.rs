@@ -73,9 +73,11 @@ impl SovaNode {
             args.sequencer.is_some(),
         );
 
+        let connection_type: String = args.rpc_connection_type.clone().into();
         let bitcoin_client = BitcoinClient::new(
             &sova_config.bitcoin_config,
             sova_config.sentinel_confirmation_threshold,
+            &connection_type,
         )
         .map_err(|e| format!("Failed to create Bitcoin client: {e}"))?;
 

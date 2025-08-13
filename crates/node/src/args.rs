@@ -25,6 +25,10 @@ pub struct SovaArgs {
     #[arg(long, default_value = "password")]
     pub btc_rpc_password: String,
 
+    /// RPC connection type (bitcoincore, external)
+    #[arg(long, value_parser = parse_connection_type_to_wrapper, default_value = "bitcoincore")]
+    pub rpc_connection_type: RpcConnectionType,
+
     /// CLI flag to indicate the network signing url
     #[arg(long, default_value = "http://127.0.0.1:3031")]
     pub network_utxos_url: String,
@@ -97,6 +101,7 @@ impl Default for SovaArgs {
             btc_network_url: "http://127.0.0.1".to_string(),
             btc_rpc_username: "user".to_string(),
             btc_rpc_password: "password".to_string(),
+            rpc_connection_type: RpcConnectionType::default(),
             network_utxos_url: "http://127.0.0.1:3031".to_string(),
             sentinel_url: "http://[::1]:50051".to_string(),
             sentinel_confirmation_threshold: 6,
@@ -126,6 +131,18 @@ fn parse_network(s: &str) -> Result<Network, &'static str> {
     }
 }
 
+fn parse_connection_type_to_wrapper(s: &str) -> Result<RpcConnectionType, &'static str> {
+    parse_connection_type(s).map(RpcConnectionType::from)
+}
+
+fn parse_connection_type(s: &str) -> Result<ConnectionKind, &'static str> {
+    match s.to_lowercase().as_str() {
+        "bitcoincore" => Ok(ConnectionKind::Bitcoincore),
+        "external" => Ok(ConnectionKind::External),
+        _ => Err("Invalid RPC connection type. Use 'bitcoincore' or 'external'"),
+    }
+}
+
 /// Wrapper Bitcoin Network enum to allow for default derivation
 #[derive(Clone, Debug)]
 pub struct BitcoinNetwork {
@@ -143,6 +160,52 @@ impl Default for BitcoinNetwork {
 impl From<Network> for BitcoinNetwork {
     fn from(network: Network) -> Self {
         BitcoinNetwork { network }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ConnectionKind {
+    Bitcoincore,
+    External,
+}
+
+#[derive(Clone, Debug)]
+pub struct RpcConnectionType {
+    pub kind: ConnectionKind,
+}
+
+impl Default for RpcConnectionType {
+    fn default() -> Self {
+        RpcConnectionType {
+            kind: ConnectionKind::Bitcoincore,
+        }
+    }
+}
+
+impl From<ConnectionKind> for RpcConnectionType {
+    fn from(kind: ConnectionKind) -> Self {
+        RpcConnectionType { kind }
+    }
+}
+
+impl From<RpcConnectionType> for String {
+    fn from(typ: RpcConnectionType) -> Self {
+        match typ.kind {
+            ConnectionKind::Bitcoincore => "bitcoincore".to_string(),
+            ConnectionKind::External => "external".to_string(),
+        }
+    }
+}
+
+impl From<&str> for RpcConnectionType {
+    fn from(s: &str) -> Self {
+        match parse_connection_type(s) {
+            Ok(kind) => RpcConnectionType { kind },
+            Err(err) => {
+                eprintln!("Error parsing connection type: {err}");
+                RpcConnectionType::default()
+            }
+        }
     }
 }
 
