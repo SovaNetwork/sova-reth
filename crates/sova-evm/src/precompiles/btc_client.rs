@@ -285,9 +285,11 @@ impl BitcoinClient {
         let rpc_client: Arc<dyn BitcoinRpcClient> = match connection_type {
             "bitcoincore" => Arc::new(BitcoinCoreRpcClient::new(config)?),
             "external" => Arc::new(ExternalRpcClient::new(config)?),
-            _ => return Err(BitcoinClientError::RpcError(format!(
+            _ => {
+                return Err(BitcoinClientError::RpcError(format!(
                 "Unsupported connection type: {connection_type}. Use 'bitcoincore' or 'external'"
-            ))),
+            )))
+            }
         };
 
         Ok(Self {
