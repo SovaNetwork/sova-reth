@@ -68,8 +68,9 @@ impl From<serde_json::Error> for BitcoinClientError {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcResponse {
-    jsonrpc: String,
-    id: u64,
+    #[serde(default)]
+    jsonrpc: Option<String>,
+    id: Value,
     result: Option<Value>,
     error: Option<JsonRpcError>,
 }
