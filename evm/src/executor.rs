@@ -29,11 +29,13 @@ use reth_ethereum::evm::primitives::InspectorFor;
 use reth_op::OpReceipt;
 use reth_op::OpTransactionSigned;
 use revm::{
-    context::result::{ExecutionResult, ResultAndState}, database::State, DatabaseCommit
+    context::result::{ExecutionResult, ResultAndState},
+    database::State,
+    DatabaseCommit,
 };
 use slot_lock_manager::{BlockContext, TransactionContext};
-use tracing::info;
 use std::sync::Arc;
+use tracing::info;
 use uuid::Uuid;
 
 /// Block executor for Sova.
@@ -110,8 +112,11 @@ where
         }
 
         // Read storage directly from the database using the Database trait's storage() method
-        let height_value = self.evm.db_mut()
-            .database.storage(L1_BLOCK_CONTRACT_ADDRESS, U256::ZERO)
+        let height_value = self
+            .evm
+            .db_mut()
+            .database
+            .storage(L1_BLOCK_CONTRACT_ADDRESS, U256::ZERO)
             .map_err(BlockExecutionError::other)?;
 
         Ok(height_value.saturating_to::<u64>())
@@ -217,7 +222,10 @@ where
             .transact(tx)
             .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        info!("first_state has {} accounts with changes", first_state.len());
+        info!(
+            "first_state has {} accounts with changes",
+            first_state.len()
+        );
 
         // Create context for SlotLockManager
         let transaction_context = TransactionContext {
@@ -332,6 +340,7 @@ where
 
         Ok(Some(gas_used))
     }
+
     fn finish(
         mut self,
     ) -> Result<(Self::Evm, BlockExecutionResult<R::Receipt>), BlockExecutionError> {

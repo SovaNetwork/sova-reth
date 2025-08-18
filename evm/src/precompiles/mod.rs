@@ -19,8 +19,8 @@ use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
 
 use sova_chainspec::{BitcoinPrecompileMethod, SOVA_BTC_CONTRACT_ADDRESS};
 
-use crate::{
-    precompiles::{address_deriver::SovaAddressDeriver, precompile_utils::BitcoinMethodHelper},
+use crate::precompiles::{
+    address_deriver::SovaAddressDeriver, precompile_utils::BitcoinMethodHelper,
 };
 use eyre::Result;
 

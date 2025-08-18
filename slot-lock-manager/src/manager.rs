@@ -133,7 +133,7 @@ impl SlotLockManager {
         }
     }
 
-    /// Synchronous method that can be called from within a tokio runtime to 
+    /// Synchronous method that can be called from within a tokio runtime to
     pub fn check_bundle_state(
         &self,
         bundle: &BundleState,
@@ -209,17 +209,13 @@ impl SlotLockManager {
             let accessed_storage = accessed_storage.clone();
             let block_number = request.block_context.number;
             let btc_block_height = request.block_context.btc_block_height;
-            
+
             move || {
                 // Create a new runtime for this blocking call
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async move {
                     sentinel_client
-                        .batch_get_locked_status(
-                            &accessed_storage,
-                            block_number,
-                            btc_block_height,
-                        )
+                        .batch_get_locked_status(&accessed_storage, block_number, btc_block_height)
                         .await
                 })
             }
@@ -321,21 +317,21 @@ impl SlotLockManager {
     /// Extract StorageAccess from BundleState for internal processing
     fn extract_storage_accesses_from_bundle(&self, bundle: &BundleState) -> Vec<StorageAccess> {
         let mut storage_accesses = Vec::new();
-        
-        debug!(target: "slot_lock_manager", 
-            "Bundle state has {} accounts", 
+
+        debug!(target: "slot_lock_manager",
+            "Bundle state has {} accounts",
             bundle.state().len()
         );
-        
+
         // Iterate through all accounts in the bundle state
         for (address, bundle_account) in bundle.state() {
-            debug!(target: "slot_lock_manager", 
-                "Bundle account: {:?}, storage slots: {}, status: {:?}", 
-                address, 
+            debug!(target: "slot_lock_manager",
+                "Bundle account: {:?}, storage slots: {}, status: {:?}",
+                address,
                 bundle_account.storage.len(),
                 bundle_account.status
             );
-            
+
             // Extract storage changes from the bundle account
             for (slot_key, storage_slot) in &bundle_account.storage {
                 debug!(target: "slot_lock_manager",
@@ -344,7 +340,7 @@ impl SlotLockManager {
                     storage_slot.previous_or_original_value,
                     storage_slot.present_value
                 );
-                
+
                 let storage_access = StorageAccess {
                     address: *address,
                     slot: alloy_primitives::StorageKey::from(*slot_key),
@@ -356,32 +352,35 @@ impl SlotLockManager {
                 storage_accesses.push(storage_access);
             }
         }
-        
-        debug!(target: "slot_lock_manager", 
-            "Extracted {} storage accesses from bundle", 
+
+        debug!(target: "slot_lock_manager",
+            "Extracted {} storage accesses from bundle",
             storage_accesses.len()
         );
         storage_accesses
     }
 
     /// Extract StorageAccess from EvmState for internal processing (preferred method)
-    fn extract_storage_accesses_from_evm_state(&self, evm_state: &revm::state::EvmState) -> Vec<StorageAccess> {
+    fn extract_storage_accesses_from_evm_state(
+        &self,
+        evm_state: &revm::state::EvmState,
+    ) -> Vec<StorageAccess> {
         let mut storage_accesses = Vec::new();
-        
-        debug!(target: "slot_lock_manager", 
-            "EVM state has {} accounts", 
+
+        debug!(target: "slot_lock_manager",
+            "EVM state has {} accounts",
             evm_state.len()
         );
-        
+
         // Iterate through all accounts in the EVM state
         for (address, account) in evm_state.iter() {
-            debug!(target: "slot_lock_manager", 
-                "EVM account: {:?}, storage slots: {}, status: {:?}", 
-                address, 
+            debug!(target: "slot_lock_manager",
+                "EVM account: {:?}, storage slots: {}, status: {:?}",
+                address,
                 account.storage.len(),
                 account.status
             );
-            
+
             // Extract storage changes from the account
             for (slot_key, storage_slot) in &account.storage {
                 debug!(target: "slot_lock_manager",
@@ -390,7 +389,7 @@ impl SlotLockManager {
                     storage_slot.original_value,
                     storage_slot.present_value
                 );
-                
+
                 let storage_access = StorageAccess {
                     address: *address,
                     slot: alloy_primitives::StorageKey::from(*slot_key),
@@ -402,9 +401,9 @@ impl SlotLockManager {
                 storage_accesses.push(storage_access);
             }
         }
-        
-        debug!(target: "slot_lock_manager", 
-            "Extracted {} storage accesses from EVM state", 
+
+        debug!(target: "slot_lock_manager",
+            "Extracted {} storage accesses from EVM state",
             storage_accesses.len()
         );
         storage_accesses
@@ -605,7 +604,7 @@ impl SlotLockManager {
                     let sentinel_client = self.sentinel_client.clone();
                     let accessed_storage = accessed_storage.clone();
                     let btc_txid = btc_txid.clone();
-                    
+
                     move || {
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async move {
