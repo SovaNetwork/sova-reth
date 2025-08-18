@@ -4,7 +4,8 @@ use crate::{
     SovaEvmConfig,
 };
 use alloy_primitives::U256;
-use slot_lock_manager::{SlotLockDecision, SlotLockManager};
+use slot_lock_manager::SlotLockManager;
+use sova_chainspec::L1_BLOCK_CONTRACT_ADDRESS;
 extern crate alloc;
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 use alloy_consensus::{Eip658Value, Header, Transaction, TxReceipt};
@@ -28,11 +29,10 @@ use reth_ethereum::evm::primitives::InspectorFor;
 use reth_op::OpReceipt;
 use reth_op::OpTransactionSigned;
 use revm::{
-    context::result::{ExecutionResult, ResultAndState},
-    database::{states::bundle_state::BundleRetention, State},
-    DatabaseCommit,
+    context::result::{ExecutionResult, ResultAndState}, database::State, DatabaseCommit
 };
 use slot_lock_manager::{BlockContext, TransactionContext};
+use tracing::info;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -91,6 +91,33 @@ where
     }
 }
 
+impl<'db, DB, E, R, Spec> SovaBlockExecutor<E, R, Spec>
+where
+    DB: Database + 'db,
+    E: Evm<
+        DB = &'db mut State<DB>,
+        Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>,
+    >,
+    R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
+    Spec: OpHardforks,
+{
+    /// Read BTC height from L1Block contract storage
+    fn get_btc_height_from_l1block(&mut self) -> Result<u64, BlockExecutionError> {
+        // For genesis block (block 0), return BTC height 0 without contract access
+        let current_block_number = self.evm.block().number.saturating_to::<u64>();
+        if current_block_number <= 1 {
+            return Ok(0);
+        }
+
+        // Read storage directly from the database using the Database trait's storage() method
+        let height_value = self.evm.db_mut()
+            .database.storage(L1_BLOCK_CONTRACT_ADDRESS, U256::ZERO)
+            .map_err(BlockExecutionError::other)?;
+
+        Ok(height_value.saturating_to::<u64>())
+    }
+}
+
 impl<'db, DB, E, R, Spec> BlockExecutor for SovaBlockExecutor<E, R, Spec>
 where
     DB: Database + 'db,
@@ -133,14 +160,14 @@ where
 
     /// This method has been modified to execute the transaction twice.
     ///
-    /// The first execution is to collect any reverted slots using the state changes and the slot-lock-manager.
+    /// Pass A: Execute transaction on scratch state to feed storage changes to the slot-lock-manager.
+    /// The manager queries the Sentinel and fills its revert cache with any slots that need correction.
     ///
-    /// If there are any slots that need to be reverted due to a Bitcoin transaction not being finalized in
-    /// Bitcoin mainnet these database changes are applied prior to the second execution.
+    /// Apply corrections: Get pending reverts from manager and apply them to the real DB.
+    /// This materializes corrective state (reverted slots, locks) before the second execution.
     ///
-    /// The second execution of the tx (after the reverts have been applied to db) determines the final
-    /// ExecutionResult for that tx. It is possible for the tx to fail the first execution, reverts get
-    /// applied to db and succeed on the second execution.
+    /// Pass B: Execute transaction normally on the corrected DB. Transactions that should revert
+    /// will now naturally fail due to the applied corrections, without needing runtime hooks.
     fn execute_transaction_with_commit_condition(
         &mut self,
         tx: impl ExecutableTx<Self>,
@@ -181,7 +208,7 @@ where
         // Save the current bundle state before any execution
         let pre_execution_bundle = self.evm.db_mut().take_bundle();
 
-        // First execution to collect state changes
+        // Pass A: Execute transaction to collect state changes for the slot-lock-manager
         let ResultAndState {
             result: first_result,
             state: first_state,
@@ -190,13 +217,7 @@ where
             .transact(tx)
             .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        // Merge transitions to create bundle state (this uses the changes from transact)
-        self.evm
-            .db_mut()
-            .merge_transitions(BundleRetention::Reverts);
-
-        // Take the bundle for slot lock checking
-        let execution_bundle = self.evm.db_mut().take_bundle();
+        info!("first_state has {} accounts with changes", first_state.len());
 
         // Create context for SlotLockManager
         let transaction_context = TransactionContext {
@@ -207,70 +228,50 @@ where
 
         let block_context = BlockContext {
             number: self.evm.block().number.saturating_to::<u64>(),
-            btc_block_height: self.evm.block().number.saturating_to::<u64>(), // TODO: Get actual BTC height from L1Block
+            btc_block_height: self.get_btc_height_from_l1block()?,
         };
 
-        // Check with slot lock manager
-        let slot_response = self
+        // Feed the EVM state to slot-lock-manager (queries Sentinel and fills revert cache)
+        let _slot_response = self
             .slot_lock_manager
-            .check_bundle_state(&execution_bundle, transaction_context, block_context, None)
+            .check_evm_state(&first_state, transaction_context, block_context, None)
             .map_err(BlockExecutionError::other)?;
 
-        // Restore pre-execution bundle state
+        // Restore pre-execution bundle state (discard Pass A results)
         self.evm.db_mut().bundle_state = pre_execution_bundle;
 
-        // Determine final result based on slot lock decision
-        let (final_result, final_state) = match slot_response.decision {
-            SlotLockDecision::AllowTx => {
-                // Transaction is allowed, use the first execution result
-                (first_result, first_state)
+        // Apply corrections: Get pending reverts from manager and apply to real DB
+        let pending_reverts = self.slot_lock_manager.get_pending_reverts();
+        for revert in &pending_reverts {
+            // Load the account into cache if not present
+            let account = self
+                .evm
+                .db_mut()
+                .load_cache_account(revert.address)
+                .map_err(BlockExecutionError::other)?;
+
+            // Update storage if account exists
+            if let Some(ref mut plain_account) = account.account {
+                let storage_key = U256::from_be_bytes(revert.slot.to_be_bytes::<32>());
+                let revert_value = U256::from_be_bytes(revert.revert_to.to_be_bytes::<32>());
+                plain_account.storage.insert(storage_key, revert_value);
             }
-            SlotLockDecision::BlockTx { reason } => {
-                // Transaction should be blocked - use BlockExecutionError::other
-                // We need to create a proper error type
-                #[derive(Debug)]
-                struct SlotLockBlockError(String);
-                impl std::fmt::Display for SlotLockBlockError {
-                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(f, "{}", self.0)
-                    }
-                }
-                impl std::error::Error for SlotLockBlockError {}
 
-                return Err(BlockExecutionError::other(SlotLockBlockError(format!(
-                    "Transaction blocked by slot lock manager: {reason}"
-                ))));
-            }
-            SlotLockDecision::RevertTxWithSlotData { slots } => {
-                // Apply the slot reverts to the cache state
-                for revert in slots.iter() {
-                    // Load the account into cache if not present
-                    let account = self
-                        .evm
-                        .db_mut()
-                        .load_cache_account(revert.address)
-                        .map_err(BlockExecutionError::other)?;
+            // Mark account as changed
+            account.status = account.status.on_changed(false);
+        }
 
-                    // Update storage if account exists
-                    if let Some(ref mut plain_account) = account.account {
-                        let storage_key = U256::from_be_bytes(revert.slot.to_be_bytes::<32>());
-                        let revert_value =
-                            U256::from_be_bytes(revert.revert_to.to_be_bytes::<32>());
-                        plain_account.storage.insert(storage_key, revert_value);
-                    }
-
-                    // Mark account as changed
-                    account.status = account.status.on_changed(false);
-                }
-
-                // Re-execute the transaction with the reverted state
-                let ResultAndState { result, state } = self
-                    .evm
-                    .transact(tx)
-                    .map_err(move |err| BlockExecutionError::evm(err, hash))?;
-
-                (result, state)
-            }
+        // Determine final execution result
+        let (final_result, final_state) = if pending_reverts.is_empty() {
+            // No corrections needed, use Pass A result
+            (first_result, first_state)
+        } else {
+            // Pass B: Re-execute transaction on corrected DB
+            let ResultAndState { result, state } = self
+                .evm
+                .transact(tx)
+                .map_err(move |err| BlockExecutionError::evm(err, hash))?;
+            (result, state)
         };
 
         // Check if we should commit the result

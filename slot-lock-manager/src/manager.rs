@@ -156,6 +156,29 @@ impl SlotLockManager {
         self.check_bundle_state_sync(request)
     }
 
+    /// Check EVM state for slot locks (preferred method for capturing storage changes)
+    pub fn check_evm_state(
+        &self,
+        evm_state: &revm::state::EvmState,
+        transaction_context: TransactionContext,
+        block_context: BlockContext,
+        precompile_call: Option<PrecompileCall>,
+    ) -> Result<SlotLockResponse, SlotLockError> {
+        // Convert EvmState to StorageAccess format for internal processing
+        let storage_accesses = self.extract_storage_accesses_from_evm_state(evm_state);
+
+        // Create SlotLockRequest with the extracted data
+        let request = SlotLockRequest {
+            transaction_context,
+            block_context,
+            precompile_call,
+            storage_accesses,
+        };
+
+        // Use a synchronous version of the check
+        self.check_bundle_state_sync(request)
+    }
+
     /// Synchronous version of check that doesn't require async runtime
     fn check_bundle_state_sync(
         &self,
@@ -336,6 +359,52 @@ impl SlotLockManager {
         
         debug!(target: "slot_lock_manager", 
             "Extracted {} storage accesses from bundle", 
+            storage_accesses.len()
+        );
+        storage_accesses
+    }
+
+    /// Extract StorageAccess from EvmState for internal processing (preferred method)
+    fn extract_storage_accesses_from_evm_state(&self, evm_state: &revm::state::EvmState) -> Vec<StorageAccess> {
+        let mut storage_accesses = Vec::new();
+        
+        debug!(target: "slot_lock_manager", 
+            "EVM state has {} accounts", 
+            evm_state.len()
+        );
+        
+        // Iterate through all accounts in the EVM state
+        for (address, account) in evm_state.iter() {
+            debug!(target: "slot_lock_manager", 
+                "EVM account: {:?}, storage slots: {}, status: {:?}", 
+                address, 
+                account.storage.len(),
+                account.status
+            );
+            
+            // Extract storage changes from the account
+            for (slot_key, storage_slot) in &account.storage {
+                debug!(target: "slot_lock_manager",
+                    "Storage slot: key={:?}, original={:?}, present={:?}",
+                    slot_key,
+                    storage_slot.original_value,
+                    storage_slot.present_value
+                );
+                
+                let storage_access = StorageAccess {
+                    address: *address,
+                    slot: alloy_primitives::StorageKey::from(*slot_key),
+                    previous_value: alloy_primitives::StorageValue::from(
+                        storage_slot.original_value,
+                    ),
+                    new_value: alloy_primitives::StorageValue::from(storage_slot.present_value),
+                };
+                storage_accesses.push(storage_access);
+            }
+        }
+        
+        debug!(target: "slot_lock_manager", 
+            "Extracted {} storage accesses from EVM state", 
             storage_accesses.len()
         );
         storage_accesses

@@ -21,13 +21,8 @@ use sova_chainspec::{BitcoinPrecompileMethod, SOVA_BTC_CONTRACT_ADDRESS};
 
 use crate::{
     precompiles::{address_deriver::SovaAddressDeriver, precompile_utils::BitcoinMethodHelper},
-    read_l1block_from_db, sova_l1block_address, StorageReader,
 };
 use eyre::Result;
-use slot_lock_manager::{
-    BitcoinPrecompileMethod::BroadcastTransaction, BlockContext, PrecompileCall, SlotLockDecision,
-    SlotLockRequest, TransactionContext,
-};
 
 #[derive(Debug, Clone)]
 pub struct SovaBitcoinConfig {
@@ -755,81 +750,4 @@ impl BitcoinRpcPrecompile {
             Bytes::from(response),
         ))
     }
-
-    // Placeholder for broadcast precompile phase-1 check (DB height) + phase-2 finalize
-    pub async fn broadcast_precompile_entry(
-        evm_handle: &dyn StorageReader, // your type that exposes db()
-        _tx_bytes: &[u8],
-        storage_accesses_this_tx: Vec<slot_lock_manager::StorageAccess>, // get from the same cache you install
-        slot_lock_mgr: &slot_lock_manager::SlotLockManager,
-        l2_block_number: u64,
-    ) -> Result<(), PrecompileError> {
-        let l1 = read_l1block_from_db(evm_handle, sova_l1block_address())
-            .map_err(|e| PrecompileError::Other(format!("Failed to read L1 block info: {e}")))?;
-
-        let req = SlotLockRequest {
-            transaction_context: current_tx_context(evm_handle)?, // TODO helper like tx_to_context
-            block_context: BlockContext {
-                number: l2_block_number,
-                btc_block_height: l1.btc_height,
-            },
-            precompile_call: Some(PrecompileCall {
-                method: BroadcastTransaction,
-                // TODO: fill required fields from actual precompile call context
-                caller: alloy_primitives::Address::ZERO,
-                target: alloy_primitives::Address::ZERO,
-                input: alloy_primitives::Bytes::new(),
-                gas_limit: 0,
-            }),
-            storage_accesses: storage_accesses_this_tx,
-        };
-
-        let response = slot_lock_mgr
-            .check_precompile_call(req)
-            .await
-            .map_err(|e| PrecompileError::Other(format!("SlotLockManager error: {e}")))?;
-
-        match response.decision {
-            SlotLockDecision::AllowTx => Ok(()),
-            SlotLockDecision::BlockTx { reason } => Err(PrecompileError::Other(reason)),
-            SlotLockDecision::RevertTxWithSlotData { slots } => {
-                for slot_revert in slots {
-                    // evm_handle.db_mut().set_storage(slot_revert.address, slot_revert.slot, slot_revert.revert_to);
-                    tracing::debug!(
-                        "Would revert storage at {:?}:{:?} to {:?}",
-                        slot_revert.address,
-                        slot_revert.slot,
-                        slot_revert.revert_to
-                    );
-                }
-                Err(PrecompileError::Other("slot lock enforcement".to_string()))
-            }
-        }
-    }
-
-    // Phase-2 finalize (only after a successful broadcast):
-    pub fn broadcast_finalize(
-        evm_handle: &dyn StorageReader,
-        slot_lock_mgr: &slot_lock_manager::SlotLockManager,
-        txid: Vec<u8>,
-    ) -> Result<(), PrecompileError> {
-        let l1 = read_l1block_from_db(evm_handle, sova_l1block_address())
-            .map_err(|e| PrecompileError::Other(format!("Failed to read L1 block info: {e}")))?;
-
-        slot_lock_mgr.finalize_broadcast(txid, l1.btc_height);
-
-        Ok(())
-    }
-}
-
-// Helper function placeholder
-fn current_tx_context(
-    _evm_handle: &dyn StorageReader,
-) -> Result<TransactionContext, PrecompileError> {
-    // TODO: fill all fields your types.rs expects from actual transaction context
-    Ok(TransactionContext {
-        operation_id: uuid::Uuid::new_v4(),
-        caller: alloy_primitives::Address::ZERO,
-        target: alloy_primitives::Address::ZERO,
-    })
 }

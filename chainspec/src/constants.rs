@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeMap, str::FromStr};
 
-use alloy_primitives::{address, Address, B256, U256};
+use alloy_primitives::{address, hex, Address, B256, U256};
 use reth_chainspec::{ChainHardforks, EthereumHardfork, ForkCondition, Hardfork};
 use reth_optimism_forks::OpHardfork;
 
@@ -121,12 +121,12 @@ pub fn sova_l1_block_contract_storage() -> BTreeMap<B256, B256> {
     sova_btc_storage
 }
 
-// // SovaL1Block contract properties
-// // NOTE(powvt): this corresponds with the SovaL1Block fn selector: `setBitcoinBlockData(uint64,bytes32) nonpayable`
-// pub const L1_BLOCK_SATOSHI_SELECTOR: [u8; 4] = hex!("cb0d2046");
-// pub const L1_BLOCK_CONTRACT_CALLER: Address =
-//     address!("0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001");
-// pub const L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT: U256 = U256::ZERO;
+// SovaL1Block contract properties
+// NOTE(powvt): this corresponds with the SovaL1Block fn selector: `setBitcoinBlockData(uint64,bytes32) nonpayable`
+pub const L1_BLOCK_SATOSHI_SELECTOR: [u8; 4] = hex!("cb0d2046");
+pub const L1_BLOCK_CONTRACT_CALLER: Address =
+    address!("0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001");
+pub const L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT: U256 = U256::ZERO;
 
 // SovaBTC contract address
 pub const SOVA_BTC_CONTRACT_ADDRESS: Address =
