@@ -2,7 +2,6 @@ use crate::{
     alloy::{SovaEvm, SovaEvmFactory},
     SovaEvmConfig, SovaTxEnv,
 };
-use alloy_consensus::transaction::Recovered;
 use alloy_evm::{
     block::{
         BlockExecutionError, BlockExecutionResult, BlockExecutor, BlockExecutorFactory,
@@ -11,7 +10,6 @@ use alloy_evm::{
     Database, Evm,
 };
 use alloy_op_evm::{OpBlockExecutionCtx, OpBlockExecutor};
-use alloy_primitives::{Address, U256};
 use eyre::Result;
 use reth_ethereum::evm::primitives::InspectorFor;
 use reth_op::node::OpRethReceiptBuilder;
@@ -19,12 +17,10 @@ use reth_op::OpReceipt;
 use reth_op::OpTransactionSigned;
 use reth_optimism_chainspec::OpChainSpec;
 use revm::{context::result::ExecutionResult, database::State};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub struct SovaBlockExecutor<Evm> {
     inner: OpBlockExecutor<Evm, OpRethReceiptBuilder, Arc<OpChainSpec>>,
-    revert_plan: BTreeMap<(Address, U256), U256>, // (addr, slot) -> prev
 }
 
 impl<'db, DB, E> BlockExecutor for SovaBlockExecutor<E>
@@ -37,37 +33,37 @@ where
     type Evm = E;
 
     fn apply_pre_execution_changes(&mut self) -> Result<(), BlockExecutionError> {
-        if !self.revert_plan.is_empty() {
-            let _evm = self.evm_mut();
-            // TODO: get a mutable DB handle from `evm` and do set_storage writes:
-            for ((addr, slot), prev) in std::mem::take(&mut self.revert_plan) {
-                // _evm.db_mut().set_storage(addr, slot, prev);
-                tracing::debug!("Would revert storage at {addr:?}:{slot:?} to {prev:?}");
-            }
-        }
         self.inner.apply_pre_execution_changes()
     }
 
+    /// This method has been modified to execute the transaction twice.
+    ///
+    /// The first execution is to collect any reverted slots using the state changes and the slot-lock-manager.
+    ///
+    /// If there are any slots that need to be reverted due to a Bitcoin transaction not being finalized in
+    /// Bitcoin mainnet these database changes are applied prior to the second execution.
+    ///
+    /// The second execution of the tx (after the reverts have been applied to db) determines the final
+    /// ExecutionResult for that tx. It is possible for the tx to fail the first execution, reverts get
+    /// applied to db and succeed on the second execution.
     fn execute_transaction_with_commit_condition(
         &mut self,
         tx: impl ExecutableTx<Self>,
         f: impl FnOnce(&ExecutionResult<<Self::Evm as Evm>::HaltReason>) -> CommitChanges,
     ) -> Result<Option<u64>, BlockExecutionError> {
-        // TODO: Execute transaction to collect state changes
-        // TODO: process state changes using `SlotLockManager::check_precompile_call()`
-        // TODO: Apply state reversion using `evm.db_mut()` if there is any reverted slots returned from check_precompile_call
+        // TODO1: Execute transaction to collect state changes
+        // TODO1: process state changes using `SlotLockManager::check_precompile_call()`
 
-        // TODO: Execute tx again with the applied state changes
-        self.inner.execute_transaction_with_commit_condition(
-            Recovered::new_unchecked(tx.tx(), *tx.signer()),
-            f,
-        )
+        // TODO2: Apply state reversion using `evm.db_mut()` if there is any reverted slots returned from check_precompile_call
+
+        // TODO3: Execute tx again with the applied state changes
+        self.inner.execute_transaction_with_commit_condition(tx, f)
     }
 
     fn finish(self) -> Result<(Self::Evm, BlockExecutionResult<OpReceipt>), BlockExecutionError> {
         self.inner.finish()
 
-        // TODO: call SlotLockManager::update_sentinel_locks() so that everything in the finalized broadcast cache (lock_data)
+        // TODO4: call SlotLockManager::update_sentinel_locks() so that everything in the finalized broadcast cache (lock_data)
         // gets added to the sentinel database for future tracking
     }
 
@@ -110,7 +106,6 @@ impl BlockExecutorFactory for SovaEvmConfig {
                 self.inner.chain_spec().clone(),
                 *self.inner.executor_factory.receipt_builder(),
             ),
-            revert_plan: BTreeMap::new(),
         }
     }
 }
