@@ -84,6 +84,7 @@ pub struct SlotLockManager {
     cache: Arc<RwLock<StorageCache>>,
     sentinel_client: Arc<dyn SentinelClient>,
     slot_revert_cache: Arc<RwLock<Vec<SlotRevert>>>,
+    #[allow(dead_code)]
     config: SlotLockManagerConfig,
 }
 
@@ -183,8 +184,8 @@ impl SlotLockManager {
         for access in accesses {
             let change = SlotChange {
                 key: U256::from_be_bytes(access.slot.0),
-                value: access.new_value.into(),
-                had_value: Some(access.previous_value.into()),
+                value: access.new_value,
+                had_value: Some(access.previous_value),
             };
 
             cache.insert_broadcast_accessed_storage(access.address, access.slot, change);
@@ -196,8 +197,10 @@ impl SlotLockManager {
         &self,
         request: &SlotLockRequest,
     ) -> Result<SlotLockDecision, SlotLockError> {
-        let cache = self.cache.read();
-        let accessed_storage = &cache.broadcast_accessed_storage;
+        let accessed_storage = {
+            let cache = self.cache.read();
+            cache.broadcast_accessed_storage.clone()
+        };
 
         if accessed_storage.0.is_empty() {
             return Ok(SlotLockDecision::AllowTx);
@@ -206,7 +209,7 @@ impl SlotLockManager {
         let response = self
             .sentinel_client
             .batch_get_locked_status(
-                accessed_storage,
+                &accessed_storage,
                 request.block_context.number,
                 request.block_context.btc_block_height,
             )
@@ -282,8 +285,7 @@ impl SlotLockManager {
         &self,
         response: sova_sentinel_proto::proto::GetSlotStatusResponse,
     ) -> SlotRevert {
-        let address =
-            Address::from_str(&response.contract_address).unwrap_or_else(|_| Address::ZERO);
+        let address = Address::from_str(&response.contract_address).unwrap_or(Address::ZERO);
 
         let mut key_bytes = [0u8; 32];
         key_bytes[32 - response.slot_index.len()..].copy_from_slice(&response.slot_index);
@@ -310,9 +312,12 @@ impl SlotLockManager {
         &self,
         locked_block_number: u64,
     ) -> Result<(), SlotLockError> {
-        let cache = self.cache.read();
+        let lock_data = {
+            let cache = self.cache.read();
+            cache.lock_data.clone()
+        };
 
-        for (broadcast_result, accessed_storage) in cache.lock_data.iter() {
+        for (broadcast_result, accessed_storage) in lock_data.iter() {
             if let (Some(btc_txid), Some(btc_block)) =
                 (broadcast_result.txid.as_ref(), broadcast_result.block)
             {
@@ -334,7 +339,6 @@ impl SlotLockManager {
         }
 
         // Clear cache after updating locks
-        drop(cache);
         self.cache.write().clear_cache();
         self.slot_revert_cache.write().clear();
 

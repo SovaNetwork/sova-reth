@@ -18,7 +18,7 @@ pub fn read_l1block_from_db(db: &dyn StorageReader, addr: Address) -> Result<L1B
     let h = db.storage(addr, SLOT_BTC_HEIGHT)?;
     let hh = db.storage(addr, SLOT_BTC_HASH)?;
     Ok(L1BlockInfo {
-        btc_height: h.as_limbs()[0] as u64,
+        btc_height: h.as_limbs()[0],
         btc_hash: B256::from(hh.to_be_bytes()),
     })
 }

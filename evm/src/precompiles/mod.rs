@@ -4,15 +4,9 @@ mod btc_client;
 mod precompile_utils;
 
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
-<<<<<<< HEAD:backup/precompiles/mod.rs
-pub use btc_client::{BitcoinClient, BitcoinClientError, SovaL1BlockInfo};
-use revm::precompile::PrecompileWithAddress;
-use sova_cli::BitcoinConfig;
-=======
-pub use btc_client::BitcoinClient;
+pub use btc_client::{BitcoinClient, BitcoinClientError};
 use revm_precompile::interface::{PrecompileError, PrecompileResult};
 use tracing::{debug, info, warn};
->>>>>>> ff5b7ec (integrate partial slot lock manager code):evm/src/precompiles/mod.rs
 
 use std::{env, str::FromStr, sync::Arc};
 
@@ -34,7 +28,6 @@ use slot_lock_manager::{
     BitcoinPrecompileMethod::BroadcastTransaction, BlockContext, PrecompileCall, SlotLockDecision,
     SlotLockRequest, TransactionContext,
 };
-use uuid;
 
 #[derive(Debug, Clone)]
 pub struct SovaBitcoinConfig {
@@ -42,6 +35,7 @@ pub struct SovaBitcoinConfig {
     pub network_url: String,
     pub rpc_username: String,
     pub rpc_password: String,
+    pub rpc_connection_type: String,
 }
 
 impl SovaBitcoinConfig {
@@ -50,13 +44,20 @@ impl SovaBitcoinConfig {
         network_url: &str,
         rpc_username: &str,
         rpc_password: &str,
+        rpc_connection_type: &str,
     ) -> Self {
         Self {
             network,
             network_url: network_url.to_string(),
             rpc_username: rpc_username.to_string(),
             rpc_password: rpc_password.to_string(),
+            rpc_connection_type: rpc_connection_type.to_string(),
         }
+    }
+
+    pub fn with_connection_type(mut self, connection_type: &str) -> Self {
+        self.rpc_connection_type = connection_type.to_string();
+        self
     }
 }
 
@@ -147,8 +148,8 @@ impl BitcoinRpcPrecompile {
             &env::var("SOVA_BTC_NETWORK_URL").unwrap(),
             &env::var("SOVA_BTC_RPC_USERNAME").unwrap(),
             &env::var("SOVA_BTC_RPC_PASSWORD").unwrap(),
+            &env::var("SOVA_RPC_CONNECTION_TYPE").unwrap(),
         )
-        .with_connection_type(&env::var("SOVA_RPC_CONNECTION_TYPE").unwrap())
     }
 
     pub fn client_from_env() -> Arc<BitcoinClient> {
@@ -157,14 +158,23 @@ impl BitcoinRpcPrecompile {
 
         let bitcoin_config = BitcoinRpcPrecompile::config_from_env();
 
+        // Convert SovaBitcoinConfig to BitcoinConfig
+        let btc_config = btc_client::BitcoinConfig {
+            network: bitcoin_config.network,
+            network_url: bitcoin_config.network_url.clone(),
+            rpc_username: bitcoin_config.rpc_username.clone(),
+            rpc_password: bitcoin_config.rpc_password.clone(),
+            rpc_connection_type: bitcoin_config.rpc_connection_type.clone(),
+        };
+
         Arc::new(
             BitcoinClient::new(
-                &bitcoin_config,
+                &btc_config,
                 env::var("SOVA_SENTINEL_CONFIRMATION_THRESHOLD")
                     .unwrap()
                     .parse::<u8>()
                     .unwrap(),
-                &bitcoin_config.rpc_connection_type,
+                &btc_config.rpc_connection_type,
             )
             .unwrap(),
         )

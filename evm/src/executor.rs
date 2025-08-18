@@ -54,21 +54,14 @@ where
         f: impl FnOnce(&ExecutionResult<<Self::Evm as Evm>::HaltReason>) -> CommitChanges,
     ) -> Result<Option<u64>, BlockExecutionError> {
         // TODO: Execute transaction to collect state changes
-        let ResultAndState { result, state } =
-            self.inner.evm.transact(&tx).map_err(move |err| BlockExecutionError::evm(err, hash))?;
-
         // TODO: process state changes using `SlotLockManager::check_precompile_call()`
-
         // TODO: Apply state reversion using `evm.db_mut()` if there is any reverted slots returned from check_precompile_call
 
-        // Execute tx
+        // TODO: Execute tx again with the applied state changes
         self.inner.execute_transaction_with_commit_condition(
             Recovered::new_unchecked(tx.tx(), *tx.signer()),
             f,
         )
-
-        // TODO: If tx successfully executes call SlotLockManager::finalize_broadcast() to store the bitcoin data that is
-        // tied to the successful block execution
     }
 
     fn finish(self) -> Result<(Self::Evm, BlockExecutionResult<OpReceipt>), BlockExecutionError> {

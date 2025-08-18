@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, Bytes, StorageKey, StorageValue, B256, U256};
+use alloy_primitives::{Address, Bytes, StorageKey, StorageValue, U256};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
