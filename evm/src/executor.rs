@@ -35,7 +35,6 @@ use revm::{
 };
 use slot_lock_manager::{BlockContext, TransactionContext};
 use std::sync::Arc;
-use tracing::info;
 use uuid::Uuid;
 
 /// Block executor for Sova.
@@ -107,7 +106,7 @@ where
     fn get_btc_height_from_l1block(&mut self) -> Result<u64, BlockExecutionError> {
         // For genesis block (block 0), return BTC height 0 without contract access
         let current_block_number = self.evm.block().number.saturating_to::<u64>();
-        if current_block_number <= 1 {
+        if current_block_number == 1 {
             return Ok(0);
         }
 
@@ -222,11 +221,6 @@ where
             .transact(tx)
             .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        info!(
-            "first_state has {} accounts with changes",
-            first_state.len()
-        );
-
         // Create context for SlotLockManager
         let transaction_context = TransactionContext {
             operation_id: Uuid::new_v4(),
@@ -239,8 +233,8 @@ where
             btc_block_height: self.get_btc_height_from_l1block()?,
         };
 
-        // Feed the EVM state to slot-lock-manager (queries Sentinel and fills revert cache)
-        let _slot_response = self
+        // Pass EVM state to slot-lock-manager (queries Sentinel for lock status, caches calls to broadcast precompile, fills revert cache)
+        self
             .slot_lock_manager
             .check_evm_state(&first_state, transaction_context, block_context, None)
             .map_err(BlockExecutionError::other)?;
@@ -417,7 +411,7 @@ impl BlockExecutorFactory for SovaEvmConfig {
         I: InspectorFor<Self, &'a mut State<DB>> + 'a,
     {
         let slot_lock_manager =
-            crate::assembler::build_slot_lock_manager().expect("Failed to build slot lock manager");
+            SlotLockManager::build_default().expect("Failed to build slot lock manager");
 
         SovaBlockExecutor::new(
             evm,

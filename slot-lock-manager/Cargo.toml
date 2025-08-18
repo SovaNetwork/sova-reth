@@ -7,32 +7,24 @@ edition = "2021"
 # Sova
 sova-chainspec.workspace = true
 
-# Core types
+# Sova Sentinel
+sova-sentinel-client.workspace = true
+sova-sentinel-proto.workspace = true
+
+# Core deps
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rlp.workspace = true
 revm.workspace = true
 
-# Async runtime and utilities
+# Misc deps
+eyre.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
 parking_lot.workspace = true
-
-# Error handling and logging
 thiserror.workspace = true
 tracing.workspace = true
-
-# Serialization and utilities
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 hex.workspace = true
 uuid.workspace = true
-
-# gRPC client
 tonic.workspace = true
-
-# Sentinel client dependencies
-sova-sentinel-client.workspace = true
-sova-sentinel-proto.workspace = true
-
-[dev-dependencies]
-mockall = "0.12"

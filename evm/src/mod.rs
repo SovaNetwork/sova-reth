@@ -8,7 +8,7 @@ mod executor;
 mod precompiles;
 
 pub use alloy::SovaEvm;
-pub use assembler::{build_slot_lock_manager, SovaBlockAssembler};
+pub use assembler::SovaBlockAssembler;
 pub use builder::SovaExecutorBuilder;
 pub use config::SovaEvmConfig;
 pub use env::{sova_l1block_address, SovaTxEnv};

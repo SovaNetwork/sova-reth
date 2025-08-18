@@ -3,6 +3,7 @@ use std::sync::Arc;
 use alloy_consensus::Header;
 use alloy_evm::block::{BlockExecutionError, BlockExecutorFactory};
 use alloy_op_evm::OpBlockExecutionCtx;
+
 use reth_ethereum::{
     evm::primitives::execute::{BlockAssembler, BlockAssemblerInput},
     primitives::Receipt,
@@ -12,20 +13,6 @@ use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::OpBlockAssembler;
 use reth_optimism_primitives::OpPrimitives;
 use reth_primitives_traits::NodePrimitives;
-
-use slot_lock_manager::{SentinelClientImpl, SlotLockManager, SlotLockManagerConfig};
-use sova_chainspec::L1_BLOCK_CONTRACT_ADDRESS;
-
-pub fn build_slot_lock_manager() -> eyre::Result<Arc<SlotLockManager>> {
-    let sentinel_url =
-        std::env::var("SENTINEL_URL").unwrap_or_else(|_| "http://localhost:50051".to_string());
-    let cfg = SlotLockManagerConfig::builder()
-        .sentinel_url(sentinel_url.clone())
-        .excluded_address(L1_BLOCK_CONTRACT_ADDRESS)
-        .build();
-    let sentinel = Arc::new(SentinelClientImpl::new(sentinel_url));
-    Ok(Arc::new(SlotLockManager::new(cfg, sentinel)))
-}
 
 #[derive(Clone, Debug)]
 pub struct SovaBlockAssembler {

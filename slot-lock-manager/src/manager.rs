@@ -1,79 +1,37 @@
 use crate::{
     cache::{BroadcastResult, StorageCache},
-    client::SentinelClient,
+    client::{SentinelClient, SentinelClientImpl},
     error::SlotLockError,
     types::*,
 };
 use alloy_primitives::{Address, U256};
 use parking_lot::RwLock;
-use revm::database::BundleState;
 use serde_json::json;
-use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_BTC_CONTRACT_ADDRESS};
+use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, L1_BLOCK_CONTRACT_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
 use sova_sentinel_proto::proto::get_slot_status_response::Status;
 use std::{str::FromStr, sync::Arc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Configuration for the SlotLockManager
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SlotLockManagerConfig {
     pub bitcoin_precompile_addresses: [Address; 4],
     pub excluded_addresses: Vec<Address>,
     pub sentinel_url: String,
 }
 
-impl Default for SlotLockManagerConfig {
-    fn default() -> Self {
-        Self {
-            bitcoin_precompile_addresses: BITCOIN_PRECOMPILE_ADDRESSES,
-            excluded_addresses: vec![],
-            sentinel_url: "http://localhost:50051".to_string(),
-        }
-    }
-}
-
 impl SlotLockManagerConfig {
-    pub fn builder() -> SlotLockManagerConfigBuilder {
-        SlotLockManagerConfigBuilder::default()
-    }
-}
-
-#[derive(Default)]
-pub struct SlotLockManagerConfigBuilder {
-    bitcoin_precompile_addresses: Option<[Address; 4]>,
-    excluded_addresses: Vec<Address>,
-    sentinel_url: Option<String>,
-}
-
-impl SlotLockManagerConfigBuilder {
-    pub fn bitcoin_precompile_addresses(mut self, addresses: [Address; 4]) -> Self {
-        self.bitcoin_precompile_addresses = Some(addresses);
-        self
-    }
-
-    pub fn excluded_address(mut self, address: Address) -> Self {
-        self.excluded_addresses.push(address);
-        self
-    }
-
-    pub fn excluded_addresses(mut self, addresses: Vec<Address>) -> Self {
-        self.excluded_addresses.extend(addresses);
-        self
-    }
-
-    pub fn sentinel_url(mut self, url: impl Into<String>) -> Self {
-        self.sentinel_url = Some(url.into());
-        self
-    }
-
-    pub fn build(self) -> SlotLockManagerConfig {
-        SlotLockManagerConfig {
-            bitcoin_precompile_addresses: self
-                .bitcoin_precompile_addresses
+    pub fn new(
+        bitcoin_precompile_addresses: Option<[Address; 4]>,
+        excluded_addresses: Vec<Address>,
+        sentinel_url: Option<String>,
+    ) -> Self {
+        Self {
+            bitcoin_precompile_addresses: bitcoin_precompile_addresses
                 .unwrap_or(BITCOIN_PRECOMPILE_ADDRESSES),
-            excluded_addresses: self.excluded_addresses,
-            sentinel_url: self
-                .sentinel_url
+            excluded_addresses,
+            sentinel_url: sentinel_url
                 .unwrap_or_else(|| "http://localhost:50051".to_string()),
         }
     }
@@ -102,6 +60,18 @@ impl SlotLockManager {
             slot_revert_cache: Arc::new(RwLock::new(Vec::new())),
             config,
         }
+    }
+
+    pub fn build_default() -> eyre::Result<Arc<Self>> {
+        let sentinel_url = std::env::var("SENTINEL_URL")
+            .unwrap_or_else(|_| "http://localhost:50051".to_string());
+        let cfg = SlotLockManagerConfig::new(
+            None,
+            vec![L1_BLOCK_CONTRACT_ADDRESS],
+            Some(sentinel_url.clone()),
+        );
+        let sentinel = Arc::new(SentinelClientImpl::new(sentinel_url));
+        Ok(Arc::new(Self::new(cfg, sentinel)))
     }
 
     /// Check if a Bitcoin precompile call should be allowed
@@ -133,29 +103,6 @@ impl SlotLockManager {
         }
     }
 
-    /// Synchronous method that can be called from within a tokio runtime to
-    pub fn check_bundle_state(
-        &self,
-        bundle: &BundleState,
-        transaction_context: TransactionContext,
-        block_context: BlockContext,
-        precompile_call: Option<PrecompileCall>,
-    ) -> Result<SlotLockResponse, SlotLockError> {
-        // Convert BundleState to StorageAccess format for internal processing
-        let storage_accesses = self.extract_storage_accesses_from_bundle(bundle);
-
-        // Create SlotLockRequest with the extracted data
-        let request = SlotLockRequest {
-            transaction_context,
-            block_context,
-            precompile_call,
-            storage_accesses,
-        };
-
-        // Use a synchronous version of the check
-        self.check_bundle_state_sync(request)
-    }
-
     /// Check EVM state for slot locks (preferred method for capturing storage changes)
     pub fn check_evm_state(
         &self,
@@ -184,17 +131,14 @@ impl SlotLockManager {
         &self,
         request: SlotLockRequest,
     ) -> Result<SlotLockResponse, SlotLockError> {
-        debug!(target: "slot_lock_manager", "check_bundle_state_sync called");
-
-        // Process storage changes
+        // Process storage changes - save to broadcast_accessed_storage
         self.process_storage_changes(&request.storage_accesses);
 
         // Get accessed storage
-        let accessed_storage = {
-            let cache = self.cache.read();
-            cache.broadcast_accessed_storage.clone()
-        };
+        let cache = self.cache.read();
+        let accessed_storage = cache.broadcast_accessed_storage.clone();
 
+        // return early if no bitcoin tx triggered
         if accessed_storage.0.is_empty() {
             return Ok(SlotLockResponse {
                 decision: SlotLockDecision::AllowTx,
@@ -314,63 +258,12 @@ impl SlotLockManager {
         }
     }
 
-    /// Extract StorageAccess from BundleState for internal processing
-    fn extract_storage_accesses_from_bundle(&self, bundle: &BundleState) -> Vec<StorageAccess> {
-        let mut storage_accesses = Vec::new();
-
-        debug!(target: "slot_lock_manager",
-            "Bundle state has {} accounts",
-            bundle.state().len()
-        );
-
-        // Iterate through all accounts in the bundle state
-        for (address, bundle_account) in bundle.state() {
-            debug!(target: "slot_lock_manager",
-                "Bundle account: {:?}, storage slots: {}, status: {:?}",
-                address,
-                bundle_account.storage.len(),
-                bundle_account.status
-            );
-
-            // Extract storage changes from the bundle account
-            for (slot_key, storage_slot) in &bundle_account.storage {
-                debug!(target: "slot_lock_manager",
-                    "Storage slot: key={:?}, previous={:?}, present={:?}",
-                    slot_key,
-                    storage_slot.previous_or_original_value,
-                    storage_slot.present_value
-                );
-
-                let storage_access = StorageAccess {
-                    address: *address,
-                    slot: alloy_primitives::StorageKey::from(*slot_key),
-                    previous_value: alloy_primitives::StorageValue::from(
-                        storage_slot.previous_or_original_value,
-                    ),
-                    new_value: alloy_primitives::StorageValue::from(storage_slot.present_value),
-                };
-                storage_accesses.push(storage_access);
-            }
-        }
-
-        debug!(target: "slot_lock_manager",
-            "Extracted {} storage accesses from bundle",
-            storage_accesses.len()
-        );
-        storage_accesses
-    }
-
     /// Extract StorageAccess from EvmState for internal processing (preferred method)
     fn extract_storage_accesses_from_evm_state(
         &self,
         evm_state: &revm::state::EvmState,
     ) -> Vec<StorageAccess> {
         let mut storage_accesses = Vec::new();
-
-        debug!(target: "slot_lock_manager",
-            "EVM state has {} accounts",
-            evm_state.len()
-        );
 
         // Iterate through all accounts in the EVM state
         for (address, account) in evm_state.iter() {
@@ -402,10 +295,6 @@ impl SlotLockManager {
             }
         }
 
-        debug!(target: "slot_lock_manager",
-            "Extracted {} storage accesses from EVM state",
-            storage_accesses.len()
-        );
         storage_accesses
     }
 
@@ -636,6 +525,7 @@ impl SlotLockManager {
 
         Ok(())
     }
+
     /// Get pending slot reverts
     pub fn get_pending_reverts(&self) -> Vec<SlotRevert> {
         self.slot_revert_cache.read().clone()
