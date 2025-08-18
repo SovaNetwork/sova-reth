@@ -1,6 +1,7 @@
 mod alloy;
 mod assembler;
 mod builder;
+mod canyon;
 mod config;
 mod env;
 mod executor;

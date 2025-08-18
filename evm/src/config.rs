@@ -6,8 +6,8 @@ use reth_ethereum::{
     node::api::ConfigureEvm,
     primitives::{SealedBlock, SealedHeader},
 };
-use reth_op::node::{OpEvmConfig, OpNextBlockEnvAttributes, OpRethReceiptBuilder};
 use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes, OpRethReceiptBuilder};
 use reth_optimism_primitives::OpPrimitives;
 use reth_primitives_traits::NodePrimitives;
 use std::sync::Arc;

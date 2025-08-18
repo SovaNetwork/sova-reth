@@ -14,9 +14,10 @@ sova-chainspec.workspace = true
 slot-lock-manager.workspace = true
 
 # reth
-reth-ethereum.workspace = true
+reth-ethereum = { workspace = true, features = ["node-api"] }
 reth-node-builder.workspace = true
 reth-optimism-chainspec.workspace = true
+reth-optimism-evm.workspace = true
 reth-optimism-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-op.workspace = true
@@ -27,11 +28,14 @@ revm-precompile.workspace = true
 
 # alloy
 alloy-consensus.workspace = true
+alloy-eips.workspace = true
 alloy-evm.workspace = true
 alloy-op-evm.workspace = true
+alloy-op-hardforks.workspace = true
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 alloy-dyn-abi.workspace = true
+op-alloy-consensus.workspace = true
 op-revm.workspace = true
 
 # bitcoin
@@ -40,6 +44,7 @@ bitcoincore-rpc.workspace = true
 
 # misc
 async-trait.workspace = true
+auto_impl.workspace = true
 eyre.workspace = true
 hex.workspace = true
 once_cell.workspace = true

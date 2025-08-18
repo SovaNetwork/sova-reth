@@ -7,12 +7,12 @@ use reth_ethereum::{
     evm::primitives::execute::{BlockAssembler, BlockAssemblerInput},
     primitives::Receipt,
 };
-use reth_op::{node::OpBlockAssembler, DepositReceipt};
+use reth_op::DepositReceipt;
 use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_evm::OpBlockAssembler;
 use reth_optimism_primitives::OpPrimitives;
 use reth_primitives_traits::NodePrimitives;
 
-// SlotLockManager DI imports
 use slot_lock_manager::{SentinelClientImpl, SlotLockManager, SlotLockManagerConfig};
 use sova_chainspec::L1_BLOCK_CONTRACT_ADDRESS;
 
