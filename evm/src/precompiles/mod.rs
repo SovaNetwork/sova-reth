@@ -257,7 +257,6 @@ impl BitcoinRpcPrecompile {
     }
 
     pub fn run_decode_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
-        info!("run_decode_transaction!");
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used based on input length

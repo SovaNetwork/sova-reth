@@ -288,8 +288,6 @@ impl BitcoinClient {
         sentinel_confirmation_threshold: u8,
         connection_type: &str,
     ) -> Result<Self, BitcoinClientError> {
-        println!("Creating Bitcoin client with connection type: {connection_type}");
-
         let rpc_client: Arc<dyn BitcoinRpcClient> = match connection_type {
             "bitcoincore" => Arc::new(BitcoinCoreRpcClient::new(config)?),
             "external" => Arc::new(ExternalRpcClient::new(config)?),

@@ -3,6 +3,8 @@ use crate::{
     canyon::ensure_create2_deployer,
     SovaEvmConfig,
 };
+use alloy_primitives::U256;
+use slot_lock_manager::{SlotLockDecision, SlotLockManager};
 extern crate alloc;
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 use alloy_consensus::{Eip658Value, Header, Transaction, TxReceipt};
@@ -27,12 +29,15 @@ use reth_op::OpReceipt;
 use reth_op::OpTransactionSigned;
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
-    database::State,
+    database::{states::bundle_state::BundleRetention, State},
     DatabaseCommit,
 };
+use slot_lock_manager::{BlockContext, TransactionContext};
+use std::sync::Arc;
+use uuid::Uuid;
 
 /// Block executor for Sova.
-/// 
+///
 /// Modeled after: https://github.com/alloy-rs/evm/blob/main/crates/op-evm/src/block/mod.rs
 #[derive(Debug)]
 pub struct SovaBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
@@ -53,6 +58,8 @@ pub struct SovaBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
     is_regolith: bool,
     /// Utility to call system smart contracts.
     system_caller: SystemCaller<Spec>,
+    /// Slot lock manager for Bitcoin finality checking.
+    slot_lock_manager: Arc<SlotLockManager>,
 }
 
 impl<E, R, Spec> SovaBlockExecutor<E, R, Spec>
@@ -62,7 +69,13 @@ where
     Spec: OpHardforks + Clone,
 {
     /// Creates a new [`SovaBlockExecutor`].
-    pub fn new(evm: E, ctx: OpBlockExecutionCtx, spec: Spec, receipt_builder: R) -> Self {
+    pub fn new(
+        evm: E,
+        ctx: OpBlockExecutionCtx,
+        spec: Spec,
+        receipt_builder: R,
+        slot_lock_manager: Arc<SlotLockManager>,
+    ) -> Self {
         Self {
             is_regolith: spec
                 .is_regolith_active_at_timestamp(evm.block().timestamp.saturating_to()),
@@ -73,6 +86,7 @@ where
             receipts: Vec::new(),
             gas_used: 0,
             ctx,
+            slot_lock_manager,
         }
     }
 }
@@ -164,38 +178,124 @@ where
 
         let hash = tx.tx().trie_hash();
 
-        // TODO1: Execute transaction to collect state changes
-        // TODO1: process state changes using `SlotLockManager::check_precompile_call()`
+        // Save the current bundle state before any execution
+        let pre_execution_bundle = self.evm.db_mut().take_bundle();
 
-        // TODO2: Apply state reversion using `evm.db_mut()` if there is any reverted slots returned from check_precompile_call
-
-        // TODO3: Execute tx again with the applied state changes
-
-        // Execute transaction.
-        let ResultAndState { result, state } = self
+        // First execution to collect state changes
+        let ResultAndState {
+            result: first_result,
+            state: first_state,
+        } = self
             .evm
             .transact(tx)
             .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        if !f(&result).should_commit() {
+        // Merge transitions to create bundle state (this uses the changes from transact)
+        self.evm
+            .db_mut()
+            .merge_transitions(BundleRetention::Reverts);
+
+        // Take the bundle for slot lock checking
+        let execution_bundle = self.evm.db_mut().take_bundle();
+
+        // Create context for SlotLockManager
+        let transaction_context = TransactionContext {
+            operation_id: Uuid::new_v4(),
+            caller: *tx.signer(),
+            target: tx.tx().to().unwrap_or_default(),
+        };
+
+        let block_context = BlockContext {
+            number: self.evm.block().number.saturating_to::<u64>(),
+            btc_block_height: self.evm.block().number.saturating_to::<u64>(), // TODO: Get actual BTC height from L1Block
+        };
+
+        // Check with slot lock manager
+        let slot_response = self
+            .slot_lock_manager
+            .check_bundle_state(&execution_bundle, transaction_context, block_context, None)
+            .map_err(BlockExecutionError::other)?;
+
+        // Restore pre-execution bundle state
+        self.evm.db_mut().bundle_state = pre_execution_bundle;
+
+        // Determine final result based on slot lock decision
+        let (final_result, final_state) = match slot_response.decision {
+            SlotLockDecision::AllowTx => {
+                // Transaction is allowed, use the first execution result
+                (first_result, first_state)
+            }
+            SlotLockDecision::BlockTx { reason } => {
+                // Transaction should be blocked - use BlockExecutionError::other
+                // We need to create a proper error type
+                #[derive(Debug)]
+                struct SlotLockBlockError(String);
+                impl std::fmt::Display for SlotLockBlockError {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(f, "{}", self.0)
+                    }
+                }
+                impl std::error::Error for SlotLockBlockError {}
+
+                return Err(BlockExecutionError::other(SlotLockBlockError(format!(
+                    "Transaction blocked by slot lock manager: {reason}"
+                ))));
+            }
+            SlotLockDecision::RevertTxWithSlotData { slots } => {
+                // Apply the slot reverts to the cache state
+                for revert in slots.iter() {
+                    // Load the account into cache if not present
+                    let account = self
+                        .evm
+                        .db_mut()
+                        .load_cache_account(revert.address)
+                        .map_err(BlockExecutionError::other)?;
+
+                    // Update storage if account exists
+                    if let Some(ref mut plain_account) = account.account {
+                        let storage_key = U256::from_be_bytes(revert.slot.to_be_bytes::<32>());
+                        let revert_value =
+                            U256::from_be_bytes(revert.revert_to.to_be_bytes::<32>());
+                        plain_account.storage.insert(storage_key, revert_value);
+                    }
+
+                    // Mark account as changed
+                    account.status = account.status.on_changed(false);
+                }
+
+                // Re-execute the transaction with the reverted state
+                let ResultAndState { result, state } = self
+                    .evm
+                    .transact(tx)
+                    .map_err(move |err| BlockExecutionError::evm(err, hash))?;
+
+                (result, state)
+            }
+        };
+
+        // Check if we should commit the result
+        if !f(&final_result).should_commit() {
             return Ok(None);
         }
 
-        self.system_caller
-            .on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
+        self.system_caller.on_state(
+            StateChangeSource::Transaction(self.receipts.len()),
+            &final_state,
+        );
 
-        let gas_used = result.gas_used();
+        let gas_used = final_result.gas_used();
 
         // append gas used
         self.gas_used += gas_used;
 
+        // Build receipt
         self.receipts.push(
             match self.receipt_builder.build_receipt(ReceiptBuilderCtx {
                 tx: tx.tx(),
-                result,
+                result: final_result,
                 cumulative_gas_used: self.gas_used,
                 evm: &self.evm,
-                state: &state,
+                state: &final_state,
             }) {
                 Ok(receipt) => receipt,
                 Err(ctx) => {
@@ -226,21 +326,23 @@ where
             },
         );
 
-        self.evm.db_mut().commit(state);
+        // ONLY commit the final state here
+        self.evm.db_mut().commit(final_state);
 
         Ok(Some(gas_used))
     }
-
     fn finish(
         mut self,
     ) -> Result<(Self::Evm, BlockExecutionResult<R::Receipt>), BlockExecutionError> {
         let balance_increments =
             post_block_balance_increments::<Header>(&self.spec, self.evm.block(), &[], None);
+
         // increment balances
         self.evm
             .db_mut()
             .increment_balances(balance_increments.clone())
             .map_err(|_| BlockValidationError::IncrementBalanceFailed)?;
+
         // call state hook with changes due to balance increments.
         self.system_caller.try_on_state_with(|| {
             balance_increment_state(&balance_increments, self.evm.db_mut()).map(|state| {
@@ -257,8 +359,10 @@ where
             .map(|r| r.cumulative_gas_used())
             .unwrap_or_default();
 
-        // TODO4: call SlotLockManager::update_sentinel_locks() so that everything in the finalized broadcast cache (lock_data)
-        // gets added to the sentinel database for future tracking
+        // Update sentinel locks for finalized transactions
+        self.slot_lock_manager
+            .update_sentinel_locks_sync(self.evm.block().number.saturating_to())
+            .map_err(BlockExecutionError::other)?;
 
         Ok((
             self.evm,
@@ -302,11 +406,15 @@ impl BlockExecutorFactory for SovaEvmConfig {
         DB: Database + 'a,
         I: InspectorFor<Self, &'a mut State<DB>> + 'a,
     {
+        let slot_lock_manager =
+            crate::assembler::build_slot_lock_manager().expect("Failed to build slot lock manager");
+
         SovaBlockExecutor::new(
             evm,
             ctx,
             self.inner.chain_spec().clone(),
             self.inner.executor_factory.receipt_builder(),
+            slot_lock_manager,
         )
     }
 }

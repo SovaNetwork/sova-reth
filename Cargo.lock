@@ -9718,6 +9718,7 @@ dependencies = [
  "hex",
  "mockall",
  "parking_lot",
+ "revm",
  "serde",
  "serde_json",
  "sova-chainspec",
@@ -9849,6 +9850,7 @@ dependencies = [
  "serde_json",
  "slot-lock-manager",
  "sova-chainspec",
+ "tokio",
  "tracing",
  "uuid",
 ]

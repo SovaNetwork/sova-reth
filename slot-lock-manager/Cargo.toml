@@ -10,6 +10,7 @@ sova-chainspec.workspace = true
 # Core types
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rlp.workspace = true
+revm.workspace = true
 
 # Async runtime and utilities
 tokio.workspace = true

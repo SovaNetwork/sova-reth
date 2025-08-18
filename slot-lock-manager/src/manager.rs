@@ -6,6 +6,7 @@ use crate::{
 };
 use alloy_primitives::{Address, U256};
 use parking_lot::RwLock;
+use revm::database::BundleState;
 use serde_json::json;
 use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_BTC_CONTRACT_ADDRESS};
 use sova_sentinel_proto::proto::get_slot_status_response::Status;
@@ -132,6 +133,214 @@ impl SlotLockManager {
         }
     }
 
+    /// Synchronous method that can be called from within a tokio runtime to 
+    pub fn check_bundle_state(
+        &self,
+        bundle: &BundleState,
+        transaction_context: TransactionContext,
+        block_context: BlockContext,
+        precompile_call: Option<PrecompileCall>,
+    ) -> Result<SlotLockResponse, SlotLockError> {
+        // Convert BundleState to StorageAccess format for internal processing
+        let storage_accesses = self.extract_storage_accesses_from_bundle(bundle);
+
+        // Create SlotLockRequest with the extracted data
+        let request = SlotLockRequest {
+            transaction_context,
+            block_context,
+            precompile_call,
+            storage_accesses,
+        };
+
+        // Use a synchronous version of the check
+        self.check_bundle_state_sync(request)
+    }
+
+    /// Synchronous version of check that doesn't require async runtime
+    fn check_bundle_state_sync(
+        &self,
+        request: SlotLockRequest,
+    ) -> Result<SlotLockResponse, SlotLockError> {
+        debug!(target: "slot_lock_manager", "check_bundle_state_sync called");
+
+        // Process storage changes
+        self.process_storage_changes(&request.storage_accesses);
+
+        // Get accessed storage
+        let accessed_storage = {
+            let cache = self.cache.read();
+            cache.broadcast_accessed_storage.clone()
+        };
+
+        if accessed_storage.0.is_empty() {
+            return Ok(SlotLockResponse {
+                decision: SlotLockDecision::AllowTx,
+                broadcast_result: None,
+            });
+        }
+
+        // Use blocking version of the sentinel client call
+        // We need to create a blocking runtime or use a different approach
+        let response = std::thread::spawn({
+            let sentinel_client = self.sentinel_client.clone();
+            let accessed_storage = accessed_storage.clone();
+            let block_number = request.block_context.number;
+            let btc_block_height = request.block_context.btc_block_height;
+            
+            move || {
+                // Create a new runtime for this blocking call
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    sentinel_client
+                        .batch_get_locked_status(
+                            &accessed_storage,
+                            block_number,
+                            btc_block_height,
+                        )
+                        .await
+                })
+            }
+        })
+        .join()
+        .map_err(|_| SlotLockError::InvalidResponse("Thread panicked".to_string()))??;
+
+        // Process the response
+        let mut revert_slots = Vec::new();
+
+        for slot_response in response.slots {
+            let status = Status::try_from(slot_response.status)
+                .map_err(|_| SlotLockError::InvalidResponse("Invalid status".to_string()))?;
+
+            match status {
+                Status::Unknown => {
+                    return Ok(SlotLockResponse {
+                        decision: SlotLockDecision::BlockTx {
+                            reason: "Sentinel returned unknown status".to_string(),
+                        },
+                        broadcast_result: None,
+                    });
+                }
+                Status::Locked => {
+                    self.log_slot_decision(
+                        &slot_response.contract_address,
+                        &slot_response.slot_index,
+                        "locked",
+                        "transaction_reverted",
+                        request.block_context.number,
+                    );
+
+                    return Ok(SlotLockResponse {
+                        decision: SlotLockDecision::BlockTx {
+                            reason: format!(
+                                "Storage slot is locked: {}:{}",
+                                slot_response.contract_address,
+                                hex::encode(&slot_response.slot_index)
+                            ),
+                        },
+                        broadcast_result: None,
+                    });
+                }
+                Status::Unlocked => {
+                    self.log_slot_decision(
+                        &slot_response.contract_address,
+                        &slot_response.slot_index,
+                        "unlocked",
+                        "transaction_continues",
+                        request.block_context.number,
+                    );
+                }
+                Status::Reverted => {
+                    let revert = self.parse_revert_data(slot_response);
+                    self.log_slot_decision(
+                        &revert.address.to_string(),
+                        &revert.slot.to_be_bytes_vec(),
+                        "reverted",
+                        "slot_reverted_to_previous_value",
+                        request.block_context.number,
+                    );
+                    revert_slots.push(revert);
+                }
+            }
+        }
+
+        if !revert_slots.is_empty() {
+            // Store reverts for later application
+            let mut revert_cache = self.slot_revert_cache.write();
+            revert_cache.extend(revert_slots.clone());
+
+            Ok(SlotLockResponse {
+                decision: SlotLockDecision::RevertTxWithSlotData {
+                    slots: revert_slots,
+                },
+                broadcast_result: None,
+            })
+        } else {
+            // Check if this is a broadcast precompile
+            if request.precompile_call.is_some() {
+                let broadcast_result = BroadcastResult {
+                    txid: None, // Will be set by the actual precompile execution
+                    block: Some(request.block_context.btc_block_height),
+                };
+
+                Ok(SlotLockResponse {
+                    decision: SlotLockDecision::AllowTx,
+                    broadcast_result: Some(broadcast_result),
+                })
+            } else {
+                Ok(SlotLockResponse {
+                    decision: SlotLockDecision::AllowTx,
+                    broadcast_result: None,
+                })
+            }
+        }
+    }
+
+    /// Extract StorageAccess from BundleState for internal processing
+    fn extract_storage_accesses_from_bundle(&self, bundle: &BundleState) -> Vec<StorageAccess> {
+        let mut storage_accesses = Vec::new();
+        
+        debug!(target: "slot_lock_manager", 
+            "Bundle state has {} accounts", 
+            bundle.state().len()
+        );
+        
+        // Iterate through all accounts in the bundle state
+        for (address, bundle_account) in bundle.state() {
+            debug!(target: "slot_lock_manager", 
+                "Bundle account: {:?}, storage slots: {}, status: {:?}", 
+                address, 
+                bundle_account.storage.len(),
+                bundle_account.status
+            );
+            
+            // Extract storage changes from the bundle account
+            for (slot_key, storage_slot) in &bundle_account.storage {
+                debug!(target: "slot_lock_manager",
+                    "Storage slot: key={:?}, previous={:?}, present={:?}",
+                    slot_key,
+                    storage_slot.previous_or_original_value,
+                    storage_slot.present_value
+                );
+                
+                let storage_access = StorageAccess {
+                    address: *address,
+                    slot: alloy_primitives::StorageKey::from(*slot_key),
+                    previous_value: alloy_primitives::StorageValue::from(
+                        storage_slot.previous_or_original_value,
+                    ),
+                    new_value: alloy_primitives::StorageValue::from(storage_slot.present_value),
+                };
+                storage_accesses.push(storage_access);
+            }
+        }
+        
+        debug!(target: "slot_lock_manager", 
+            "Extracted {} storage accesses from bundle", 
+            storage_accesses.len()
+        );
+        storage_accesses
+    }
+
     /// Handle broadcast transaction precompile
     async fn handle_broadcast_transaction(
         &self,
@@ -214,6 +423,8 @@ impl SlotLockManager {
                 request.block_context.btc_block_height,
             )
             .await?;
+
+        debug!("sentinel batch_get_locked_status response {:?}", response);
 
         let mut revert_slots = Vec::new();
 
@@ -307,8 +518,7 @@ impl SlotLockManager {
         }
     }
 
-    /// Update sentinel locks for the next block
-    pub async fn update_sentinel_locks(
+    pub fn update_sentinel_locks_sync(
         &self,
         locked_block_number: u64,
     ) -> Result<(), SlotLockError> {
@@ -321,14 +531,28 @@ impl SlotLockManager {
             if let (Some(btc_txid), Some(btc_block)) =
                 (broadcast_result.txid.as_ref(), broadcast_result.block)
             {
-                self.sentinel_client
-                    .batch_lock_slots(
-                        accessed_storage.clone(),
-                        locked_block_number,
-                        btc_block,
-                        btc_txid.clone(),
-                    )
-                    .await?;
+                // Use thread spawn approach for async call
+                std::thread::spawn({
+                    let sentinel_client = self.sentinel_client.clone();
+                    let accessed_storage = accessed_storage.clone();
+                    let btc_txid = btc_txid.clone();
+                    
+                    move || {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async move {
+                            sentinel_client
+                                .batch_lock_slots(
+                                    accessed_storage,
+                                    locked_block_number,
+                                    btc_block,
+                                    btc_txid,
+                                )
+                                .await
+                        })
+                    }
+                })
+                .join()
+                .map_err(|_| SlotLockError::InvalidResponse("Thread panicked".to_string()))??;
             } else {
                 warn!(
                     "Incomplete broadcast result: txid={:?}, block={:?}",
@@ -344,7 +568,6 @@ impl SlotLockManager {
 
         Ok(())
     }
-
     /// Get pending slot reverts
     pub fn get_pending_reverts(&self) -> Vec<SlotRevert> {
         self.slot_revert_cache.read().clone()
