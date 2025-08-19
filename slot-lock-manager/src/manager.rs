@@ -7,7 +7,9 @@ use crate::{
 use alloy_primitives::{Address, U256};
 use parking_lot::RwLock;
 use serde_json::json;
-use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, L1_BLOCK_CONTRACT_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS};
+use sova_chainspec::{
+    BITCOIN_PRECOMPILE_ADDRESSES, L1_BLOCK_CONTRACT_ADDRESS, SOVA_BTC_CONTRACT_ADDRESS,
+};
 use sova_sentinel_proto::proto::get_slot_status_response::Status;
 use std::{str::FromStr, sync::Arc};
 use tracing::{debug, error, info, warn};
@@ -31,8 +33,7 @@ impl SlotLockManagerConfig {
             bitcoin_precompile_addresses: bitcoin_precompile_addresses
                 .unwrap_or(BITCOIN_PRECOMPILE_ADDRESSES),
             excluded_addresses,
-            sentinel_url: sentinel_url
-                .unwrap_or_else(|| "http://localhost:50051".to_string()),
+            sentinel_url: sentinel_url.unwrap_or_else(|| "http://localhost:50051".to_string()),
         }
     }
 }
@@ -63,8 +64,8 @@ impl SlotLockManager {
     }
 
     pub fn build_default() -> eyre::Result<Arc<Self>> {
-        let sentinel_url = std::env::var("SENTINEL_URL")
-            .unwrap_or_else(|_| "http://localhost:50051".to_string());
+        let sentinel_url =
+            std::env::var("SENTINEL_URL").unwrap_or_else(|_| "http://localhost:50051".to_string());
         let cfg = SlotLockManagerConfig::new(
             None,
             vec![L1_BLOCK_CONTRACT_ADDRESS],
@@ -74,65 +75,131 @@ impl SlotLockManager {
         Ok(Arc::new(Self::new(cfg, sentinel)))
     }
 
-    /// Check if a Bitcoin precompile call should be allowed
-    pub async fn check_precompile_call(
+    /// ---- HELPERS ----
+
+    fn parse_revert_data(
         &self,
-        request: SlotLockRequest,
-    ) -> Result<SlotLockResponse, SlotLockError> {
-        // Check for unauthorized caller
-        if let Some(ref call) = request.precompile_call {
-            match call.method {
-                BitcoinPrecompileMethod::BroadcastTransaction => {
-                    self.handle_broadcast_transaction(request).await
-                }
-                _ => Ok(SlotLockResponse {
-                    decision: SlotLockDecision::AllowTx,
-                    broadcast_result: None,
-                }),
+        response: sova_sentinel_proto::proto::GetSlotStatusResponse,
+    ) -> SlotRevert {
+        let address = Address::from_str(&response.contract_address).unwrap_or(Address::ZERO);
+
+        let mut key_bytes = [0u8; 32];
+        key_bytes[32 - response.slot_index.len()..].copy_from_slice(&response.slot_index);
+        let slot = U256::from_be_bytes(key_bytes);
+
+        let mut current_bytes = [0u8; 32];
+        current_bytes[32 - response.current_value.len()..].copy_from_slice(&response.current_value);
+        let current_value = U256::from_be_bytes(current_bytes);
+
+        let mut revert_bytes = [0u8; 32];
+        revert_bytes[32 - response.revert_value.len()..].copy_from_slice(&response.revert_value);
+        let revert_to = U256::from_be_bytes(revert_bytes);
+
+        SlotRevert {
+            address,
+            slot,
+            revert_to,
+            current_value,
+        }
+    }
+
+    fn log_slot_decision(
+        &self,
+        contract_address: &str,
+        slot_index: &[u8],
+        status: &str,
+        decision: &str,
+        block_number: u64,
+    ) {
+        let log_entry = json!({
+            "operation_id": Uuid::new_v4(),
+            "event_type": "slot_decision",
+            "contract_address": contract_address,
+            "slot_index": hex::encode(slot_index),
+            "slot_status": status,
+            "decision": decision,
+            "block_number": block_number,
+        });
+
+        match (status, decision) {
+            // Critical errors that prevent operation
+            ("error", _) | (_, "failed_to_get_btc_height") => {
+                error!(target: "slot_lock_manager", "{}", log_entry);
             }
-        } else {
-            // Not a precompile call, check if it's to SovaBTC contract
-            if request.transaction_context.target == SOVA_BTC_CONTRACT_ADDRESS {
-                self.check_storage_locks(request).await
-            } else {
-                Ok(SlotLockResponse {
-                    decision: SlotLockDecision::AllowTx,
-                    broadcast_result: None,
-                })
+            // Invalid data or status
+            ("invalid", _) | ("unknown", _) => {
+                error!(target: "slot_lock_manager", "{}", log_entry);
+            }
+            // Transaction blocking events
+            ("locked", _) | (_, "transaction_reverted") => {
+                warn!(target: "slot_lock_manager", "{}", log_entry);
+            }
+            // State reversions
+            ("reverted", _) | (_, "slot_reverted_to_previous_value") => {
+                debug!(target: "slot_lock_manager", "{}", log_entry);
+            }
+            // Routine successful operations
+            ("unlocked", "transaction_continues") | ("checking", "batch_lock_check_started") => {
+                debug!(target: "slot_lock_manager", "{}", log_entry);
+            }
+            // Default to info for any other combinations
+            _ => {
+                info!(target: "slot_lock_manager", "{}", log_entry);
             }
         }
     }
 
-    /// Check EVM state for slot locks (preferred method for capturing storage changes)
-    pub fn check_evm_state(
-        &self,
-        evm_state: &revm::state::EvmState,
-        transaction_context: TransactionContext,
-        block_context: BlockContext,
-        precompile_call: Option<PrecompileCall>,
-    ) -> Result<SlotLockResponse, SlotLockError> {
-        // Convert EvmState to StorageAccess format for internal processing
-        let storage_accesses = self.extract_storage_accesses_from_evm_state(evm_state);
-
-        // Create SlotLockRequest with the extracted data
-        let request = SlotLockRequest {
-            transaction_context,
-            block_context,
-            precompile_call,
-            storage_accesses,
-        };
-
-        // Use a synchronous version of the check
-        self.check_bundle_state_sync(request)
+    pub fn clone_pending_reverts(&self) -> Vec<SlotRevert> {
+        self.slot_revert_cache.read().clone()
     }
 
-    /// Synchronous version of check that doesn't require async runtime
-    fn check_bundle_state_sync(
+    /// ---- LOCK CHECKING ----
+
+    fn extract_storage_accesses_from_evm_state(
+        &self,
+        evm_state: &revm::state::EvmState,
+    ) -> Vec<StorageAccess> {
+        let mut storage_accesses = Vec::new();
+
+        // Iterate through all accounts in the EVM state
+        for (address, account) in evm_state.iter() {
+            debug!(target: "slot_lock_manager",
+                "EVM account: {:?}, storage slots: {}, status: {:?}",
+                address,
+                account.storage.len(),
+                account.status
+            );
+
+            // Extract storage changes from the account
+            for (slot_key, storage_slot) in &account.storage {
+                debug!(target: "slot_lock_manager",
+                    "Storage slot: key={:?}, original={:?}, present={:?}",
+                    slot_key,
+                    storage_slot.original_value,
+                    storage_slot.present_value
+                );
+
+                let storage_access = StorageAccess {
+                    address: *address,
+                    slot: alloy_primitives::StorageKey::from(*slot_key),
+                    previous_value: alloy_primitives::StorageValue::from(
+                        storage_slot.original_value,
+                    ),
+                    new_value: alloy_primitives::StorageValue::from(storage_slot.present_value),
+                };
+                storage_accesses.push(storage_access);
+            }
+        }
+
+        storage_accesses
+    }
+
+    fn check_storage_access_locks(
         &self,
         request: SlotLockRequest,
     ) -> Result<SlotLockResponse, SlotLockError> {
         // Process storage changes - save to broadcast_accessed_storage
-        self.process_storage_changes(&request.storage_accesses);
+        self.update_broadcast_accessed_storage(&request.storage_accesses);
 
         // Get accessed storage
         let cache = self.cache.read();
@@ -146,8 +213,7 @@ impl SlotLockManager {
             });
         }
 
-        // Use blocking version of the sentinel client call
-        // We need to create a blocking runtime or use a different approach
+        // Use blocking call to sentinel client
         let response = std::thread::spawn({
             let sentinel_client = self.sentinel_client.clone();
             let accessed_storage = accessed_storage.clone();
@@ -258,92 +324,30 @@ impl SlotLockManager {
         }
     }
 
-    /// Extract StorageAccess from EvmState for internal processing (preferred method)
-    fn extract_storage_accesses_from_evm_state(
+    pub fn check_evm_state(
         &self,
         evm_state: &revm::state::EvmState,
-    ) -> Vec<StorageAccess> {
-        let mut storage_accesses = Vec::new();
-
-        // Iterate through all accounts in the EVM state
-        for (address, account) in evm_state.iter() {
-            debug!(target: "slot_lock_manager",
-                "EVM account: {:?}, storage slots: {}, status: {:?}",
-                address,
-                account.storage.len(),
-                account.status
-            );
-
-            // Extract storage changes from the account
-            for (slot_key, storage_slot) in &account.storage {
-                debug!(target: "slot_lock_manager",
-                    "Storage slot: key={:?}, original={:?}, present={:?}",
-                    slot_key,
-                    storage_slot.original_value,
-                    storage_slot.present_value
-                );
-
-                let storage_access = StorageAccess {
-                    address: *address,
-                    slot: alloy_primitives::StorageKey::from(*slot_key),
-                    previous_value: alloy_primitives::StorageValue::from(
-                        storage_slot.original_value,
-                    ),
-                    new_value: alloy_primitives::StorageValue::from(storage_slot.present_value),
-                };
-                storage_accesses.push(storage_access);
-            }
-        }
-
-        storage_accesses
-    }
-
-    /// Handle broadcast transaction precompile
-    async fn handle_broadcast_transaction(
-        &self,
-        request: SlotLockRequest,
+        transaction_context: TransactionContext,
+        block_context: BlockContext,
+        precompile_call: Option<PrecompileCall>,
     ) -> Result<SlotLockResponse, SlotLockError> {
-        // Process storage changes
-        self.process_storage_changes(&request.storage_accesses);
+        // Convert EvmState to StorageAccess format for internal processing
+        let storage_accesses = self.extract_storage_accesses_from_evm_state(evm_state);
 
-        // Check locks
-        let decision = self.check_locks(&request).await?;
+        // Create SlotLockRequest with the extracted data
+        let request = SlotLockRequest {
+            transaction_context,
+            block_context,
+            precompile_call,
+            storage_accesses,
+        };
 
-        if matches!(decision, SlotLockDecision::AllowTx) {
-            // Cache broadcast data
-            let broadcast_result = BroadcastResult {
-                txid: None, // Will be set by the actual precompile execution
-                block: Some(request.block_context.btc_block_height),
-            };
-
-            Ok(SlotLockResponse {
-                decision,
-                broadcast_result: Some(broadcast_result),
-            })
-        } else {
-            Ok(SlotLockResponse {
-                decision,
-                broadcast_result: None,
-            })
-        }
+        self.check_storage_access_locks(request)
     }
 
-    /// Check storage locks for SovaBTC contract calls
-    async fn check_storage_locks(
-        &self,
-        request: SlotLockRequest,
-    ) -> Result<SlotLockResponse, SlotLockError> {
-        self.process_storage_changes(&request.storage_accesses);
-        let decision = self.check_locks(&request).await?;
+    /// ---- TX INTROSPECTION ----
 
-        Ok(SlotLockResponse {
-            decision,
-            broadcast_result: None,
-        })
-    }
-
-    /// Process storage changes and update cache
-    fn process_storage_changes(&self, accesses: &[StorageAccess]) {
+    fn update_broadcast_accessed_storage(&self, accesses: &[StorageAccess]) {
         let mut cache = self.cache.write();
         cache.broadcast_accessed_storage.clear();
 
@@ -358,16 +362,14 @@ impl SlotLockManager {
         }
     }
 
-    /// Check if any accessed slots are locked
     async fn check_locks(
         &self,
         request: &SlotLockRequest,
     ) -> Result<SlotLockDecision, SlotLockError> {
-        let accessed_storage = {
-            let cache = self.cache.read();
-            cache.broadcast_accessed_storage.clone()
-        };
+        let cache = self.cache.read();
+        let accessed_storage = cache.broadcast_accessed_storage.clone();
 
+        // return early if there havent been any BTC Broadcast precompile calls
         if accessed_storage.0.is_empty() {
             return Ok(SlotLockDecision::AllowTx);
         }
@@ -448,37 +450,90 @@ impl SlotLockManager {
         }
     }
 
-    /// Parse revert data from sentinel response
-    fn parse_revert_data(
+    pub async fn check_precompile_call(
         &self,
-        response: sova_sentinel_proto::proto::GetSlotStatusResponse,
-    ) -> SlotRevert {
-        let address = Address::from_str(&response.contract_address).unwrap_or(Address::ZERO);
-
-        let mut key_bytes = [0u8; 32];
-        key_bytes[32 - response.slot_index.len()..].copy_from_slice(&response.slot_index);
-        let slot = U256::from_be_bytes(key_bytes);
-
-        let mut current_bytes = [0u8; 32];
-        current_bytes[32 - response.current_value.len()..].copy_from_slice(&response.current_value);
-        let current_value = U256::from_be_bytes(current_bytes);
-
-        let mut revert_bytes = [0u8; 32];
-        revert_bytes[32 - response.revert_value.len()..].copy_from_slice(&response.revert_value);
-        let revert_to = U256::from_be_bytes(revert_bytes);
-
-        SlotRevert {
-            address,
-            slot,
-            revert_to,
-            current_value,
+        request: SlotLockRequest,
+    ) -> Result<SlotLockResponse, SlotLockError> {
+        // Check for unauthorized caller
+        if let Some(ref call) = request.precompile_call {
+            match call.method {
+                BitcoinPrecompileMethod::BroadcastTransaction => {
+                    self.handle_broadcast_transaction(request).await
+                }
+                _ => Ok(SlotLockResponse {
+                    decision: SlotLockDecision::AllowTx,
+                    broadcast_result: None,
+                }),
+            }
+        } else {
+            // Not a precompile call, check if it's to SovaBTC contract
+            if request.transaction_context.target == SOVA_BTC_CONTRACT_ADDRESS {
+                self.check_storage_locks(request).await
+            } else {
+                Ok(SlotLockResponse {
+                    decision: SlotLockDecision::AllowTx,
+                    broadcast_result: None,
+                })
+            }
         }
     }
 
-    pub fn update_sentinel_locks_sync(
+    async fn handle_broadcast_transaction(
         &self,
-        locked_block_number: u64,
-    ) -> Result<(), SlotLockError> {
+        request: SlotLockRequest,
+    ) -> Result<SlotLockResponse, SlotLockError> {
+        self.update_broadcast_accessed_storage(&request.storage_accesses);
+
+        let decision = self.check_locks(&request).await?;
+
+        if matches!(decision, SlotLockDecision::AllowTx) {
+            // Cache broadcast data
+            let broadcast_result = BroadcastResult {
+                txid: None, // Will be set by the actual precompile execution
+                block: Some(request.block_context.btc_block_height),
+            };
+
+            Ok(SlotLockResponse {
+                decision,
+                broadcast_result: Some(broadcast_result),
+            })
+        } else {
+            Ok(SlotLockResponse {
+                decision,
+                broadcast_result: None,
+            })
+        }
+    }
+
+    pub fn finalize_broadcast(&self, btc_txid: Vec<u8>, btc_block: u64) {
+        let mut cache = self.cache.write();
+
+        // The broadcast_accessed_storage has the slots that were accessed
+        // before the broadcast call. Now we commit them with the actual txid.
+        let broadcast_result = BroadcastResult {
+            txid: Some(btc_txid),
+            block: Some(btc_block),
+        };
+
+        cache.commit_broadcast(broadcast_result);
+    }
+
+    async fn check_storage_locks(
+        &self,
+        request: SlotLockRequest,
+    ) -> Result<SlotLockResponse, SlotLockError> {
+        self.update_broadcast_accessed_storage(&request.storage_accesses);
+        let decision = self.check_locks(&request).await?;
+
+        Ok(SlotLockResponse {
+            decision,
+            broadcast_result: None,
+        })
+    }
+
+    /// ---- UPDATE LOCKS ----
+
+    pub fn update_sentinel_locks(&self, locked_block_number: u64) -> Result<(), SlotLockError> {
         let lock_data = {
             let cache = self.cache.read();
             cache.lock_data.clone()
@@ -524,87 +579,5 @@ impl SlotLockManager {
         self.slot_revert_cache.write().clear();
 
         Ok(())
-    }
-
-    /// Get pending slot reverts
-    pub fn get_pending_reverts(&self) -> Vec<SlotRevert> {
-        self.slot_revert_cache.read().clone()
-    }
-
-    /// Clear pending reverts
-    pub fn clear_pending_reverts(&self) {
-        self.slot_revert_cache.write().clear();
-    }
-
-    /// Called AFTER a broadcast precompile successfully executes
-    /// with the actual Bitcoin txid that was broadcast.
-    ///
-    /// This completes the two-phase broadcast flow:
-    /// 1. check_precompile_call() - validates and caches storage accesses
-    /// 2. finalize_broadcast() - commits with actual txid for future locking
-    pub fn finalize_broadcast(&self, btc_txid: Vec<u8>, btc_block: u64) {
-        let mut cache = self.cache.write();
-
-        // The broadcast_accessed_storage has the slots that were accessed
-        // before the broadcast call. Now we commit them with the actual txid.
-        let broadcast_result = BroadcastResult {
-            txid: Some(btc_txid),
-            block: Some(btc_block),
-        };
-
-        cache.commit_broadcast(broadcast_result);
-    }
-
-    /// Clear all storage data for a new block
-    pub fn clear_cache(&self) {
-        self.cache.write().clear_cache();
-        self.slot_revert_cache.write().clear();
-    }
-
-    /// Log slot decision for debugging
-    fn log_slot_decision(
-        &self,
-        contract_address: &str,
-        slot_index: &[u8],
-        status: &str,
-        decision: &str,
-        block_number: u64,
-    ) {
-        let log_entry = json!({
-            "operation_id": Uuid::new_v4(),
-            "event_type": "slot_decision",
-            "contract_address": contract_address,
-            "slot_index": hex::encode(slot_index),
-            "slot_status": status,
-            "decision": decision,
-            "block_number": block_number,
-        });
-
-        match (status, decision) {
-            // Critical errors that prevent operation
-            ("error", _) | (_, "failed_to_get_btc_height") => {
-                error!(target: "slot_lock_manager", "{}", log_entry);
-            }
-            // Invalid data or status
-            ("invalid", _) | ("unknown", _) => {
-                error!(target: "slot_lock_manager", "{}", log_entry);
-            }
-            // Transaction blocking events
-            ("locked", _) | (_, "transaction_reverted") => {
-                warn!(target: "slot_lock_manager", "{}", log_entry);
-            }
-            // State reversions
-            ("reverted", _) | (_, "slot_reverted_to_previous_value") => {
-                debug!(target: "slot_lock_manager", "{}", log_entry);
-            }
-            // Routine successful operations
-            ("unlocked", "transaction_continues") | ("checking", "batch_lock_check_started") => {
-                debug!(target: "slot_lock_manager", "{}", log_entry);
-            }
-            // Default to info for any other combinations
-            _ => {
-                info!(target: "slot_lock_manager", "{}", log_entry);
-            }
-        }
     }
 }

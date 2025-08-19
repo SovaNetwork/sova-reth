@@ -164,13 +164,13 @@ where
 
     /// This method has been modified to execute the transaction twice.
     ///
-    /// Pass A: Execute transaction on scratch state to feed storage changes to the slot-lock-manager.
+    /// Execution 1: Execute transaction on scratch state to feed storage changes to the slot-lock-manager.
     /// The manager queries the Sentinel and fills its revert cache with any slots that need correction.
     ///
     /// Apply corrections: Get pending reverts from manager and apply them to the real DB.
     /// This materializes corrective state (reverted slots, locks) before the second execution.
     ///
-    /// Pass B: Execute transaction normally on the corrected DB. Transactions that should revert
+    /// Execution 2: Execute transaction normally on the corrected DB. Transactions that should revert
     /// will now naturally fail due to the applied corrections, without needing runtime hooks.
     fn execute_transaction_with_commit_condition(
         &mut self,
@@ -209,10 +209,13 @@ where
 
         let hash = tx.tx().trie_hash();
 
+        // ---- Simulation Phase ----
+        // The purpose of this phase is to populate the revert cache in the slot lock manager
+
         // Save the current bundle state before any execution
         let pre_execution_bundle = self.evm.db_mut().take_bundle();
 
-        // Pass A: Execute transaction to collect state changes for the slot-lock-manager
+        // Execution 1
         let ResultAndState {
             result: first_result,
             state: first_state,
@@ -221,7 +224,6 @@ where
             .transact(tx)
             .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        // Create context for SlotLockManager
         let transaction_context = TransactionContext {
             operation_id: Uuid::new_v4(),
             caller: *tx.signer(),
@@ -233,17 +235,18 @@ where
             btc_block_height: self.get_btc_height_from_l1block()?,
         };
 
-        // Pass EVM state to slot-lock-manager (queries Sentinel for lock status, caches calls to broadcast precompile, fills revert cache)
-        self
-            .slot_lock_manager
+        // call sentinel with accessed storage
+        self.slot_lock_manager
             .check_evm_state(&first_state, transaction_context, block_context, None)
             .map_err(BlockExecutionError::other)?;
 
-        // Restore pre-execution bundle state (discard Pass A results)
+        // ---- Revert Application Phase ----
+
+        // Restore pre-execution bundle state (discard 'Execution 1' results)
         self.evm.db_mut().bundle_state = pre_execution_bundle;
 
-        // Apply corrections: Get pending reverts from manager and apply to real DB
-        let pending_reverts = self.slot_lock_manager.get_pending_reverts();
+        // Apply state corrections: Get slot reverts from slot lock manager and apply to DB
+        let pending_reverts = self.slot_lock_manager.clone_pending_reverts();
         for revert in &pending_reverts {
             // Load the account into cache if not present
             let account = self
@@ -263,18 +266,16 @@ where
             account.status = account.status.on_changed(false);
         }
 
-        // Determine final execution result
-        let (final_result, final_state) = if pending_reverts.is_empty() {
-            // No corrections needed, use Pass A result
-            (first_result, first_state)
-        } else {
-            // Pass B: Re-execute transaction on corrected DB
-            let ResultAndState { result, state } = self
-                .evm
-                .transact(tx)
-                .map_err(move |err| BlockExecutionError::evm(err, hash))?;
-            (result, state)
-        };
+        // ---- Final Execution Phase ----
+        // Re-execute transaction on corrected DB
+
+        let ResultAndState {
+            result: final_result,
+            state: final_state,
+        } = self
+            .evm
+            .transact(tx)
+            .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
         // Check if we should commit the result
         if !f(&final_result).should_commit() {
@@ -329,7 +330,7 @@ where
             },
         );
 
-        // ONLY commit the final state here
+        // commit the final state
         self.evm.db_mut().commit(final_state);
 
         Ok(Some(gas_used))
@@ -365,7 +366,7 @@ where
 
         // Update sentinel locks for finalized transactions
         self.slot_lock_manager
-            .update_sentinel_locks_sync(self.evm.block().number.saturating_to())
+            .update_sentinel_locks(self.evm.block().number.saturating_to())
             .map_err(BlockExecutionError::other)?;
 
         Ok((
