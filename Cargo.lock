@@ -9644,29 +9644,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2ae44ef20feb57a68b23d846850f861394c2e02dc425a50098ae8c90267589"
 
 [[package]]
-name = "slot-lock-manager"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "alloy-rlp",
- "async-trait",
- "eyre",
- "hex",
- "parking_lot",
- "revm",
- "serde",
- "serde_json",
- "sova-chainspec",
- "sova-sentinel-client",
- "sova-sentinel-proto",
- "thiserror 2.0.15",
- "tokio",
- "tonic",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9771,6 +9748,7 @@ dependencies = [
  "once_cell",
  "op-alloy-consensus",
  "op-revm",
+ "parking_lot",
  "reqwest",
  "reth-ethereum",
  "reth-node-builder",
@@ -9779,13 +9757,18 @@ dependencies = [
  "reth-optimism-evm",
  "reth-optimism-primitives",
  "reth-primitives-traits",
+ "reth-revm",
+ "reth-tasks",
+ "reth-tracing",
  "revm",
  "revm-precompile",
  "serde",
  "serde_json",
- "slot-lock-manager",
  "sova-chainspec",
+ "sova-sentinel-client",
+ "sova-sentinel-proto",
  "tokio",
+ "tonic",
  "tracing",
  "uuid",
 ]
@@ -9853,7 +9836,6 @@ dependencies = [
  "revm-primitives",
  "serde",
  "serde_json",
- "slot-lock-manager",
  "sova-chainspec",
  "sova-evm",
  "sova-sentinel-client",

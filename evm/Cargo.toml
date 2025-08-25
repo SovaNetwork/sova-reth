@@ -9,18 +9,24 @@ name = "sova_evm"
 path = "src/mod.rs"
 
 [dependencies]
-# sova crates
+# sova
 sova-chainspec.workspace = true
-slot-lock-manager.workspace = true
+
+# sova external
+sova-sentinel-client.workspace = true
+sova-sentinel-proto.workspace = true
 
 # reth
 reth-ethereum = { workspace = true, features = ["node-api"] }
 reth-node-builder.workspace = true
+reth-op.workspace = true
 reth-optimism-chainspec.workspace = true
 reth-optimism-evm.workspace = true
 reth-optimism-primitives.workspace = true
 reth-primitives-traits.workspace = true
-reth-op.workspace = true
+reth-revm.workspace = true
+reth-tasks.workspace = true
+reth-tracing.workspace = true
 
 # revm
 revm.workspace = true
@@ -48,9 +54,11 @@ auto_impl.workspace = true
 eyre.workspace = true
 hex.workspace = true
 once_cell.workspace = true
+parking_lot.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tonic.workspace = true
 tracing.workspace = true
 uuid.workspace = true

@@ -98,7 +98,7 @@ pub const BITCOIN_PRECOMPILE_ADDRESSES: [Address; 4] = [
 ];
 
 // Sova L1Block contract address
-pub const L1_BLOCK_CONTRACT_ADDRESS: Address =
+pub const SOVA_L1_BLOCK_CONTRACT_ADDRESS: Address =
     address!("0x2100000000000000000000000000000000000015");
 
 // SovaL1Block contract bytecode

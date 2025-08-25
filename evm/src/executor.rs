@@ -1,11 +1,4 @@
-use crate::{
-    alloy::{SovaEvm, SovaEvmFactory},
-    canyon::ensure_create2_deployer,
-    SovaEvmConfig,
-};
-use alloy_primitives::U256;
-use slot_lock_manager::SlotLockManager;
-use sova_chainspec::L1_BLOCK_CONTRACT_ADDRESS;
+use crate::{alloy::SovaEvmFactory, canyon::ensure_create2_deployer, SovaEvmConfig};
 extern crate alloc;
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 use alloy_consensus::{Eip658Value, Header, Transaction, TxReceipt};
@@ -18,24 +11,21 @@ use alloy_evm::{
         StateChangePostBlockSource, StateChangeSource, SystemCaller,
     },
     eth::receipt_builder::ReceiptBuilderCtx,
-    Database, Evm, FromRecoveredTx, FromTxWithEncoded,
+    Database, Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded,
 };
-use alloy_op_evm::{block::receipt_builder::OpReceiptBuilder, OpBlockExecutionCtx};
-use alloy_op_hardforks::OpHardforks;
+use alloy_op_evm::{
+    block::{receipt_builder::OpReceiptBuilder, OpAlloyReceiptBuilder},
+    OpBlockExecutionCtx,
+};
+use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
 use eyre::Result;
 use op_alloy_consensus::OpDepositReceipt;
 use op_revm::transaction::deposit::DEPOSIT_TRANSACTION_TYPE;
-use reth_ethereum::evm::primitives::InspectorFor;
-use reth_op::OpReceipt;
-use reth_op::OpTransactionSigned;
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
     database::State,
-    DatabaseCommit,
+    DatabaseCommit, Inspector,
 };
-use slot_lock_manager::{BlockContext, TransactionContext};
-use std::sync::Arc;
-use uuid::Uuid;
 
 /// Block executor for Sova.
 ///
@@ -59,8 +49,6 @@ pub struct SovaBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
     is_regolith: bool,
     /// Utility to call system smart contracts.
     system_caller: SystemCaller<Spec>,
-    /// Slot lock manager for Bitcoin finality checking.
-    slot_lock_manager: Arc<SlotLockManager>,
 }
 
 impl<E, R, Spec> SovaBlockExecutor<E, R, Spec>
@@ -70,13 +58,7 @@ where
     Spec: OpHardforks + Clone,
 {
     /// Creates a new [`SovaBlockExecutor`].
-    pub fn new(
-        evm: E,
-        ctx: OpBlockExecutionCtx,
-        spec: Spec,
-        receipt_builder: R,
-        slot_lock_manager: Arc<SlotLockManager>,
-    ) -> Self {
+    pub fn new(evm: E, ctx: OpBlockExecutionCtx, spec: Spec, receipt_builder: R) -> Self {
         Self {
             is_regolith: spec
                 .is_regolith_active_at_timestamp(evm.block().timestamp.saturating_to()),
@@ -87,40 +69,39 @@ where
             receipts: Vec::new(),
             gas_used: 0,
             ctx,
-            slot_lock_manager,
         }
     }
 }
 
-impl<'db, DB, E, R, Spec> SovaBlockExecutor<E, R, Spec>
-where
-    DB: Database + 'db,
-    E: Evm<
-        DB = &'db mut State<DB>,
-        Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>,
-    >,
-    R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
-    Spec: OpHardforks,
-{
-    /// Read BTC height from L1Block contract storage
-    fn get_btc_height_from_l1block(&mut self) -> Result<u64, BlockExecutionError> {
-        // For genesis block (block 0), return BTC height 0 without contract access
-        let current_block_number = self.evm.block().number.saturating_to::<u64>();
-        if current_block_number == 1 {
-            return Ok(0);
-        }
+// impl<'db, DB, E, R, Spec> SovaBlockExecutor<E, R, Spec>
+// where
+//     DB: Database + 'db,
+//     E: Evm<
+//         DB = &'db mut State<DB>,
+//         Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>,
+//     >,
+//     R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
+//     Spec: OpHardforks,
+// {
+//     /// Read BTC height from L1Block contract storage
+//     fn get_btc_height_from_l1block(&mut self) -> Result<u64, BlockExecutionError> {
+//         // For genesis block (block 0), return BTC height 0 without contract access
+//         let current_block_number = self.evm.block().number.saturating_to::<u64>();
+//         if current_block_number == 1 {
+//             return Ok(0);
+//         }
 
-        // Read storage directly from the database using the Database trait's storage() method
-        let height_value = self
-            .evm
-            .db_mut()
-            .database
-            .storage(L1_BLOCK_CONTRACT_ADDRESS, U256::ZERO)
-            .map_err(BlockExecutionError::other)?;
+//         // Read storage directly from the database using the Database trait's storage() method
+//         let height_value = self
+//             .evm
+//             .db_mut()
+//             .database
+//             .storage(SOVA_L1_BLOCK_CONTRACT_ADDRESS, U256::ZERO)
+//             .map_err(BlockExecutionError::other)?;
 
-        Ok(height_value.saturating_to::<u64>())
-    }
-}
+//         Ok(height_value.saturating_to::<u64>())
+//     }
+// }
 
 impl<'db, DB, E, R, Spec> BlockExecutor for SovaBlockExecutor<E, R, Spec>
 where
@@ -179,8 +160,8 @@ where
     ) -> Result<Option<u64>, BlockExecutionError> {
         let is_deposit = tx.tx().ty() == DEPOSIT_TRANSACTION_TYPE;
 
-        // The sum of the transaction's gas limit, Tg, and the gas utilized in this block prior,
-        // must be no greater than the block's gasLimit.
+        // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
+        // must be no greater than the block’s gasLimit.
         let block_available_gas = self.evm.block().gas_limit - self.gas_used;
         if tx.tx().gas_limit() > block_available_gas && (self.is_regolith || !is_deposit) {
             return Err(
@@ -212,94 +193,75 @@ where
         // ---- Simulation Phase ----
         // The purpose of this phase is to populate the revert cache in the slot lock manager
 
-        // Save the current bundle state before any execution
-        let pre_execution_bundle = self.evm.db_mut().take_bundle();
+        // // Save the current bundle state before any execution
+        // let pre_execution_bundle = self.evm.db_mut().take_bundle();
 
-        // Execution 1
-        let ResultAndState {
-            result: first_result,
-            state: first_state,
-        } = self
-            .evm
-            .transact(tx)
-            .map_err(move |err| BlockExecutionError::evm(err, hash))?;
+        // // todo
 
-        let transaction_context = TransactionContext {
-            operation_id: Uuid::new_v4(),
-            caller: *tx.signer(),
-            target: tx.tx().to().unwrap_or_default(),
-        };
+        // // Execution 1
+        // let ResultAndState {
+        //     result: _,
+        //     state: _,
+        // } = self
+        //     .evm
+        //     .transact(tx)
+        //     .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        let block_context = BlockContext {
-            number: self.evm.block().number.saturating_to::<u64>(),
-            btc_block_height: self.get_btc_height_from_l1block()?,
-        };
+        // // ---- Revert Application Phase ----
 
-        // call sentinel with accessed storage
-        self.slot_lock_manager
-            .check_evm_state(&first_state, transaction_context, block_context, None)
-            .map_err(BlockExecutionError::other)?;
+        // // Restore pre-execution bundle state (discard 'Execution 1' results)
+        // self.evm.db_mut().bundle_state = pre_execution_bundle;
 
-        // ---- Revert Application Phase ----
+        // TODO: grab this data from the inspector. Slot Lock manager is deprecated
+        // // Apply state corrections: Get slot reverts from slot lock manager and apply to DB
+        // let pending_reverts = self.slot_lock_manager.clone_pending_reverts();
+        // for revert in &pending_reverts {
+        //     // Load the account into cache if not present
+        //     let account = self
+        //         .evm
+        //         .db_mut()
+        //         .load_cache_account(revert.address)
+        //         .map_err(BlockExecutionError::other)?;
 
-        // Restore pre-execution bundle state (discard 'Execution 1' results)
-        self.evm.db_mut().bundle_state = pre_execution_bundle;
+        //     // Update storage if account exists
+        //     if let Some(ref mut plain_account) = account.account {
+        //         let storage_key = U256::from_be_bytes(revert.slot.to_be_bytes::<32>());
+        //         let revert_value = U256::from_be_bytes(revert.revert_to.to_be_bytes::<32>());
+        //         plain_account.storage.insert(storage_key, revert_value);
+        //     }
 
-        // Apply state corrections: Get slot reverts from slot lock manager and apply to DB
-        let pending_reverts = self.slot_lock_manager.clone_pending_reverts();
-        for revert in &pending_reverts {
-            // Load the account into cache if not present
-            let account = self
-                .evm
-                .db_mut()
-                .load_cache_account(revert.address)
-                .map_err(BlockExecutionError::other)?;
-
-            // Update storage if account exists
-            if let Some(ref mut plain_account) = account.account {
-                let storage_key = U256::from_be_bytes(revert.slot.to_be_bytes::<32>());
-                let revert_value = U256::from_be_bytes(revert.revert_to.to_be_bytes::<32>());
-                plain_account.storage.insert(storage_key, revert_value);
-            }
-
-            // Mark account as changed
-            account.status = account.status.on_changed(false);
-        }
+        //     // Mark account as changed
+        //     account.status = account.status.on_changed(false);
+        // }
 
         // ---- Final Execution Phase ----
-        // Re-execute transaction on corrected DB
+        // Re-execute transaction on corrected DB and update cache lock_data with bew lock info
 
-        let ResultAndState {
-            result: final_result,
-            state: final_state,
-        } = self
+        // Execute transaction.
+        let ResultAndState { result, state } = self
             .evm
             .transact(tx)
             .map_err(move |err| BlockExecutionError::evm(err, hash))?;
 
-        // Check if we should commit the result
-        if !f(&final_result).should_commit() {
+        if !f(&result).should_commit() {
             return Ok(None);
         }
 
-        self.system_caller.on_state(
-            StateChangeSource::Transaction(self.receipts.len()),
-            &final_state,
-        );
+        self.system_caller
+            .on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
 
-        let gas_used = final_result.gas_used();
+        let gas_used = result.gas_used();
 
         // append gas used
         self.gas_used += gas_used;
 
-        // Build receipt
         self.receipts.push(
             match self.receipt_builder.build_receipt(ReceiptBuilderCtx {
                 tx: tx.tx(),
-                result: final_result,
+                result,
                 cumulative_gas_used: self.gas_used,
                 evm: &self.evm,
-                state: &final_state,
+                state: &state,
             }) {
                 Ok(receipt) => receipt,
                 Err(ctx) => {
@@ -330,8 +292,7 @@ where
             },
         );
 
-        // commit the final state
-        self.evm.db_mut().commit(final_state);
+        self.evm.db_mut().commit(state);
 
         Ok(Some(gas_used))
     }
@@ -365,9 +326,9 @@ where
             .unwrap_or_default();
 
         // Update sentinel locks for finalized transactions
-        self.slot_lock_manager
-            .update_sentinel_locks(self.evm.block().number.saturating_to())
-            .map_err(BlockExecutionError::other)?;
+        // self.sova_inspector
+        //     .update_sentinel_locks(self.evm.block().number.saturating_to())
+        //     .map_err(BlockExecutionError::other)?;
 
         Ok((
             self.evm,
@@ -392,34 +353,73 @@ where
     }
 }
 
-impl BlockExecutorFactory for SovaEvmConfig {
-    type EvmFactory = SovaEvmFactory;
+/// Ethereum block executor factory.
+#[derive(Debug, Clone, Default, Copy)]
+pub struct SovaBlockExecutorFactory<
+    R = OpAlloyReceiptBuilder,
+    Spec = OpChainHardforks,
+    EvmFactory = SovaEvmFactory,
+> {
+    /// Receipt builder.
+    receipt_builder: R,
+    /// Chain specification.
+    spec: Spec,
+    /// EVM factory.
+    evm_factory: EvmFactory,
+}
+
+impl<R, Spec, EvmFactory> SovaBlockExecutorFactory<R, Spec, EvmFactory> {
+    /// Creates a new [`SovaBlockExecutorFactory`] with the given spec, [`EvmFactory`], and
+    /// [`OpReceiptBuilder`].
+    pub const fn new(receipt_builder: R, spec: Spec, evm_factory: EvmFactory) -> Self {
+        Self {
+            receipt_builder,
+            spec,
+            evm_factory,
+        }
+    }
+
+    /// Exposes the receipt builder.
+    pub const fn receipt_builder(&self) -> &R {
+        &self.receipt_builder
+    }
+
+    /// Exposes the chain specification.
+    pub const fn spec(&self) -> &Spec {
+        &self.spec
+    }
+
+    /// Exposes the EVM factory.
+    pub const fn evm_factory(&self) -> &EvmFactory {
+        &self.evm_factory
+    }
+}
+
+impl<R, Spec, EvmF> BlockExecutorFactory for SovaBlockExecutorFactory<R, Spec, EvmF>
+where
+    R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
+    Spec: OpHardforks,
+    EvmF: EvmFactory<Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>>,
+    Self: 'static,
+{
+    type EvmFactory = EvmF;
     type ExecutionCtx<'a> = OpBlockExecutionCtx;
-    type Transaction = OpTransactionSigned;
-    type Receipt = OpReceipt;
+    type Transaction = R::Transaction;
+    type Receipt = R::Receipt;
 
     fn evm_factory(&self) -> &Self::EvmFactory {
-        &self.sova_evm_factory
+        &self.evm_factory
     }
 
     fn create_executor<'a, DB, I>(
         &'a self,
-        evm: SovaEvm<&'a mut State<DB>, I>,
-        ctx: OpBlockExecutionCtx,
+        evm: EvmF::Evm<&'a mut State<DB>, I>,
+        ctx: Self::ExecutionCtx<'a>,
     ) -> impl BlockExecutorFor<'a, Self, DB, I>
     where
         DB: Database + 'a,
-        I: InspectorFor<Self, &'a mut State<DB>> + 'a,
+        I: Inspector<EvmF::Context<&'a mut State<DB>>> + 'a,
     {
-        let slot_lock_manager =
-            SlotLockManager::build_default().expect("Failed to build slot lock manager");
-
-        SovaBlockExecutor::new(
-            evm,
-            ctx,
-            self.inner.chain_spec().clone(),
-            self.inner.executor_factory.receipt_builder(),
-            slot_lock_manager,
-        )
+        SovaBlockExecutor::new(evm, ctx, &self.spec, &self.receipt_builder)
     }
 }

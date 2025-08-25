@@ -12,9 +12,8 @@ use reth_primitives_traits::SealedHeader;
 use reth_revm::primitives::hex;
 
 use super::constants::{
-    sova_btc_contract_storage, sova_forks, sova_l1_block_contract_storage,
-    L1_BLOCK_CONTRACT_ADDRESS, L1_BLOCK_CONTRACT_CODE, SOVA_BTC_CONTRACT_ADDRESS,
-    SOVA_BTC_CONTRACT_CODE,
+    sova_btc_contract_storage, sova_forks, sova_l1_block_contract_storage, L1_BLOCK_CONTRACT_CODE,
+    SOVA_BTC_CONTRACT_ADDRESS, SOVA_BTC_CONTRACT_CODE, SOVA_L1_BLOCK_CONTRACT_ADDRESS,
 };
 
 /// Sova dev devnet specification.
@@ -39,7 +38,7 @@ pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
             ),
             // Sova L1Block contract
             (
-                L1_BLOCK_CONTRACT_ADDRESS,
+                SOVA_L1_BLOCK_CONTRACT_ADDRESS,
                 GenesisAccount::default()
                     .with_code(Some(Bytes::from_str(L1_BLOCK_CONTRACT_CODE).unwrap()))
                     .with_storage(Some(sova_l1_block_contract_storage())),

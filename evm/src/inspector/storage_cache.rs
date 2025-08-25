@@ -1,7 +1,8 @@
-use alloy_primitives::{Address, StorageKey, StorageValue};
 use std::collections::{HashMap, HashSet};
 
-use crate::types::SlotChange;
+use alloy_primitives::{Address, StorageKey, StorageValue};
+
+use super::StorageChange;
 
 #[derive(Clone, Debug)]
 pub struct SlotHistory {
@@ -19,7 +20,7 @@ impl AccessedStorage {
     }
 
     /// Get the entry for a given address
-    pub fn entry(&mut self, address: Address) -> &mut HashMap<StorageKey, SlotHistory> {
+    fn entry(&mut self, address: Address) -> &mut HashMap<StorageKey, SlotHistory> {
         self.0.entry(address).or_default()
     }
 
@@ -73,11 +74,6 @@ impl AccessedStorage {
             }
         }
     }
-
-    /// Clear the storage
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
 }
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq)]
@@ -86,7 +82,7 @@ pub struct BroadcastResult {
     pub block: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StorageCache {
     /// Bitcoin precompile address used for filtering calls to the broadcast tx method
     pub bitcoin_precompile_addresses: [Address; 4],
@@ -117,7 +113,7 @@ impl StorageCache {
         &mut self,
         address: Address,
         key: StorageKey,
-        storage_change: SlotChange,
+        storage_change: StorageChange,
     ) {
         if !self.excluded_addresses.contains(&address) {
             // If we already have an entry for this address and key,
@@ -153,12 +149,12 @@ impl StorageCache {
 
         // Clear broadcast storage for next transaction
         // or if there is a second broadcast precompile call in this tx.
-        self.broadcast_accessed_storage.clear();
+        self.broadcast_accessed_storage.0.clear();
     }
 
     /// Clear all storage data for a new block
     pub fn clear_cache(&mut self) {
-        self.broadcast_accessed_storage.clear();
+        self.broadcast_accessed_storage.0.clear();
         self.lock_data.clear();
     }
 }

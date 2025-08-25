@@ -1,34 +1,79 @@
-use std::error::Error;
-
-use crate::precompiles::BitcoinRpcPrecompile;
-use crate::SovaTxEnv;
-use alloy_evm::{
-    precompiles::{DynPrecompile, PrecompileInput, PrecompilesMap},
-    Database, Evm, EvmEnv, EvmFactory,
+use std::env;
+use core::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
 };
-use alloy_op_evm::{OpEvm, OpEvmFactory};
+
+use alloy_evm::{precompiles::PrecompilesMap, Database, Evm, EvmEnv, EvmFactory};
 use alloy_primitives::{Address, Bytes};
-use op_revm::{OpContext, OpHaltReason, OpSpecId, OpTransactionError};
-use reth_ethereum::evm::revm::{
-    context::{result::ResultAndState, BlockEnv},
-    handler::PrecompileProvider,
-    interpreter::InterpreterResult,
-    Inspector,
+use op_revm::{OpContext, OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
+use reth_tasks::TaskExecutor;
+use revm::{
+    context::{BlockEnv, TxEnv},
+    context_interface::result::{EVMError, ResultAndState},
+    handler::{instructions::EthInstructions, PrecompileProvider},
+    inspector::NoOpInspector,
+    interpreter::{interpreter::EthInterpreter, InterpreterResult},
+    Context, ExecuteEvm, InspectEvm, Inspector, SystemCallEvm,
 };
-use sova_chainspec::{
-    BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS, DECODE_TRANSACTION_ADDRESS,
-    VAULT_SPEND_ADDRESS,
-};
+use sova_chainspec::BITCOIN_PRECOMPILE_ADDRESSES;
 
-use revm::{context_interface::result::EVMError, inspector::NoOpInspector};
+use crate::{inspector::SovaInspector, sova_revm_builder::SovaBuilder};
+use crate::sova_revm_default::DefaultSova;
+use crate::{sova_revm::SovaRevmEvm, SovaPrecompiles};
 
-pub struct SovaEvm<DB: Database, I, P = PrecompilesMap> {
-    inner: OpEvm<DB, I, P>,
+/// Sova EVM implementation.
+///
+/// This is a wrapper type around the `revm` evm with optional [`Inspector`] (tracing)
+/// support. [`Inspector`] support is configurable at runtime because it's part of the underlying
+/// [`SovaRevmEvm`](sova_revm::SovaRevmEvm) type.
+#[allow(missing_debug_implementations)] // missing revm::OpContext Debug impl
+pub struct SovaEvm<DB: Database, I = SovaInspector, P = SovaPrecompiles> {
+    inner: SovaRevmEvm<OpContext<DB>, I, EthInstructions<EthInterpreter, OpContext<DB>>, P>,
+    inspect: bool,
 }
 
 impl<DB: Database, I, P> SovaEvm<DB, I, P> {
-    pub fn new(op: OpEvm<DB, I, P>) -> Self {
-        Self { inner: op }
+    /// Provides a reference to the EVM context.
+    pub const fn ctx(&self) -> &OpContext<DB> {
+        &self.inner.0.ctx
+    }
+
+    /// Provides a mutable reference to the EVM context.
+    pub fn ctx_mut(&mut self) -> &mut OpContext<DB> {
+        &mut self.inner.0.ctx
+    }
+}
+
+impl<DB: Database, I, P> SovaEvm<DB, I, P> {
+    /// Creates a new OP EVM instance.
+    ///
+    /// The `inspect` argument determines whether the configured [`Inspector`] of the given
+    /// [`SovaRevmEvm`](sova_revm::SovaRevmEvm) should be invoked on [`Evm::transact`].
+    pub const fn new(
+        evm: SovaRevmEvm<OpContext<DB>, I, EthInstructions<EthInterpreter, OpContext<DB>>, P>,
+        inspect: bool,
+    ) -> Self {
+        Self {
+            inner: evm,
+            inspect,
+        }
+    }
+}
+
+impl<DB: Database, I, P> Deref for SovaEvm<DB, I, P> {
+    type Target = OpContext<DB>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.ctx()
+    }
+}
+
+impl<DB: Database, I, P> DerefMut for SovaEvm<DB, I, P> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ctx_mut()
     }
 }
 
@@ -39,7 +84,7 @@ where
     P: PrecompileProvider<OpContext<DB>, Output = InterpreterResult>,
 {
     type DB = DB;
-    type Tx = SovaTxEnv;
+    type Tx = OpTransaction<TxEnv>;
     type Error = EVMError<DB::Error, OpTransactionError>;
     type HaltReason = OpHaltReason;
     type Spec = OpSpecId;
@@ -47,18 +92,22 @@ where
     type Inspector = I;
 
     fn block(&self) -> &BlockEnv {
-        self.inner.block()
+        &self.block
     }
 
     fn chain_id(&self) -> u64 {
-        self.inner.chain_id()
+        self.cfg.chain_id
     }
 
     fn transact_raw(
         &mut self,
         tx: Self::Tx,
     ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
-        self.inner.transact_raw(tx)
+        if self.inspect {
+            self.inner.inspect_tx(tx)
+        } else {
+            self.inner.transact(tx)
+        }
     }
 
     fn transact_system_call(
@@ -67,40 +116,74 @@ where
         contract: Address,
         data: Bytes,
     ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
-        self.inner.transact_system_call(caller, contract, data)
+        self.inner
+            .transact_system_call_with_caller_finalize(caller, contract, data)
     }
 
     fn finish(self) -> (Self::DB, EvmEnv<Self::Spec>) {
-        self.inner.finish()
+        let Context {
+            block: block_env,
+            cfg: cfg_env,
+            journaled_state,
+            ..
+        } = self.inner.0.ctx;
+
+        (journaled_state.database, EvmEnv { block_env, cfg_env })
     }
 
     fn set_inspector_enabled(&mut self, enabled: bool) {
-        self.inner.set_inspector_enabled(enabled)
+        self.inspect = enabled;
     }
 
     fn components(&self) -> (&Self::DB, &Self::Inspector, &Self::Precompiles) {
-        self.inner.components()
+        (
+            &self.inner.0.ctx.journaled_state.database,
+            &self.inner.0.inspector,
+            &self.inner.0.precompiles,
+        )
     }
 
     fn components_mut(&mut self) -> (&mut Self::DB, &mut Self::Inspector, &mut Self::Precompiles) {
-        self.inner.components_mut()
+        (
+            &mut self.inner.0.ctx.journaled_state.database,
+            &mut self.inner.0.inspector,
+            &mut self.inner.0.precompiles,
+        )
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
-pub struct SovaEvmFactory(pub OpEvmFactory);
+/// Factory producing [`SovaEvm`]s.
+#[derive(Debug, Clone)]
+pub struct SovaEvmFactory {
+    sentinel_url: String,
+    task_executor: TaskExecutor,
+}
 
 impl SovaEvmFactory {
-    pub fn new() -> Self {
-        Self::default()
+    /// Create a new SovaEvmFactory with required parameters
+    pub fn new(sentinel_url: String, task_executor: TaskExecutor) -> Self {
+        Self {
+            sentinel_url,
+            task_executor,
+        }
+    }
+}
+
+impl Default for SovaEvmFactory {
+    fn default() -> Self {
+        Self {
+            sentinel_url: env::var("SOVA_SENTINEL_URL").unwrap_or_default(),
+            task_executor: TaskExecutor::current(),
+        }
     }
 }
 
 impl EvmFactory for SovaEvmFactory {
-    type Evm<DB: Database, I: Inspector<OpContext<DB>>> = SovaEvm<DB, I, PrecompilesMap>;
+    type Evm<DB: Database, I: Inspector<OpContext<DB>>> = SovaEvm<DB, I, Self::Precompiles>;
     type Context<DB: Database> = OpContext<DB>;
-    type Tx = SovaTxEnv;
-    type Error<DBError: Error + Send + Sync + 'static> = EVMError<DBError, OpTransactionError>;
+    type Tx = OpTransaction<TxEnv>;
+    type Error<DBError: core::error::Error + Send + Sync + 'static> =
+        EVMError<DBError, OpTransactionError>;
     type HaltReason = OpHaltReason;
     type Spec = OpSpecId;
     type Precompiles = PrecompilesMap;
@@ -110,45 +193,18 @@ impl EvmFactory for SovaEvmFactory {
         db: DB,
         input: EvmEnv<Self::Spec>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let mut op_evm = self.0.create_evm(db, input);
-
-        let (_, _, precompiles) = op_evm.components_mut();
-        precompiles.ensure_dynamic_precompiles();
-
-        // Install stateful closures for each Sova precompile
-        precompiles.apply_precompile(&BROADCAST_TRANSACTION_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_broadcast_transaction(pi.data, pi.gas, &pi.caller)
-                },
-            ))
-        });
-
-        precompiles.apply_precompile(&DECODE_TRANSACTION_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_decode_transaction(pi.data, pi.gas)
-                },
-            ))
-        });
-
-        precompiles.apply_precompile(&CONVERT_ADDRESS_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_convert_address(pi.data, pi.gas)
-                },
-            ))
-        });
-
-        precompiles.apply_precompile(&VAULT_SPEND_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_vault_spend(pi.data, pi.gas, &pi.caller)
-                },
-            ))
-        });
-
-        SovaEvm::new(op_evm)
+        let spec_id = input.cfg_env.spec;
+        SovaEvm {
+            inner: Context::sova()
+                .with_db(db)
+                .with_block(input.block_env)
+                .with_cfg(input.cfg_env)
+                .build_sova_with_inspector(NoOpInspector {})
+                .with_precompiles(PrecompilesMap::from_static(SovaPrecompiles::satoshi(
+                    spec_id,
+                ))),
+            inspect: false,
+        }
     }
 
     fn create_evm_with_inspector<DB: Database, I: Inspector<Self::Context<DB>>>(
@@ -157,44 +213,17 @@ impl EvmFactory for SovaEvmFactory {
         input: EvmEnv<Self::Spec>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let mut op_evm = self.0.create_evm_with_inspector(db, input, inspector);
-
-        let (_, _, precompiles) = op_evm.components_mut();
-        precompiles.ensure_dynamic_precompiles();
-
-        // Install stateful closures for each Sova precompile
-        precompiles.apply_precompile(&BROADCAST_TRANSACTION_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_broadcast_transaction(pi.data, pi.gas, &pi.caller)
-                },
-            ))
-        });
-
-        precompiles.apply_precompile(&DECODE_TRANSACTION_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_decode_transaction(pi.data, pi.gas)
-                },
-            ))
-        });
-
-        precompiles.apply_precompile(&CONVERT_ADDRESS_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_convert_address(pi.data, pi.gas)
-                },
-            ))
-        });
-
-        precompiles.apply_precompile(&VAULT_SPEND_ADDRESS, |_| {
-            Some(DynPrecompile::new_stateful(
-                move |pi: PrecompileInput<'_>| {
-                    BitcoinRpcPrecompile::run_vault_spend(pi.data, pi.gas, &pi.caller)
-                },
-            ))
-        });
-
-        SovaEvm::new(op_evm)
+        let spec_id = input.cfg_env.spec;
+        SovaEvm {
+            inner: Context::sova()
+                .with_db(db)
+                .with_block(input.block_env)
+                .with_cfg(input.cfg_env)
+                .build_sova_with_inspector(inspector)
+                .with_precompiles(PrecompilesMap::from_static(SovaPrecompiles::satoshi(
+                    spec_id,
+                ))),
+            inspect: true,
+        }
     }
 }

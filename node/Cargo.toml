@@ -12,7 +12,6 @@ path = "src/lib.rs"
 # sova crates
 sova-chainspec.workspace = true
 sova-evm.workspace = true
-slot-lock-manager.workspace = true
 
 # reth
 reth-chain-state.workspace = true
