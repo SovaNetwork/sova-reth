@@ -1,5 +1,5 @@
-use crate::inspector::SovaInspector;
-use crate::maybe_sova_inspector::MaybeSovaInspector;
+use crate::inspector::{InspectorHandle, SovaInspector};
+use crate::MaybeSovaInspector;
 use crate::{alloy::SovaEvmFactory, canyon::ensure_create2_deployer};
 extern crate alloc;
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
@@ -20,20 +20,25 @@ use alloy_op_evm::{
     OpBlockExecutionCtx,
 };
 use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
+use alloy_primitives::{
+    map::foldhash::{HashMap, HashMapExt},
+    Address,
+};
 use eyre::Result;
 use op_alloy_consensus::OpDepositReceipt;
 use op_revm::{transaction::deposit::DEPOSIT_TRANSACTION_TYPE, OpSpecId};
+use reth_evm::block::InternalBlockExecutionError;
 use reth_tasks::TaskExecutor;
+use revm::context::result::ResultAndState;
+use revm::state::EvmStorageSlot;
 use revm::{
-    context::{
-        result::{ExecutionResult, ResultAndState},
-        CfgEnv,
-    },
+    context::{result::ExecutionResult, CfgEnv},
     database::State,
     inspector::NoOpInspector,
     DatabaseCommit, Inspector,
 };
 use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_L1_BLOCK_CONTRACT_ADDRESS};
+use tracing::debug;
 
 /// Block executor for Sova.
 ///
@@ -61,8 +66,8 @@ pub struct SovaBlockExecutor<E: alloy_evm::Evm, R: OpReceiptBuilder, Spec, EvmF 
     evm_env: EvmEnv<<E as alloy_evm::Evm>::Spec>,
     /// The EVM factory for reference
     evm_factory: EvmF,
-    /// Fused inspector passed to every per-tx EVM
-    maybe_insp: MaybeSovaInspector<NoOpInspector>,
+    /// Inspector handle for optional Sova inspector
+    inspector: InspectorHandle,
     /// Sentinel URL for SovaInspector construction
     sentinel_url: String,
     /// Task executor for SovaInspector construction
@@ -98,42 +103,24 @@ where
             ctx,
             evm_env,
             evm_factory,
-            maybe_insp: MaybeSovaInspector::empty(NoOpInspector),
+            inspector: InspectorHandle::none(),
             sentinel_url,
             task_executor,
         }
     }
+
+    /// Configure executor to use Sova inspector
+    pub fn with_sova_inspector(self) -> Self {
+        // Inspector will be configured in apply_pre_execution_changes
+        self
+    }
+
+    /// Configure executor without inspector (no-op behavior)
+    pub fn without_inspector(mut self) -> Self {
+        self.inspector = InspectorHandle::none();
+        self
+    }
 }
-
-// impl<'db, DB, E, R, Spec> SovaBlockExecutor<E, R, Spec>
-// where
-//     DB: Database + 'db,
-//     E: Evm<
-//         DB = &'db mut State<DB>,
-//         Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>,
-//     >,
-//     R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
-//     Spec: OpHardforks,
-// {
-//     /// Read BTC height from L1Block contract storage
-//     fn get_btc_height_from_l1block(&mut self) -> Result<u64, BlockExecutionError> {
-//         // For genesis block (block 0), return BTC height 0 without contract access
-//         let current_block_number = self.evm.block().number.saturating_to::<u64>();
-//         if current_block_number == 1 {
-//             return Ok(0);
-//         }
-
-//         // Read storage directly from the database using the Database trait's storage() method
-//         let height_value = self
-//             .evm
-//             .db_mut()
-//             .database
-//             .storage(SOVA_L1_BLOCK_CONTRACT_ADDRESS, U256::ZERO)
-//             .map_err(BlockExecutionError::other)?;
-
-//         Ok(height_value.saturating_to::<u64>())
-//     }
-// }
 
 impl<'db, DB, E, R, Spec, EvmF> BlockExecutor for SovaBlockExecutor<E, R, Spec, EvmF>
 where
@@ -186,7 +173,7 @@ where
         )
         .map_err(BlockExecutionError::other)?;
 
-        self.maybe_insp.sova = Some(sova);
+        self.inspector = InspectorHandle::new(sova);
 
         Ok(())
     }
@@ -238,59 +225,89 @@ where
 
         let tx_hash = tx.tx().trie_hash();
 
-        // ---- Simulation Phase ----
-        // The purpose of this phase is to populate the revert cache in the SovaInspector::slot_revert_cache
+        // ---- Simulation Phase (Pass #1) ----
+        // Snapshot pre-execution bundle so we can discard the simulation effects cleanly.
+        let pre_execution_bundle = self.evm.db_mut().take_bundle();
 
-        // // Save the current bundle state before any execution?? Not sure if this is necessary any more with current design...
-        // let pre_execution_bundle = self.evm.db_mut().take_bundle();
+        // Run the TX once to populate the inspector's revert cache
+        let pending_reverts: Vec<(Address, reth_revm::db::states::TransitionAccount)> = {
+            let mut per_tx_insp = MaybeSovaInspector::empty(NoOpInspector);
+            per_tx_insp.sova = Some(
+                SovaInspector::new(
+                    BITCOIN_PRECOMPILE_ADDRESSES,
+                    [SOVA_L1_BLOCK_CONTRACT_ADDRESS].to_vec(),
+                    self.sentinel_url.clone(),
+                    self.task_executor.clone(),
+                )
+                .map_err(BlockExecutionError::other)?,
+            );
 
-        // // TODO any where it says slot_lock_manager this should be interpreted as the SovaInspector and use the equivilent SovaInspector function
+            let mut evm_sim = self.evm_factory.create_evm_with_inspector(
+                self.evm.db_mut(),
+                self.evm_env.clone(),
+                per_tx_insp,
+            );
+            evm_sim.enable_inspector();
 
-        // // Execution 1
-        // let ResultAndState {
-        //     result: _,
-        //     state: _,
-        // } = self
-        //     .evm
-        //     .transact(tx)
-        //     .map_err(move |err| BlockExecutionError::evm(err, tx_hash))?;
+            evm_sim
+                .transact(tx.clone())
+                .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
 
-        // // ---- Revert Application Phase ----
+            let (_, insp, _) = evm_sim.components_mut();
+            if let Some(sova) = insp.sova_mut() {
+                sova.take_slot_revert_cache()
+            } else {
+                Vec::new()
+            }
+        };
 
-        // // Restore pre-execution bundle state (discard 'Execution 1' results)
-        // self.evm.db_mut().bundle_state = pre_execution_bundle;
+        // ---- Revert Application Phase ----
+        // Discard simulation writes and apply the inspector's pending reverts.
+        self.evm.db_mut().bundle_state = pre_execution_bundle;
 
-        // TODO: grab this data from the inspector. Slot Lock manager is deprecated
-        // // Apply state corrections: Get slot reverts from slot lock manager and apply to DB
-        // let pending_reverts = self.slot_lock_manager.clone_pending_reverts();
-        // for revert in &pending_reverts {
-        //     // Load the account into cache if not present
-        //     let account = self
-        //         .evm
-        //         .db_mut()
-        //         .load_cache_account(revert.address)
-        //         .map_err(BlockExecutionError::other)?;
+        if !pending_reverts.is_empty() {
+            for (address, transition) in &pending_reverts {
+                for (slot, slot_data) in &transition.storage {
+                    let original_value = slot_data.previous_or_original_value;
+                    let revert_value = slot_data.present_value;
 
-        //     // Update storage if account exists
-        //     if let Some(ref mut plain_account) = account.account {
-        //         let storage_key = U256::from_be_bytes(revert.slot.to_be_bytes::<32>());
-        //         let revert_value = U256::from_be_bytes(revert.revert_to.to_be_bytes::<32>());
-        //         plain_account.storage.insert(storage_key, revert_value);
-        //     }
+                    debug!(
+                        "Reverting slot {:?} from {:?} to {:?}",
+                        slot, original_value, revert_value
+                    );
 
-        //     // Mark account as changed
-        //     account.status = account.status.on_changed(false);
-        // }
+                    // Load account and convert it to revm account
+                    let cache_acc =
+                        self.evm
+                            .db_mut()
+                            .load_cache_account(*address)
+                            .map_err(|err| {
+                                BlockExecutionError::Internal(InternalBlockExecutionError::msg(err))
+                            })?;
 
-        // ---- Final Execution Phase ----
-        // Re-execute transaction on corrected DB and update cache lock_data with new lock info
+                    // Convert cache account to revm account and add storage slot
+                    let acc_info = cache_acc.account_info().unwrap_or_default();
+                    let mut revm_acc: revm::state::Account = acc_info.into();
 
-        let block_ts = self.evm.block().timestamp.saturating_to::<u64>();
+                    // Create storage slot with the revert value (assuming transaction_id 0)
+                    let storage_slot = EvmStorageSlot::new_changed(original_value, revert_value, 0);
+                    revm_acc.storage.insert(*slot, storage_slot);
+                    revm_acc.mark_touch();
 
-        // If you keep per-block state in maybe_insp and want to reuse it,
-        // make MaybeSovaInspector Clone. For now, build a per-tx owned inspector:
-        let mut per_tx_insp = MaybeSovaInspector::empty(NoOpInspector);
-        per_tx_insp.sova = Some(
+                    // Commit the change
+                    let mut changes: HashMap<Address, revm::state::Account> = HashMap::new();
+                    changes.insert(*address, revm_acc);
+                    self.evm.db_mut().commit(changes);
+                }
+            }
+        }
+
+        // ---- Final Execution Phase (Pass #2) ----
+        // Re-execute transaction on corrected DB and update receipts/state as usual.
+
+        // Build a fresh, per-tx inspector for the canonical pass (so it can record lock_data).
+        let mut per_tx_insp2 = MaybeSovaInspector::empty(NoOpInspector);
+        per_tx_insp2.sova = Some(
             SovaInspector::new(
                 BITCOIN_PRECOMPILE_ADDRESSES,
                 [SOVA_L1_BLOCK_CONTRACT_ADDRESS].to_vec(),
@@ -300,17 +317,25 @@ where
             .map_err(BlockExecutionError::other)?,
         );
 
+        // Create an EVM bound to our DB snapshot + the new per-tx inspector.
         let (result, state) = {
             let mut evm_tx = self.evm_factory.create_evm_with_inspector(
                 self.evm.db_mut(),
                 self.evm_env.clone(),
-                per_tx_insp,
+                per_tx_insp2,
             );
             evm_tx.enable_inspector();
 
             let ResultAndState { result, state } = evm_tx
-                .transact(tx) // keep tx for receipts below
-                .map_err(move |err| BlockExecutionError::evm(err, tx_hash))?;
+                .transact(tx) // consume original tx now
+                .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
+
+            // Pull the per-tx SovaInspector out and merge its lock_data back into the block-level handle
+            let (_, insp, _) = evm_tx.components_mut();
+            if let Some(mut sova_ptx) = core::mem::take(&mut insp.sova) {
+                // merge so `finish()` sees everything in lock_data via self.inspector
+                self.inspector.append_lock_data_from(&mut sova_ptx);
+            }
 
             (result, state)
         };
@@ -324,6 +349,9 @@ where
 
         let gas_used = result.gas_used();
         self.gas_used += gas_used;
+
+        // Use the block timestamp for deposit receipt logic
+        let block_ts = self.evm.block().timestamp.saturating_to::<u64>();
 
         self.receipts.push(
             match self.receipt_builder.build_receipt(ReceiptBuilderCtx {
@@ -394,10 +422,13 @@ where
             .unwrap_or_default();
 
         // Update sentinel locks for finalized transactions
-        if let Some(ref mut sova) = self.maybe_insp.sova {
-            sova.update_sentinel_locks(self.evm_env.block_env.number.saturating_to())
-                .map_err(BlockExecutionError::other)?;
-        }
+        self.inspector
+            .update_sentinel_locks(self.evm_env.block_env.number.saturating_to())
+            .map_err(|e| {
+                BlockExecutionError::Internal(reth_evm::block::InternalBlockExecutionError::msg(
+                    e.to_string(),
+                ))
+            })?;
 
         Ok((
             self.evm,

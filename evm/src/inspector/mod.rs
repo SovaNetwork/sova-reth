@@ -1,11 +1,15 @@
 mod error;
+mod handle;
 mod provider;
+mod sova_trait;
 mod storage_cache;
 
 use provider::StorageSlotProvider;
 
 pub use error::SlotProviderError;
+pub use handle::InspectorHandle;
 pub use provider::SlotProvider;
+pub use sova_trait::{Inspector, SlotRevert};
 pub use storage_cache::{BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -23,7 +27,7 @@ use reth_revm::{
     interpreter::{
         CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    Inspector, JournalEntry,
+    DatabaseCommit, Inspector as RevmInspector, JournalEntry,
 };
 use reth_tasks::TaskExecutor;
 use reth_tracing::tracing::{debug, error, info, warn};
@@ -85,6 +89,12 @@ impl SovaInspector {
     fn clear_cache(&mut self) {
         self.cache.clear_cache();
         self.slot_revert_cache.clear();
+    }
+
+    /// Move the captured revert transitions out of the inspector.
+    /// This is used between pass #1 (simulation) and pass #2 (final execution).
+    pub fn take_slot_revert_cache(&mut self) -> Vec<(Address, TransitionAccount)> {
+        core::mem::take(&mut self.slot_revert_cache)
     }
 
     /// Unlock all revereted storage slots and lock all accessed storage slots at the end of execution
@@ -737,7 +747,7 @@ impl SovaInspector {
     }
 }
 
-impl<CTX> Inspector<CTX> for SovaInspector
+impl<CTX> RevmInspector<CTX> for SovaInspector
 where
     CTX: ContextTr<Journal: JournalExt>,
 {
@@ -767,5 +777,51 @@ where
 
     fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
         self.call_end_inner(context, inputs, outcome);
+    }
+}
+
+impl Inspector for SovaInspector {
+    fn on_tx_start(&mut self, _tx_hash: alloy_primitives::B256) {
+        self.slot_revert_cache.clear();
+    }
+
+    fn on_sstore(&mut self, addr: Address, slot: U256, prev: U256, new: U256) {
+        let storage_change = StorageChange {
+            key: slot,
+            value: new,
+            had_value: Some(prev),
+        };
+
+        self.cache
+            .insert_broadcast_accessed_storage(addr, slot.into(), storage_change);
+    }
+
+    fn on_broadcast_end(&mut self, txid: [u8; 32], btc_block: u64) {
+        let broadcast_result = BroadcastResult {
+            txid: Some(txid.to_vec()),
+            block: Some(btc_block),
+        };
+
+        self.cache.commit_broadcast(broadcast_result);
+    }
+
+    fn take_slot_reverts(&mut self) -> Vec<(Address, SlotRevert)> {
+        let mut slot_reverts = Vec::new();
+
+        for (address, transition_account) in std::mem::take(&mut self.slot_revert_cache) {
+            for (slot, storage_slot) in transition_account.storage.iter() {
+                let slot_revert = SlotRevert {
+                    slot: *slot,
+                    previous_value: storage_slot.original_value(),
+                };
+                slot_reverts.push((address, slot_revert));
+            }
+        }
+
+        slot_reverts
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
