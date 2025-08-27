@@ -1,3 +1,4 @@
+use op_alloy_network::Optimism;
 use reth_engine_local::LocalPayloadAttributesBuilder;
 use reth_ethereum::node::api::{FullNodeComponents, FullNodeTypes, NodeTypes};
 use reth_node_builder::{
@@ -51,7 +52,7 @@ where
 
     type AddOns = OpAddOns<
         NodeAdapter<N, <Self::ComponentsBuilder as NodeComponentsBuilder<N>>::Components>,
-        OpEthApiBuilder,
+        OpEthApiBuilder<Optimism>,
         OpEngineValidatorBuilder,
         OpEngineApiBuilder<OpEngineValidatorBuilder>,
     >;

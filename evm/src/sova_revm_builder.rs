@@ -1,7 +1,12 @@
 //! Optimism builder trait [`OpBuilder`] used to build [`OpEvm`].
 use op_revm::{transaction::OpTxTr, L1BlockInfo, OpSpecId};
 use revm::{
-    context::Cfg, context_interface::{Block, JournalTr}, handler::instructions::EthInstructions, interpreter::interpreter::EthInterpreter, state::EvmState, Context, Database
+    context::Cfg,
+    context_interface::{Block, JournalTr},
+    handler::instructions::EthInstructions,
+    interpreter::interpreter::EthInterpreter,
+    state::EvmState,
+    Context, Database,
 };
 
 use crate::{sova_revm::SovaRevmEvm, SovaPrecompiles};
@@ -19,7 +24,10 @@ pub trait SovaBuilder: Sized {
     fn build_sova(self) -> DefaultSovaRevmEvm<Self::Context>;
 
     /// Build the sova with an inspector.
-    fn build_sova_with_inspector<INSP>(self, inspector: INSP) -> DefaultSovaRevmEvm<Self::Context, INSP>;
+    fn build_sova_with_inspector<INSP>(
+        self,
+        inspector: INSP,
+    ) -> DefaultSovaRevmEvm<Self::Context, INSP>;
 }
 
 impl<BLOCK, TX, CFG, DB, JOURNAL> SovaBuilder for Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>
@@ -36,7 +44,10 @@ where
         SovaRevmEvm::new(self, ())
     }
 
-    fn build_sova_with_inspector<INSP>(self, inspector: INSP) -> DefaultSovaRevmEvm<Self::Context, INSP> {
+    fn build_sova_with_inspector<INSP>(
+        self,
+        inspector: INSP,
+    ) -> DefaultSovaRevmEvm<Self::Context, INSP> {
         SovaRevmEvm::new(self, inspector)
     }
 }

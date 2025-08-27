@@ -1,10 +1,10 @@
 use alloy_consensus::{BlockHeader, Header};
-use alloy_evm::{EvmEnv, FromRecoveredTx, FromTxWithEncoded};
+use alloy_evm::EvmEnv;
 use alloy_op_evm::{block::receipt_builder::OpReceiptBuilder, OpBlockExecutionCtx};
 use alloy_op_hardforks::OpHardforks;
 use alloy_primitives::U256;
 use op_alloy_consensus::EIP1559ParamError;
-use op_revm::{OpSpecId, OpTransaction};
+use op_revm::OpSpecId;
 use reth_ethereum::{
     node::api::ConfigureEvm,
     primitives::{SealedBlock, SealedHeader},
@@ -18,13 +18,14 @@ use reth_optimism_evm::{
 use reth_optimism_primitives::OpPrimitives;
 use reth_primitives_traits::{NodePrimitives, SignedTransaction};
 use revm::{
-    context::{BlockEnv, CfgEnv, TxEnv},
+    context::{BlockEnv, CfgEnv},
     context_interface::block::BlobExcessGasAndPrice,
     primitives::hardfork::SpecId,
 };
 use std::sync::Arc;
 
 use crate::{alloy::SovaEvmFactory, executor::SovaBlockExecutorFactory};
+use reth_optimism_primitives::{OpReceipt, OpTransactionSigned};
 
 /// Optimism-related EVM configuration.
 #[derive(Debug)]
@@ -66,6 +67,8 @@ impl<ChainSpec: OpHardforks, N: NodePrimitives, R> SovaEvmConfig<ChainSpec, N, R
                 receipt_builder,
                 chain_spec,
                 SovaEvmFactory::default(),
+                std::env::var("SOVA_SENTINEL_URL").unwrap_or_default(),
+                reth_tasks::TaskExecutor::current(),
             ),
             _pd: core::marker::PhantomData,
         }
@@ -77,24 +80,22 @@ impl<ChainSpec: OpHardforks, N: NodePrimitives, R> SovaEvmConfig<ChainSpec, N, R
     }
 }
 
-impl<ChainSpec, N, R> ConfigureEvm for SovaEvmConfig<ChainSpec, N, R>
+impl<ChainSpec, N> ConfigureEvm for SovaEvmConfig<ChainSpec, N, OpRethReceiptBuilder>
 where
     ChainSpec: EthChainSpec<Header = Header> + OpHardforks,
     N: NodePrimitives<
-        Receipt = R::Receipt,
-        SignedTx = R::Transaction,
+        Receipt = OpReceipt,
+        SignedTx = OpTransactionSigned,
         BlockHeader = Header,
-        BlockBody = alloy_consensus::BlockBody<R::Transaction>,
-        Block = alloy_consensus::Block<R::Transaction>,
+        BlockBody = alloy_consensus::BlockBody<OpTransactionSigned>,
+        Block = alloy_consensus::Block<OpTransactionSigned>,
     >,
-    OpTransaction<TxEnv>: FromRecoveredTx<N::SignedTx> + FromTxWithEncoded<N::SignedTx>,
-    R: OpReceiptBuilder<Receipt: DepositReceipt, Transaction: SignedTransaction>,
     Self: Send + Sync + Unpin + Clone + 'static,
 {
     type Primitives = N;
     type Error = EIP1559ParamError;
     type NextBlockEnvCtx = OpNextBlockEnvAttributes;
-    type BlockExecutorFactory = SovaBlockExecutorFactory<R, Arc<ChainSpec>>;
+    type BlockExecutorFactory = SovaBlockExecutorFactory<OpRethReceiptBuilder, Arc<ChainSpec>>;
     type BlockAssembler = OpBlockAssembler<ChainSpec>;
 
     fn block_executor_factory(&self) -> &Self::BlockExecutorFactory {

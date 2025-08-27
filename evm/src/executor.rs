@@ -1,4 +1,6 @@
-use crate::{alloy::SovaEvmFactory, canyon::ensure_create2_deployer, SovaEvmConfig};
+use crate::inspector::SovaInspector;
+use crate::maybe_sova_inspector::MaybeSovaInspector;
+use crate::{alloy::SovaEvmFactory, canyon::ensure_create2_deployer};
 extern crate alloc;
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 use alloy_consensus::{Eip658Value, Header, Transaction, TxReceipt};
@@ -11,7 +13,7 @@ use alloy_evm::{
         StateChangePostBlockSource, StateChangeSource, SystemCaller,
     },
     eth::receipt_builder::ReceiptBuilderCtx,
-    Database, Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded,
+    Database, Evm, EvmEnv, EvmFactory, FromRecoveredTx, FromTxWithEncoded,
 };
 use alloy_op_evm::{
     block::{receipt_builder::OpReceiptBuilder, OpAlloyReceiptBuilder},
@@ -20,18 +22,24 @@ use alloy_op_evm::{
 use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
 use eyre::Result;
 use op_alloy_consensus::OpDepositReceipt;
-use op_revm::transaction::deposit::DEPOSIT_TRANSACTION_TYPE;
+use op_revm::{transaction::deposit::DEPOSIT_TRANSACTION_TYPE, OpSpecId};
+use reth_tasks::TaskExecutor;
 use revm::{
-    context::result::{ExecutionResult, ResultAndState},
+    context::{
+        result::{ExecutionResult, ResultAndState},
+        CfgEnv,
+    },
     database::State,
+    inspector::NoOpInspector,
     DatabaseCommit, Inspector,
 };
+use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_L1_BLOCK_CONTRACT_ADDRESS};
 
 /// Block executor for Sova.
 ///
 /// Modeled after: https://github.com/alloy-rs/evm/blob/main/crates/op-evm/src/block/mod.rs
 #[derive(Debug)]
-pub struct SovaBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
+pub struct SovaBlockExecutor<E: alloy_evm::Evm, R: OpReceiptBuilder, Spec, EvmF = SovaEvmFactory> {
     /// Spec.
     spec: Spec,
     /// Receipt builder.
@@ -40,7 +48,7 @@ pub struct SovaBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
     /// Context for block execution.
     ctx: OpBlockExecutionCtx,
     /// The EVM used by executor.
-    evm: Evm,
+    evm: E,
     /// Receipts of executed transactions.
     receipts: Vec<R::Receipt>,
     /// Total gas used by executed transactions.
@@ -49,16 +57,35 @@ pub struct SovaBlockExecutor<Evm, R: OpReceiptBuilder, Spec> {
     is_regolith: bool,
     /// Utility to call system smart contracts.
     system_caller: SystemCaller<Spec>,
+    /// The per-block env snapshot (cfg_env + block_env)
+    evm_env: EvmEnv<<E as alloy_evm::Evm>::Spec>,
+    /// The EVM factory for reference
+    evm_factory: EvmF,
+    /// Fused inspector passed to every per-tx EVM
+    maybe_insp: MaybeSovaInspector<NoOpInspector>,
+    /// Sentinel URL for SovaInspector construction
+    sentinel_url: String,
+    /// Task executor for SovaInspector construction
+    task_executor: TaskExecutor,
 }
 
-impl<E, R, Spec> SovaBlockExecutor<E, R, Spec>
+impl<E, R, Spec, EvmF> SovaBlockExecutor<E, R, Spec, EvmF>
 where
     E: Evm,
     R: OpReceiptBuilder,
     Spec: OpHardforks + Clone,
 {
     /// Creates a new [`SovaBlockExecutor`].
-    pub fn new(evm: E, ctx: OpBlockExecutionCtx, spec: Spec, receipt_builder: R) -> Self {
+    pub fn new(
+        evm: E,
+        ctx: OpBlockExecutionCtx,
+        spec: Spec,
+        receipt_builder: R,
+        evm_env: EvmEnv<<E as alloy_evm::Evm>::Spec>,
+        evm_factory: EvmF,
+        sentinel_url: String,
+        task_executor: TaskExecutor,
+    ) -> Self {
         Self {
             is_regolith: spec
                 .is_regolith_active_at_timestamp(evm.block().timestamp.saturating_to()),
@@ -69,6 +96,11 @@ where
             receipts: Vec::new(),
             gas_used: 0,
             ctx,
+            evm_env,
+            evm_factory,
+            maybe_insp: MaybeSovaInspector::empty(NoOpInspector),
+            sentinel_url,
+            task_executor,
         }
     }
 }
@@ -103,7 +135,7 @@ where
 //     }
 // }
 
-impl<'db, DB, E, R, Spec> BlockExecutor for SovaBlockExecutor<E, R, Spec>
+impl<'db, DB, E, R, Spec, EvmF> BlockExecutor for SovaBlockExecutor<E, R, Spec, EvmF>
 where
     DB: Database + 'db,
     E: Evm<
@@ -112,6 +144,11 @@ where
     >,
     R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
     Spec: OpHardforks,
+    EvmF: EvmFactory<
+        Spec = <E as Evm>::Spec,
+        Tx = <E as Evm>::Tx,
+        HaltReason = <E as Evm>::HaltReason,
+    >,
 {
     type Transaction = R::Transaction;
     type Receipt = R::Receipt;
@@ -139,6 +176,17 @@ where
             self.evm.db_mut(),
         )
         .map_err(BlockExecutionError::other)?;
+
+        // Install SovaInspector for this block:
+        let sova = SovaInspector::new(
+            BITCOIN_PRECOMPILE_ADDRESSES,
+            [SOVA_L1_BLOCK_CONTRACT_ADDRESS].to_vec(),
+            self.sentinel_url.clone(),
+            self.task_executor.clone(),
+        )
+        .map_err(BlockExecutionError::other)?;
+
+        self.maybe_insp.sova = Some(sova);
 
         Ok(())
     }
@@ -188,7 +236,7 @@ where
             .transpose()
             .map_err(BlockExecutionError::other)?;
 
-        let hash = tx.tx().trie_hash();
+        let tx_hash = tx.tx().trie_hash();
 
         // ---- Simulation Phase ----
         // The purpose of this phase is to populate the revert cache in the slot lock manager
@@ -205,7 +253,7 @@ where
         // } = self
         //     .evm
         //     .transact(tx)
-        //     .map_err(move |err| BlockExecutionError::evm(err, hash))?;
+        //     .map_err(move |err| BlockExecutionError::evm(err, tx_hash))?;
 
         // // ---- Revert Application Phase ----
 
@@ -235,13 +283,37 @@ where
         // }
 
         // ---- Final Execution Phase ----
-        // Re-execute transaction on corrected DB and update cache lock_data with bew lock info
+        // Re-execute transaction on corrected DB and update cache lock_data with new lock info
 
-        // Execute transaction.
-        let ResultAndState { result, state } = self
-            .evm
-            .transact(tx)
-            .map_err(move |err| BlockExecutionError::evm(err, hash))?;
+        let block_ts = self.evm.block().timestamp.saturating_to::<u64>();
+
+        // If you keep per-block state in maybe_insp and want to reuse it,
+        // make MaybeSovaInspector Clone. For now, build a per-tx owned inspector:
+        let mut per_tx_insp = MaybeSovaInspector::empty(NoOpInspector);
+        per_tx_insp.sova = Some(
+            SovaInspector::new(
+                BITCOIN_PRECOMPILE_ADDRESSES,
+                [SOVA_L1_BLOCK_CONTRACT_ADDRESS].to_vec(),
+                self.sentinel_url.clone(),
+                self.task_executor.clone(),
+            )
+            .map_err(BlockExecutionError::other)?,
+        );
+
+        let (result, state) = {
+            let mut evm_tx = self.evm_factory.create_evm_with_inspector(
+                self.evm.db_mut(),
+                self.evm_env.clone(),
+                per_tx_insp,
+            );
+            evm_tx.enable_inspector();
+
+            let ResultAndState { result, state } = evm_tx
+                .transact(tx) // keep tx for receipts below
+                .map_err(move |err| BlockExecutionError::evm(err, tx_hash))?;
+
+            (result, state)
+        };
 
         if !f(&result).should_commit() {
             return Ok(None);
@@ -251,8 +323,6 @@ where
             .on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
 
         let gas_used = result.gas_used();
-
-        // append gas used
         self.gas_used += gas_used;
 
         self.receipts.push(
@@ -283,9 +353,7 @@ where
                             // this is only set for post-Canyon deposit
                             // transactions.
                             deposit_receipt_version: (is_deposit
-                                && self.spec.is_canyon_active_at_timestamp(
-                                    self.evm.block().timestamp.saturating_to(),
-                                ))
+                                && self.spec.is_canyon_active_at_timestamp(block_ts))
                             .then_some(1),
                         })
                 }
@@ -326,9 +394,10 @@ where
             .unwrap_or_default();
 
         // Update sentinel locks for finalized transactions
-        // self.sova_inspector
-        //     .update_sentinel_locks(self.evm.block().number.saturating_to())
-        //     .map_err(BlockExecutionError::other)?;
+        if let Some(ref mut sova) = self.maybe_insp.sova {
+            sova.update_sentinel_locks(self.evm_env.block_env.number.saturating_to())
+                .map_err(BlockExecutionError::other)?;
+        }
 
         Ok((
             self.evm,
@@ -354,7 +423,7 @@ where
 }
 
 /// Ethereum block executor factory.
-#[derive(Debug, Clone, Default, Copy)]
+#[derive(Debug, Clone)]
 pub struct SovaBlockExecutorFactory<
     R = OpAlloyReceiptBuilder,
     Spec = OpChainHardforks,
@@ -366,16 +435,28 @@ pub struct SovaBlockExecutorFactory<
     spec: Spec,
     /// EVM factory.
     evm_factory: EvmFactory,
+    /// Sentinel URL for SovaInspector construction
+    sentinel_url: String,
+    /// Task executor for SovaInspector construction
+    task_executor: TaskExecutor,
 }
 
 impl<R, Spec, EvmFactory> SovaBlockExecutorFactory<R, Spec, EvmFactory> {
     /// Creates a new [`SovaBlockExecutorFactory`] with the given spec, [`EvmFactory`], and
     /// [`OpReceiptBuilder`].
-    pub const fn new(receipt_builder: R, spec: Spec, evm_factory: EvmFactory) -> Self {
+    pub fn new(
+        receipt_builder: R,
+        spec: Spec,
+        evm_factory: EvmFactory,
+        sentinel_url: String,
+        task_executor: TaskExecutor,
+    ) -> Self {
         Self {
             receipt_builder,
             spec,
             evm_factory,
+            sentinel_url,
+            task_executor,
         }
     }
 
@@ -393,13 +474,26 @@ impl<R, Spec, EvmFactory> SovaBlockExecutorFactory<R, Spec, EvmFactory> {
     pub const fn evm_factory(&self) -> &EvmFactory {
         &self.evm_factory
     }
+
+    /// Exposes the sentinel URL.
+    pub const fn sentinel_url(&self) -> &String {
+        &self.sentinel_url
+    }
+
+    /// Exposes the task executor.
+    pub const fn task_executor(&self) -> &TaskExecutor {
+        &self.task_executor
+    }
 }
 
 impl<R, Spec, EvmF> BlockExecutorFactory for SovaBlockExecutorFactory<R, Spec, EvmF>
 where
     R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
     Spec: OpHardforks,
-    EvmF: EvmFactory<Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>>,
+    EvmF: EvmFactory<
+            Spec = OpSpecId,
+            Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>,
+        > + Clone,
     Self: 'static,
 {
     type EvmFactory = EvmF;
@@ -413,13 +507,46 @@ where
 
     fn create_executor<'a, DB, I>(
         &'a self,
-        evm: EvmF::Evm<&'a mut State<DB>, I>,
+        evm: <EvmF as EvmFactory>::Evm<&'a mut State<DB>, I>,
         ctx: Self::ExecutionCtx<'a>,
     ) -> impl BlockExecutorFor<'a, Self, DB, I>
     where
         DB: Database + 'a,
-        I: Inspector<EvmF::Context<&'a mut State<DB>>> + 'a,
+        I: Inspector<<EvmF as EvmFactory>::Context<&'a mut State<DB>>> + 'a,
     {
-        SovaBlockExecutor::new(evm, ctx, &self.spec, &self.receipt_builder)
+        // Create EvmEnv from block information; its Spec MUST match E::Spec
+        let evm_env: EvmEnv<<EvmF as EvmFactory>::Spec> = EvmEnv {
+            cfg_env: CfgEnv::default(),
+            block_env: evm.block().clone(),
+        };
+
+        SovaBlockExecutor::new(
+            evm,
+            ctx,
+            &self.spec,
+            &self.receipt_builder,
+            evm_env,
+            self.evm_factory.clone(),
+            self.sentinel_url.clone(),
+            self.task_executor.clone(),
+        )
+    }
+}
+
+impl<R, Spec, EvmFactory> Default for SovaBlockExecutorFactory<R, Spec, EvmFactory>
+where
+    R: Default,
+    Spec: Default,
+    EvmFactory: Default,
+{
+    fn default() -> Self {
+        use std::env;
+        Self {
+            receipt_builder: R::default(),
+            spec: Spec::default(),
+            evm_factory: EvmFactory::default(),
+            sentinel_url: env::var("SOVA_SENTINEL_URL").unwrap_or_default(),
+            task_executor: TaskExecutor::current(),
+        }
     }
 }

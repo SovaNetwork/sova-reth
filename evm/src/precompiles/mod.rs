@@ -880,7 +880,7 @@ impl Default for SovaPrecompiles {
 }
 
 // Implementation of PrecompileProvider trait for SovaPrecompiles
-impl<CTX> PrecompileProvider<CTX> for SovaPrecompiles 
+impl<CTX> PrecompileProvider<CTX> for SovaPrecompiles
 where
     CTX: ContextTr<Cfg: Cfg<Spec = OpSpecId>>,
 {

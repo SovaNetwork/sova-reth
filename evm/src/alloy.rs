@@ -1,11 +1,9 @@
+use core::fmt::Debug;
 use std::env;
-use core::{
-    fmt::Debug,
-    ops::{Deref, DerefMut},
-};
 
 use alloy_evm::{precompiles::PrecompilesMap, Database, Evm, EvmEnv, EvmFactory};
 use alloy_primitives::{Address, Bytes};
+use core::ops::{Deref, DerefMut};
 use op_revm::{OpContext, OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
 use reth_tasks::TaskExecutor;
 use revm::{
@@ -16,11 +14,14 @@ use revm::{
     interpreter::{interpreter::EthInterpreter, InterpreterResult},
     Context, ExecuteEvm, InspectEvm, Inspector, SystemCallEvm,
 };
-use sova_chainspec::BITCOIN_PRECOMPILE_ADDRESSES;
 
-use crate::{inspector::SovaInspector, sova_revm_builder::SovaBuilder};
 use crate::sova_revm_default::DefaultSova;
+use crate::{inspector::SovaInspector, sova_revm_builder::SovaBuilder};
 use crate::{sova_revm::SovaRevmEvm, SovaPrecompiles};
+
+/// Public alias so RPC converters & builders can target the same Tx type the
+/// Reth/OP stack already implements traits for.
+pub type SovaTx = OpTransaction<TxEnv>;
 
 /// Sova EVM implementation.
 ///
@@ -84,7 +85,7 @@ where
     P: PrecompileProvider<OpContext<DB>, Output = InterpreterResult>,
 {
     type DB = DB;
-    type Tx = OpTransaction<TxEnv>;
+    type Tx = SovaTx;
     type Error = EVMError<DB::Error, OpTransactionError>;
     type HaltReason = OpHaltReason;
     type Spec = OpSpecId;
@@ -181,7 +182,7 @@ impl Default for SovaEvmFactory {
 impl EvmFactory for SovaEvmFactory {
     type Evm<DB: Database, I: Inspector<OpContext<DB>>> = SovaEvm<DB, I, Self::Precompiles>;
     type Context<DB: Database> = OpContext<DB>;
-    type Tx = OpTransaction<TxEnv>;
+    type Tx = SovaTx;
     type Error<DBError: core::error::Error + Send + Sync + 'static> =
         EVMError<DBError, OpTransactionError>;
     type HaltReason = OpHaltReason;
