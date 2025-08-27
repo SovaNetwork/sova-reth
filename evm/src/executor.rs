@@ -239,12 +239,12 @@ where
         let tx_hash = tx.tx().trie_hash();
 
         // ---- Simulation Phase ----
-        // The purpose of this phase is to populate the revert cache in the slot lock manager
+        // The purpose of this phase is to populate the revert cache in the SovaInspector::slot_revert_cache
 
-        // // Save the current bundle state before any execution
+        // // Save the current bundle state before any execution?? Not sure if this is necessary any more with current design...
         // let pre_execution_bundle = self.evm.db_mut().take_bundle();
 
-        // // todo
+        // // TODO any where it says slot_lock_manager this should be interpreted as the SovaInspector and use the equivilent SovaInspector function
 
         // // Execution 1
         // let ResultAndState {
