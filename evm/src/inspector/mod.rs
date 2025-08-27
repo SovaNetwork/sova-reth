@@ -9,7 +9,7 @@ use provider::StorageSlotProvider;
 pub use error::SlotProviderError;
 pub use handle::InspectorHandle;
 pub use provider::SlotProvider;
-pub use sova_trait::{Inspector, SlotRevert};
+pub use sova_trait::{Inspector};
 pub use storage_cache::{BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -27,12 +27,12 @@ use reth_revm::{
     interpreter::{
         CallInputs, CallOutcome, Gas, InstructionResult, Interpreter, InterpreterResult,
     },
-    DatabaseCommit, Inspector as RevmInspector, JournalEntry,
+    Inspector as RevmInspector, JournalEntry,
 };
 use reth_tasks::TaskExecutor;
 use reth_tracing::tracing::{debug, error, info, warn};
 
-use crate::precompiles::BitcoinMethodHelper;
+use crate::{inspector::sova_trait::SlotRevert, precompiles::BitcoinMethodHelper};
 
 use sova_chainspec::{
     BitcoinPrecompileMethod, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT, SOVA_BTC_CONTRACT_ADDRESS,

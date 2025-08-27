@@ -1,6 +1,6 @@
 use alloy_consensus::{BlockHeader, Header};
 use alloy_evm::EvmEnv;
-use alloy_op_evm::{block::receipt_builder::OpReceiptBuilder, OpBlockExecutionCtx};
+use alloy_op_evm::OpBlockExecutionCtx;
 use alloy_op_hardforks::OpHardforks;
 use alloy_primitives::U256;
 use op_alloy_consensus::EIP1559ParamError;
@@ -9,14 +9,14 @@ use reth_ethereum::{
     node::api::ConfigureEvm,
     primitives::{SealedBlock, SealedHeader},
 };
-use reth_op::{chainspec::EthChainSpec, DepositReceipt};
+use reth_op::chainspec::EthChainSpec;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::{
     revm_spec_by_timestamp_after_bedrock, OpBlockAssembler, OpNextBlockEnvAttributes,
     OpRethReceiptBuilder,
 };
 use reth_optimism_primitives::OpPrimitives;
-use reth_primitives_traits::{NodePrimitives, SignedTransaction};
+use reth_primitives_traits::NodePrimitives;
 use revm::{
     context::{BlockEnv, CfgEnv},
     context_interface::block::BlobExcessGasAndPrice,
