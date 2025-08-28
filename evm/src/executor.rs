@@ -250,7 +250,7 @@ where
             evm_sim.enable_inspector();
 
             evm_sim
-                .transact(tx.clone())
+                .transact(tx)
                 .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
 
             let (_, insp, _) = evm_sim.components_mut();

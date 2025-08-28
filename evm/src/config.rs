@@ -66,7 +66,7 @@ impl<ChainSpec: OpHardforks, N: NodePrimitives, R> SovaEvmConfig<ChainSpec, N, R
             executor_factory: SovaBlockExecutorFactory::new(
                 receipt_builder,
                 chain_spec,
-                SovaEvmFactory::default(),
+                SovaEvmFactory,
                 std::env::var("SOVA_SENTINEL_URL").unwrap_or_default(),
                 reth_tasks::TaskExecutor::current(),
             ),

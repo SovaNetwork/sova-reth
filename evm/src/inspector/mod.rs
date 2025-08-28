@@ -9,7 +9,7 @@ use provider::StorageSlotProvider;
 pub use error::SlotProviderError;
 pub use handle::InspectorHandle;
 pub use provider::SlotProvider;
-pub use sova_trait::{Inspector};
+pub use sova_trait::Inspector;
 pub use storage_cache::{BroadcastResult, StorageCache};
 
 use core::ops::Range;
@@ -32,7 +32,7 @@ use reth_revm::{
 use reth_tasks::TaskExecutor;
 use reth_tracing::tracing::{debug, error, info, warn};
 
-use crate::{inspector::sova_trait::SlotRevert, precompiles::BitcoinMethodHelper};
+use crate::precompiles::BitcoinMethodHelper;
 
 use sova_chainspec::{
     BitcoinPrecompileMethod, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT, SOVA_BTC_CONTRACT_ADDRESS,
@@ -781,45 +781,45 @@ where
 }
 
 impl Inspector for SovaInspector {
-    fn on_tx_start(&mut self, _tx_hash: alloy_primitives::B256) {
-        self.slot_revert_cache.clear();
-    }
+    // fn on_tx_start(&mut self, _tx_hash: alloy_primitives::B256) {
+    //     self.slot_revert_cache.clear();
+    // }
 
-    fn on_sstore(&mut self, addr: Address, slot: U256, prev: U256, new: U256) {
-        let storage_change = StorageChange {
-            key: slot,
-            value: new,
-            had_value: Some(prev),
-        };
+    // fn on_sstore(&mut self, addr: Address, slot: U256, prev: U256, new: U256) {
+    //     let storage_change = StorageChange {
+    //         key: slot,
+    //         value: new,
+    //         had_value: Some(prev),
+    //     };
 
-        self.cache
-            .insert_broadcast_accessed_storage(addr, slot.into(), storage_change);
-    }
+    //     self.cache
+    //         .insert_broadcast_accessed_storage(addr, slot.into(), storage_change);
+    // }
 
-    fn on_broadcast_end(&mut self, txid: [u8; 32], btc_block: u64) {
-        let broadcast_result = BroadcastResult {
-            txid: Some(txid.to_vec()),
-            block: Some(btc_block),
-        };
+    // fn on_broadcast_end(&mut self, txid: [u8; 32], btc_block: u64) {
+    //     let broadcast_result = BroadcastResult {
+    //         txid: Some(txid.to_vec()),
+    //         block: Some(btc_block),
+    //     };
 
-        self.cache.commit_broadcast(broadcast_result);
-    }
+    //     self.cache.commit_broadcast(broadcast_result);
+    // }
 
-    fn take_slot_reverts(&mut self) -> Vec<(Address, SlotRevert)> {
-        let mut slot_reverts = Vec::new();
+    // fn take_slot_reverts(&mut self) -> Vec<(Address, SlotRevert)> {
+    //     let mut slot_reverts = Vec::new();
 
-        for (address, transition_account) in std::mem::take(&mut self.slot_revert_cache) {
-            for (slot, storage_slot) in transition_account.storage.iter() {
-                let slot_revert = SlotRevert {
-                    slot: *slot,
-                    previous_value: storage_slot.original_value(),
-                };
-                slot_reverts.push((address, slot_revert));
-            }
-        }
+    //     for (address, transition_account) in std::mem::take(&mut self.slot_revert_cache) {
+    //         for (slot, storage_slot) in transition_account.storage.iter() {
+    //             let slot_revert = SlotRevert {
+    //                 slot: *slot,
+    //                 previous_value: storage_slot.original_value(),
+    //             };
+    //             slot_reverts.push((address, slot_revert));
+    //         }
+    //     }
 
-        slot_reverts
-    }
+    //     slot_reverts
+    // }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self

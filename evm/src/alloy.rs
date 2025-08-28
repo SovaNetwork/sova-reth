@@ -1,11 +1,9 @@
 use core::fmt::Debug;
-use std::env;
 
 use alloy_evm::{precompiles::PrecompilesMap, Database, Evm, EvmEnv, EvmFactory};
 use alloy_primitives::{Address, Bytes};
 use core::ops::{Deref, DerefMut};
 use op_revm::{OpContext, OpHaltReason, OpSpecId, OpTransaction, OpTransactionError};
-use reth_tasks::TaskExecutor;
 use revm::{
     context::{BlockEnv, TxEnv},
     context_interface::result::{EVMError, ResultAndState},
@@ -15,8 +13,8 @@ use revm::{
     Context, ExecuteEvm, InspectEvm, Inspector, SystemCallEvm,
 };
 
-use crate::sova_revm_default::DefaultSova;
-use crate::{inspector::SovaInspector, sova_revm_builder::SovaBuilder};
+use crate::revm::default::DefaultSova;
+use crate::{inspector::SovaInspector, revm::builder::SovaBuilder};
 use crate::{sova_revm::SovaRevmEvm, SovaPrecompiles};
 
 /// Public alias so RPC converters & builders can target the same Tx type the
@@ -155,27 +153,18 @@ where
 
 /// Factory producing [`SovaEvm`]s.
 #[derive(Debug, Clone)]
-pub struct SovaEvmFactory {
-    sentinel_url: String,
-    task_executor: TaskExecutor,
-}
+pub struct SovaEvmFactory;
 
 impl SovaEvmFactory {
-    /// Create a new SovaEvmFactory with required parameters
-    pub fn new(sentinel_url: String, task_executor: TaskExecutor) -> Self {
-        Self {
-            sentinel_url,
-            task_executor,
-        }
+    /// Create a new SovaEvmFactory
+    pub fn new() -> Self {
+        Self
     }
 }
 
 impl Default for SovaEvmFactory {
     fn default() -> Self {
-        Self {
-            sentinel_url: env::var("SOVA_SENTINEL_URL").unwrap_or_default(),
-            task_executor: TaskExecutor::current(),
-        }
+        Self
     }
 }
 

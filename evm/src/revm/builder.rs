@@ -21,6 +21,10 @@ pub trait SovaBuilder: Sized {
     type Context;
 
     /// Build the sova.
+    ///
+    /// This method is kept to match the API from revm/op-revm crate:
+    /// https://github.com/bluealloy/revm/blob/main/crates/op-revm/src/api/builder.rs
+    #[allow(dead_code)]
     fn build_sova(self) -> DefaultSovaRevmEvm<Self::Context>;
 
     /// Build the sova with an inspector.
@@ -40,6 +44,7 @@ where
 {
     type Context = Self;
 
+    #[allow(dead_code)]
     fn build_sova(self) -> DefaultSovaRevmEvm<Self::Context> {
         SovaRevmEvm::new(self, ())
     }

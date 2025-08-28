@@ -912,7 +912,7 @@ where
             BROADCAST_TRANSACTION_ADDRESS => {
                 // Only the native bitcoin wrapper contract can call this method
                 if caller != SOVA_BTC_CONTRACT_ADDRESS {
-                    return Err("Unauthorized precompile caller. Only the enshrined SovaBTC contract may broadcast transactions.".to_string());
+                    Err("Unauthorized precompile caller. Only the enshrined SovaBTC contract may broadcast transactions.".to_string())
                 } else {
                     self.inner
                         .run(context, address, inputs, is_static, gas_limit)
@@ -921,7 +921,7 @@ where
             VAULT_SPEND_ADDRESS => {
                 // Only the native bitcoin wrapper contract can call this method
                 if caller != SOVA_BTC_CONTRACT_ADDRESS {
-                    return Err("Unauthorized precompile caller. Only the enshrined SovaBTC contract may use network signing.".to_string());
+                    Err("Unauthorized precompile caller. Only the enshrined SovaBTC contract may use network signing.".to_string())
                 } else {
                     self.inner
                         .run(context, address, inputs, is_static, gas_limit)
