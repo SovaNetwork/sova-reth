@@ -1,9 +1,6 @@
-//! These constants were generated from the documentation here:
-//! https://github.com/protolambda/merge-genesis-tools/blob/master/README.md#deposit-contract
-
 use std::{collections::BTreeMap, str::FromStr};
 
-use alloy_primitives::{address, hex, Address, B256, U256};
+use alloy_primitives::{address, Address, B256, U256};
 use reth_chainspec::{ChainHardforks, EthereumHardfork, ForkCondition, Hardfork};
 use reth_optimism_forks::OpHardfork;
 
@@ -70,6 +67,22 @@ pub fn sova_forks() -> ChainHardforks {
     ])
 }
 
+/// - BROADCAST_TRANSACTION_ADDRESS: 0x999
+/// - DECODE_TRANSACTION_ADDRESS: 0x998  
+/// - CONVERT_ADDRESS_ADDRESS: 0x997
+/// - VAULT_SPEND_ADDRESS: 0x996
+pub const BROADCAST_TRANSACTION_PRECOMPILE_ID: u64 = 0x999;
+pub const DECODE_TRANSACTION_PRECOMPILE_ID: u64 = 0x998;
+pub const CONVERT_ADDRESS_PRECOMPILE_ID: u64 = 0x997;
+pub const VAULT_SPEND_PRECOMPILE_ID: u64 = 0x996;
+
+/// Gas constants for Bitcoin precompiles
+/// These are base gas costs for each Bitcoin operation
+pub const BITCOIN_BROADCAST_BASE_GAS: u64 = 21000;
+pub const BITCOIN_DECODE_BASE_GAS: u64 = 3000;
+pub const BITCOIN_CONVERT_BASE_GAS: u64 = 21000;
+pub const BITCOIN_VAULT_SPEND_BASE_GAS: u64 = 50000;
+
 /// Represents all available Bitcoin precompile methods with their associated gas parameter
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub enum BitcoinPrecompileMethod {
@@ -100,6 +113,8 @@ pub const BITCOIN_PRECOMPILE_ADDRESSES: [Address; 4] = [
 // Sova L1Block contract address
 pub const SOVA_L1_BLOCK_CONTRACT_ADDRESS: Address =
     address!("0x2100000000000000000000000000000000000015");
+// SovaL1Block contract properties
+pub const L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT: U256 = U256::ZERO;
 
 // SovaL1Block contract bytecode
 // NOTE(powvt): you must use `forge inspect src/SovaL1Block.sol:SovaL1Block deployedBytecode` copying from artifacts will not work
@@ -120,13 +135,6 @@ pub fn sova_l1_block_contract_storage() -> BTreeMap<B256, B256> {
 
     sova_btc_storage
 }
-
-// SovaL1Block contract properties
-// NOTE(powvt): this corresponds with the SovaL1Block fn selector: `setBitcoinBlockData(uint64,bytes32) nonpayable`
-pub const L1_BLOCK_SATOSHI_SELECTOR: [u8; 4] = hex!("cb0d2046");
-pub const L1_BLOCK_CONTRACT_CALLER: Address =
-    address!("0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001");
-pub const L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT: U256 = U256::ZERO;
 
 // SovaBTC contract address
 pub const SOVA_BTC_CONTRACT_ADDRESS: Address =

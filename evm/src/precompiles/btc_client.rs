@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::B256;
-use bitcoin::{BlockHash, Network, Transaction};
+use bitcoin::{BlockHash, Transaction};
 use bitcoincore_rpc::{bitcoin::Txid, json::DecodeRawTransactionResult, Auth, Client, RpcApi};
 use reqwest::blocking::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,6 @@ use serde_json::{json, Value};
 
 #[derive(Debug, Clone)]
 pub struct BitcoinConfig {
-    pub network: Network,
     pub network_url: String,
     pub rpc_username: String,
     pub rpc_password: String,
@@ -264,7 +263,6 @@ impl Default for BitcoinClient {
     fn default() -> Self {
         // Create default configuration for local regtest node
         let config = BitcoinConfig {
-            network: Network::Regtest,
             network_url: "http://127.0.0.1:18443".to_string(),
             rpc_username: "user".to_string(),
             rpc_password: "password".to_string(),

@@ -74,6 +74,12 @@ pub struct SovaBlockExecutor<E: alloy_evm::Evm, R: OpReceiptBuilder, Spec, EvmF 
     task_executor: TaskExecutor,
 }
 
+/// Configuration for Sova inspector components
+pub struct SovaInspectorConfig {
+    pub sentinel_url: String,
+    pub task_executor: TaskExecutor,
+}
+
 impl<E, R, Spec, EvmF> SovaBlockExecutor<E, R, Spec, EvmF>
 where
     E: Evm,
@@ -88,8 +94,7 @@ where
         receipt_builder: R,
         evm_env: EvmEnv<<E as alloy_evm::Evm>::Spec>,
         evm_factory: EvmF,
-        sentinel_url: String,
-        task_executor: TaskExecutor,
+        inspector_config: SovaInspectorConfig,
     ) -> Self {
         Self {
             is_regolith: spec
@@ -104,8 +109,8 @@ where
             evm_env,
             evm_factory,
             inspector: InspectorHandle::none(),
-            sentinel_url,
-            task_executor,
+            sentinel_url: inspector_config.sentinel_url,
+            task_executor: inspector_config.task_executor,
         }
     }
 
@@ -558,8 +563,10 @@ where
             &self.receipt_builder,
             evm_env,
             self.evm_factory.clone(),
-            self.sentinel_url.clone(),
-            self.task_executor.clone(),
+            SovaInspectorConfig {
+                sentinel_url: self.sentinel_url.clone(),
+                task_executor: self.task_executor.clone(),
+            },
         )
     }
 }
