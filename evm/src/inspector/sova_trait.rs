@@ -2,6 +2,13 @@ use std::fmt::Debug;
 
 // use alloy_primitives::{Address, B256, U256};
 
+// /// A compact DTO for storage reverts captured during pass #1.
+// #[derive(Clone, Debug)]
+// pub struct SlotRevert {
+//     pub slot: U256,
+//     pub previous_value: U256,
+// }
+
 /// Inspector trait focused on essential hooks for Sova's use cases
 pub trait Inspector: Send + Debug {
     // /// Called at the start of a new block
@@ -32,21 +39,4 @@ pub trait Inspector: Send + Debug {
 
     /// Enable downcasting for specific inspector implementations
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
-}
-
-// /// A compact DTO for storage reverts captured during pass #1.
-// #[derive(Clone, Debug)]
-// pub struct SlotRevert {
-//     pub slot: U256,
-//     pub previous_value: U256,
-// }
-
-/// No-op implementation of Inspector trait
-#[derive(Debug)]
-pub struct NoOpInspector;
-
-impl Inspector for NoOpInspector {
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
 }
