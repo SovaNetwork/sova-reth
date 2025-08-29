@@ -100,8 +100,10 @@ impl SovaInspector {
     /// Unlock all revereted storage slots and lock all accessed storage slots at the end of execution
     pub fn update_sentinel_locks(
         &mut self,
-        locked_block_number: u64,
+        current_block_number: u64,
     ) -> Result<(), SlotProviderError> {
+        // Set lock enforcement in next block
+        let locked_block_number: u64 = current_block_number + 1;
         // Handle locking of storage slots for each btc broadcast transaction
         for (broadcast_result, accessed_storage) in self.cache.lock_data.iter() {
             if let (Some(btc_txid), Some(btc_block)) =
