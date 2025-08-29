@@ -1,7 +1,11 @@
 use crate::inspector::{InspectorHandle, SovaInspector};
 use crate::MaybeSovaInspector;
 use crate::{alloy::SovaEvmFactory, canyon::ensure_create2_deployer};
+
 extern crate alloc;
+
+use std::env;
+
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 use alloy_consensus::{Eip658Value, Header, Transaction, TxReceipt};
 use alloy_eips::{Encodable2718, Typed2718};
@@ -112,18 +116,6 @@ where
             sentinel_url: inspector_config.sentinel_url,
             task_executor: inspector_config.task_executor,
         }
-    }
-
-    /// Configure executor to use Sova inspector
-    pub fn with_sova_inspector(self) -> Self {
-        // Inspector will be configured in apply_pre_execution_changes
-        self
-    }
-
-    /// Configure executor without inspector (no-op behavior)
-    pub fn without_inspector(mut self) -> Self {
-        self.inspector = InspectorHandle::none();
-        self
     }
 }
 
@@ -355,10 +347,9 @@ where
             .on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
 
         let gas_used = result.gas_used();
-        self.gas_used += gas_used;
 
-        // Use the block timestamp for deposit receipt logic
-        let block_ts = self.evm.block().timestamp.saturating_to::<u64>();
+        // append gas used
+        self.gas_used += gas_used;
 
         self.receipts.push(
             match self.receipt_builder.build_receipt(ReceiptBuilderCtx {
@@ -388,7 +379,9 @@ where
                             // this is only set for post-Canyon deposit
                             // transactions.
                             deposit_receipt_version: (is_deposit
-                                && self.spec.is_canyon_active_at_timestamp(block_ts))
+                                && self.spec.is_canyon_active_at_timestamp(
+                                    self.evm.block().timestamp.saturating_to(),
+                                ))
                             .then_some(1),
                         })
                 }
@@ -405,13 +398,11 @@ where
     ) -> Result<(Self::Evm, BlockExecutionResult<R::Receipt>), BlockExecutionError> {
         let balance_increments =
             post_block_balance_increments::<Header>(&self.spec, self.evm.block(), &[], None);
-
         // increment balances
         self.evm
             .db_mut()
             .increment_balances(balance_increments.clone())
             .map_err(|_| BlockValidationError::IncrementBalanceFailed)?;
-
         // call state hook with changes due to balance increments.
         self.system_caller.try_on_state_with(|| {
             balance_increment_state(&balance_increments, self.evm.db_mut()).map(|state| {
@@ -580,7 +571,6 @@ where
     EvmFactory: Default,
 {
     fn default() -> Self {
-        use std::env;
         Self {
             receipt_builder: R::default(),
             spec: Spec::default(),

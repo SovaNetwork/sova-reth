@@ -17,6 +17,7 @@ use reth_optimism_evm::{
 };
 use reth_optimism_primitives::OpPrimitives;
 use reth_primitives_traits::NodePrimitives;
+use reth_tasks::TaskExecutor;
 use revm::{
     context::{BlockEnv, CfgEnv},
     context_interface::block::BlobExcessGasAndPrice,
@@ -27,7 +28,7 @@ use std::sync::Arc;
 use crate::{alloy::SovaEvmFactory, executor::SovaBlockExecutorFactory};
 use reth_optimism_primitives::{OpReceipt, OpTransactionSigned};
 
-/// Optimism-related EVM configuration.
+/// Sova EVM configuration
 #[derive(Debug)]
 pub struct SovaEvmConfig<
     ChainSpec = OpChainSpec,
@@ -36,7 +37,7 @@ pub struct SovaEvmConfig<
 > {
     /// Inner [`SovaBlockExecutorFactory`].
     pub executor_factory: SovaBlockExecutorFactory<R, Arc<ChainSpec>>,
-    /// Optimism block assembler.
+    /// Optimism block assembler
     pub block_assembler: OpBlockAssembler<ChainSpec>,
     _pd: core::marker::PhantomData<N>,
 }
@@ -52,7 +53,7 @@ impl<ChainSpec, N: NodePrimitives, R: Clone> Clone for SovaEvmConfig<ChainSpec, 
 }
 
 impl<ChainSpec: OpHardforks> SovaEvmConfig<ChainSpec> {
-    /// Creates a new [`SovaEvmConfig`] with the given chain spec for OP chains.
+    /// Creates a new [`SovaEvmConfig`] with the given chain spec.
     pub fn sova(chain_spec: Arc<ChainSpec>) -> Self {
         Self::new(chain_spec, OpRethReceiptBuilder::default())
     }
@@ -68,7 +69,7 @@ impl<ChainSpec: OpHardforks, N: NodePrimitives, R> SovaEvmConfig<ChainSpec, N, R
                 chain_spec,
                 SovaEvmFactory,
                 std::env::var("SOVA_SENTINEL_URL").unwrap_or_default(),
-                reth_tasks::TaskExecutor::current(),
+                TaskExecutor::current(),
             ),
             _pd: core::marker::PhantomData,
         }

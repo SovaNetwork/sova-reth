@@ -18,14 +18,14 @@ impl InspectorHandle {
         Self { inner: None }
     }
 
-    // 🔧 Run a closure with &mut SovaInspector if present
+    // Run a closure with &mut SovaInspector if present
     fn with_sova_mut<R>(&mut self, f: impl FnOnce(&mut SovaInspector) -> R) -> Option<R> {
         let i = self.inner.as_mut()?;
         let sova = i.as_any_mut().downcast_mut::<SovaInspector>()?;
         Some(f(sova))
     }
 
-    // Merge lock_data from another SovaInspector (collected during Pass #2)
+    // Merge lock_data from another SovaInspector (collected during execution Pass #2)
     pub fn append_lock_data_from(&mut self, other: &mut SovaInspector) {
         let _ = self.with_sova_mut(|s| {
             s.cache.lock_data.extend(other.cache.lock_data.drain());

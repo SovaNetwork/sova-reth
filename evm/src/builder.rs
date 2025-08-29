@@ -1,4 +1,5 @@
 use alloy_op_hardforks::OpHardforks;
+
 use reth_ethereum::node::api::FullNodeTypes;
 use reth_node_builder::{components::ExecutorBuilder, BuilderContext, NodeTypes};
 use reth_optimism_evm::OpRethReceiptBuilder;
