@@ -2,10 +2,9 @@ use reth_revm::inspector::JournalExt;
 use revm::context_interface::ContextTr;
 use revm::inspector::NoOpInspector;
 use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter};
-use revm::primitives::{Log, B256};
+use revm::primitives::{Address, Log, U256};
 use revm::Inspector;
 
-// Import your SovaInspector (adjust path if needed)
 use crate::inspector::SovaInspector;
 
 /// Composite inspector that always invokes SovaInspector (if present)
@@ -28,12 +27,6 @@ impl<U> MaybeSovaInspector<U> {
             sova: Some(sova),
             user,
         }
-    }
-
-    /// Optional convenience to prep per-tx state on the Sova side
-    pub fn prepare_for_tx(&mut self, _tx_hash: B256) {
-        // Currently no per-tx preparation needed
-        // This is a placeholder for future use if needed
     }
 
     /// Get a reference to the embedded SovaInspector if present
@@ -74,14 +67,10 @@ where
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        // First let SovaInspector handle the call
         if let Some(ref mut sova) = self.sova {
-            if let Some(outcome) = sova.call(context, inputs) {
-                return Some(outcome);
-            }
+            return sova.call(context, inputs);
         }
 
-        // If SovaInspector didn't return an outcome, let the user inspector handle it
         self.user.call(context, inputs)
     }
 
@@ -93,14 +82,10 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        // First let SovaInspector handle the create
         if let Some(ref mut sova) = self.sova {
-            if let Some(outcome) = sova.create(context, inputs) {
-                return Some(outcome);
-            }
+            return sova.create(context, inputs);
         }
 
-        // If SovaInspector didn't return an outcome, let the user inspector handle it
         self.user.create(context, inputs)
     }
 
@@ -121,5 +106,9 @@ where
             sova.log(interp, context, log.clone());
         }
         self.user.log(interp, context, log);
+    }
+
+    fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
+        self.user.selfdestruct(contract, target, value);
     }
 }

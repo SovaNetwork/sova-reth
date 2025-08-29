@@ -2,6 +2,7 @@ use op_revm::{L1BlockInfo, OpContext, OpSpecId, OpTransaction};
 use reth_revm::db::EmptyDB;
 use revm::{context::CfgEnv, Context, MainContext};
 
+/// Trait that allows for a default context to be created.
 pub trait DefaultSova {
     /// Create a default context.
     fn sova() -> OpContext<EmptyDB>;

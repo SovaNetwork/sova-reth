@@ -35,8 +35,8 @@ use reth_tracing::tracing::{debug, error, info, warn};
 use crate::precompiles::BitcoinMethodHelper;
 
 use sova_chainspec::{
-    BitcoinPrecompileMethod, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT, SOVA_BTC_CONTRACT_ADDRESS,
-    SOVA_L1_BLOCK_CONTRACT_ADDRESS,
+    BitcoinPrecompileMethod, BROADCAST_TRANSACTION_ADDRESS, L1_BLOCK_CURRENT_BLOCK_HEIGHT_SLOT,
+    SOVA_BTC_CONTRACT_ADDRESS, SOVA_L1_BLOCK_CONTRACT_ADDRESS, VAULT_SPEND_ADDRESS,
 };
 use sova_sentinel_proto::proto::{get_slot_status_response::Status, GetSlotStatusResponse};
 
@@ -294,18 +294,15 @@ impl SovaInspector {
     /// CALL, CALLCODE, DELEGATECALL, or STATICCALL opcode.
     /// This inspector hook is primarily used for storage slot lock enforcement.
     /// Any cached storage access prior to a broadcast btc tx CALL will be checked for a lock.
-    /// Only one btc broadcast tx call is allowed per tx.
     fn call_inner<CTX: ContextTr<Journal: JournalExt>>(
         &mut self,
         context: &mut CTX,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        if self
-            .cache
-            .bitcoin_precompile_addresses
-            .contains(&inputs.target_address)
-            && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
-        {
+        // Revert on unauthorized broadcast calls
+        let needs_caller_check = inputs.target_address == BROADCAST_TRANSACTION_ADDRESS
+            || inputs.target_address == VAULT_SPEND_ADDRESS;
+        if needs_caller_check && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS {
             return Some(Self::create_revert_outcome(
                 "Unauthorized caller for bitcoin precompile".to_string(),
                 inputs.gas_limit,
@@ -328,6 +325,15 @@ impl SovaInspector {
         match method {
             Ok(BitcoinPrecompileMethod::BroadcastTransaction) => {
                 debug!("-> Broadcast call hook");
+
+                // Process storage journal entries to find sstores before checking locks
+                self.process_storage_journal_entries(context);
+
+                // check locks
+                self.handle_lock_checks(context, inputs)
+            }
+            Ok(BitcoinPrecompileMethod::VaultSpend) => {
+                debug!("-> VaultSpend call hook");
 
                 // Process storage journal entries to find sstores before checking locks
                 self.process_storage_journal_entries(context);
@@ -628,13 +634,10 @@ impl SovaInspector {
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
-        // Skip unauthorized bitcoin precompile calls
-        if self
-            .cache
-            .bitcoin_precompile_addresses
-            .contains(&inputs.target_address)
-            && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS
-        {
+        // Skip unauthorized broadcast calls
+        let needs_caller_check = inputs.target_address == BROADCAST_TRANSACTION_ADDRESS
+            || inputs.target_address == VAULT_SPEND_ADDRESS;
+        if needs_caller_check && inputs.caller != SOVA_BTC_CONTRACT_ADDRESS {
             return;
         }
 
@@ -651,6 +654,24 @@ impl SovaInspector {
             match method {
                 Ok(BitcoinPrecompileMethod::BroadcastTransaction) => {
                     debug!("-> Broadcast call end hook");
+
+                    // Only cache data if call was successful
+                    if outcome.result.result == InstructionResult::Return {
+                        if let Some(revert_outcome) =
+                            self.handle_cache_btc_data(context, inputs, outcome)
+                        {
+                            *outcome = revert_outcome;
+                        }
+                    } else {
+                        *outcome = Self::create_revert_outcome(
+                            "Broadcast btc precompile execution failed".to_string(),
+                            inputs.gas_limit,
+                            outcome.memory_offset.clone(),
+                        );
+                    }
+                }
+                Ok(BitcoinPrecompileMethod::VaultSpend) => {
+                    debug!("-> VaultSpend call end hook");
 
                     // Only cache data if call was successful
                     if outcome.result.result == InstructionResult::Return {
