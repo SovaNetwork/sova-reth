@@ -1,0 +1,87 @@
+[package]
+name = "sova-reth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "sova_reth"
+path = "src/lib.rs"
+
+[dependencies]
+# sova crates
+sova-chainspec.workspace = true
+sova-evm.workspace = true
+
+# reth
+reth-chain-state.workspace = true
+reth-chainspec.workspace = true
+reth-cli.workspace = true
+reth-codecs.workspace = true
+reth-engine-local.workspace = true
+reth-network-peers.workspace = true
+reth-node-api.workspace = true
+reth-node-builder.workspace = true
+reth-rpc-eth-api.workspace = true
+reth-optimism-rpc.workspace = true
+reth-optimism-chainspec.workspace = true
+reth-optimism-forks.workspace = true
+reth-optimism-primitives.workspace = true
+reth-payload-primitives.workspace = true
+reth-db-api.workspace = true
+reth-op = { workspace = true, features = ["node", "pool", "rpc"] }
+reth-rpc-api.workspace = true
+reth-engine-primitives.workspace = true
+reth-rpc-engine-api.workspace = true
+reth-revm.workspace = true
+reth-tracing.workspace = true
+reth-evm.workspace = true
+reth-ethereum = { workspace = true, features = ["node-api", "network", "evm", "pool", "trie", "storage-api", "provider"] }
+reth-primitives-traits.workspace = true
+
+# revm
+revm.workspace = true
+revm-primitives.workspace = true
+revm-precompile.workspace = true
+
+# alloy
+alloy-consensus = { workspace = true, features = ["serde"] }
+alloy-dyn-abi.workspace = true
+alloy-eips.workspace = true
+alloy-evm.workspace = true
+alloy-genesis.workspace = true
+alloy-op-evm.workspace = true
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-sol-macro.workspace = true
+alloy-sol-types.workspace = true
+alloy-network.workspace = true
+alloy-rpc-types-engine.workspace = true
+alloy-rpc-types-eth.workspace = true
+op-alloy-consensus.workspace = true
+op-alloy-rpc-types-engine.workspace = true
+op-alloy-rpc-types.workspace = true
+op-alloy-network.workspace = true
+op-revm.workspace = true
+
+# sova external
+sova-sentinel-client.workspace = true
+sova-sentinel-proto.workspace = true
+
+# bitcoin
+bitcoin.workspace = true
+bitcoincore-rpc.workspace = true
+
+# misc
+async-trait.workspace = true
+derive_more.workspace = true
+eyre.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true

@@ -3,12 +3,11 @@ use std::env;
 use clap::Parser;
 
 use reth_optimism_cli::Cli;
-
 use reth_tracing::tracing::info;
 
-use sova_cli::SovaChainSpecParser;
+use sova_chainspec::SovaChainSpecParser;
 use sova_evm::BitcoinRpcPrecompile;
-use sova_node::{SovaArgs, SovaNode};
+use sova_reth::{SovaArgs, SovaNode};
 
 #[global_allocator]
 static ALLOC: reth_cli_util::allocator::Allocator = reth_cli_util::allocator::new_allocator();
@@ -37,23 +36,20 @@ fn main() {
     }
 
     if let Err(err) =
-        // Using SovaChainSpecParser for inheriting all ethereum forkchoices
-        // Sova args are used to provide flags for auxiliary services
         Cli::<SovaChainSpecParser, SovaArgs>::parse().run(|builder, sova_args| async move {
-                // Set environment variables for Sova
-                set_env_for_sova(sova_args.clone());
-                // Sanity check to ensure the Sova args are valid
-                let _ = BitcoinRpcPrecompile::from_env();
+            // Set environment variables for Sova
+            set_env_for_sova(sova_args.clone());
+            // Sanity check to ensure the Sova args are valid
+            let _ = BitcoinRpcPrecompile::from_env();
 
-                info!(target: "reth::cli", "Launching node");
+            info!(target: "reth::cli", "Launching node");
 
-                let sova_node = SovaNode::new(sova_args)
-                    .await
-                    .map_err(|e| eyre::eyre!("Failed to create Sova node: {}", e))?;
-
-                let handle = builder.launch_node(sova_node).await?;
-                handle.node_exit_future.await
-            })
+            let handle = builder
+                .node(SovaNode::default())
+                .launch_with_debug_capabilities()
+                .await?;
+            handle.node_exit_future.await
+        })
     {
         eprintln!("Error: {err:?}");
         std::process::exit(1);
