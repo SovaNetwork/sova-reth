@@ -26,7 +26,6 @@ reth-optimism-evm.workspace = true
 reth-optimism-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-revm.workspace = true
-reth-rpc-convert.workspace = true
 reth-tasks.workspace = true
 reth-tracing.workspace = true
 
@@ -52,11 +51,9 @@ bitcoincore-rpc.workspace = true
 
 # misc
 async-trait.workspace = true
-auto_impl.workspace = true
 eyre.workspace = true
 hex.workspace = true
 once_cell.workspace = true
-parking_lot.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
