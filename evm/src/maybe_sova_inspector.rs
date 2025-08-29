@@ -9,7 +9,7 @@ use revm::Inspector;
 use crate::inspector::SovaInspector;
 
 /// Composite inspector that always invokes SovaInspector (if present)
-/// and also forwards to a user-provided inspector (tracing/debug/etc.).
+/// and also forwards to a user-provided inspector (NoOpInspector).
 #[derive(Debug)]
 pub struct MaybeSovaInspector<U = NoOpInspector> {
     pub sova: Option<SovaInspector>,

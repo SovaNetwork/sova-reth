@@ -262,7 +262,9 @@ where
             if let Some(sova) = insp.sova_mut() {
                 sova.take_slot_revert_cache()
             } else {
-                Vec::new()
+                return Err(BlockExecutionError::msg(
+                    "execute_transaction_with_commit_condition::error: sova inspector field should always be set during simulation"
+                ));
             }
         };
 
