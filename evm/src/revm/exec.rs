@@ -1,14 +1,12 @@
 //! Implementation of the [`ExecuteEvm`] trait for the [`SovaEvm`].
 use op_revm::{
-    handler::OpHandler, transaction::OpTxTr, L1BlockInfo, OpHaltReason, OpSpecId,
-    OpTransactionError,
+    api::{OpContextTr, OpError},
+    handler::OpHandler,
+    OpHaltReason,
 };
 use revm::{
     context::{result::ExecResultAndState, ContextSetters},
-    context_interface::{
-        result::{EVMError, ExecutionResult},
-        Cfg, ContextTr, Database, JournalTr,
-    },
+    context_interface::{result::ExecutionResult, ContextTr, JournalTr},
     handler::{
         instructions::EthInstructions, system_call::SystemCallEvm, EthFrame, Handler,
         PrecompileProvider, SystemCallTx,
@@ -21,30 +19,6 @@ use revm::{
 };
 
 use crate::sova_revm::SovaRevmEvm;
-
-/// Type alias for Optimism context
-pub trait OpContextTr:
-    ContextTr<
-    Journal: JournalTr<State = EvmState>,
-    Tx: OpTxTr,
-    Cfg: Cfg<Spec = OpSpecId>,
-    Chain = L1BlockInfo,
->
-{
-}
-
-impl<T> OpContextTr for T where
-    T: ContextTr<
-        Journal: JournalTr<State = EvmState>,
-        Tx: OpTxTr,
-        Cfg: Cfg<Spec = OpSpecId>,
-        Chain = L1BlockInfo,
-    >
-{
-}
-
-/// Type alias for the error type of the OpEvm.
-pub type OpError<CTX> = EVMError<<<CTX as ContextTr>::Db as Database>::Error, OpTransactionError>;
 
 impl<CTX, INSP, PRECOMPILE> ExecuteEvm
     for SovaRevmEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, PRECOMPILE>

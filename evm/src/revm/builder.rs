@@ -1,4 +1,3 @@
-//! Optimism builder trait [`OpBuilder`] used to build [`OpEvm`].
 use op_revm::{transaction::OpTxTr, L1BlockInfo, OpSpecId};
 use revm::{
     context::Cfg,
@@ -15,7 +14,7 @@ use crate::{sova_revm::SovaRevmEvm, SovaPrecompiles};
 pub type DefaultSovaRevmEvm<CTX, INSP = ()> =
     SovaRevmEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, SovaPrecompiles>;
 
-/// Trait that allows for optimism SovaEvm to be built
+/// Trait that allows for SovaEvm to be built
 pub trait SovaBuilder: Sized {
     /// Type of the context.
     type Context;

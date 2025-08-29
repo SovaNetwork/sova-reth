@@ -29,7 +29,7 @@ pub struct SovaRevmEvm<
 impl<CTX: ContextTr, INSP>
     SovaRevmEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, SovaPrecompiles>
 {
-    /// Create a new Optimism EVM.
+    /// Create a new Sova EVM.
     pub fn new(ctx: CTX, inspector: INSP) -> Self {
         Self(Evm {
             ctx,
