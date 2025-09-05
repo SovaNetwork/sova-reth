@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 sova-chainspec.workspace = true
 sova-evm.workspace = true
-sova-reth.workspace = true
+sova-node.workspace = true
 
 # reth
 reth-cli.workspace = true

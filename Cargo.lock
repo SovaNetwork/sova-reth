@@ -9746,7 +9746,7 @@ dependencies = [
  "reth-tracing",
  "sova-chainspec",
  "sova-evm",
- "sova-reth",
+ "sova-node",
 ]
 
 [[package]]
@@ -9813,7 +9813,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sova-reth"
+name = "sova-node"
 version = "0.2.1"
 dependencies = [
  "alloy-consensus",
