@@ -1,27 +1,23 @@
-<h1 align="left">
-    sova-reth
-</h1>
+<div align="center">
 
-[![GitHub Release][gh-release]][gh-release]
-[![Docs docs][docs-badge]][docs-url]
-[![MIT License][mit-badge]][mit-url]
-[![Apache-2.0 License][apache-badge]][apache-url]
-[![CI Status][actions-badge]][actions-url]
+  # sova-reth
 
-<h3 align="left">
-    Bitcoin's Programmable Execution Environment
-</h3>
+  [![GitHub Release][gh-release]][gh-release]
+  [![Docs docs][docs-badge]][docs-url]
+  [![MIT License][mit-badge]][mit-url]
+  [![Apache-2.0 License][apache-badge]][apache-url]
+  [![CI Status][actions-badge]][actions-url]
 
-<p align="left">
-  <a href="#overview">Overview</a> •
-  <a href="./docs/README.md">Documentation</a> •
-  <a href="#running-a-validator">Running a Validator</a> •
-  <a href="https://docs.sova.io/documentation/network-info#sova-testnet">Sova Testnet</a>
-</p>
+  **Sova's custom EVM with built-in Bitcoin finality protection.**
 
-<h1 align="center">
-    <img src="./assets/sova-reth-prod-etch.png" alt="sova-reth" width="100%" align="center">
-</h1>
+  ---
+  [Overview](#overview) •
+  [Docs](https://docs.sova.io/) •
+  [Validators](#validators) •
+  [Sova Testnet](https://docs.sova.io/network-information/connect-a-wallet#sova-testnet)
+
+  <img src="./assets/sova-reth-prod-etch-2.png" alt="sova-reth" width="100%">
+</div>
 
 ## Overview
 
@@ -42,32 +38,25 @@ make build
 make run-sova-regtest
 ```
 
-## Running a Validator
+## Validators
 
-### For Operators (WIP)
+Validators are free to join the testnet and sync their own historical chain data from genesis. For more information on how to join the Testnet as an operator view our [Guide](https://docs.sova.io/node-operators/network-operation-manual).
 
-Operators are free to join the testnet and sync their own historical chain data from genesis. For more information on how to join the Testnet as an operator view our [Operator Guide](https://docs.sova.io/node-operators/running-sova) in the docs.
-
-### Devnet
-
-For testing sova-reth in a devnet environment, it is recommended to use [running-sova](https://github.com/SovaNetwork/running-sova). This will orchestrate the deployment of all the auxiliary services need for local development.
 
 ## Precompiles
 
-The Bitcoin precompiles are found at address 0x999, 0x998, 0x997, 0x996.
-
  Precompile Name | Address | Description |
 |---|---|---|
-| **Broadcast Transaction** | `0x999` | Broadcasts Bitcoin transactions |
-| **Decode Transaction** | `0x998` | Decodes raw Bitcoin transactions |
-| **Convert Address** | `0x997` | EVM to Bitcoin address conversion |
-| **Vault Spend** | `0x996` | Network vault spending |
+| **Broadcast Transaction** | `0x0000000000000000000000000000000000000999` | Broadcasts Bitcoin transactions |
+| **Decode Transaction** | `0x0000000000000000000000000000000000000998` | Decodes raw Bitcoin transactions |
+| **Convert Address** | `0x0000000000000000000000000000000000000997` | EVM to Bitcoin address conversion |
+| **Vault Spend** | `0x0000000000000000000000000000000000000996` | Network vault spending |
 
-For more information on how to use the precompiles see related [docs](https://docs.sova.io/developers/bitcoin-precompiles).
+For more information on how to use the precompiles see related [docs](https://docs.sova.io/technology/bitcoin-precompiles).
 
 ## Sentinel
 
-The sentinel is a custom add-on component to every sove-reth node. It is used by the Sova EVM to enforce Bitcoin finality. Transactions on Sova that have associated Bitcoin transactions are considered final after 6 Bitcoin block confirmations. If a transaction that was flagged by the chain is not confirmed on Bitcoin, the Sova state associated with the flagged Bitcoins tx will be reverted after 21 blocks.
+The Sentinel is a necessary component to every sove-reth node. It is used in custom EVM hooks to enforce Bitcoin finality. Transactions on Sova that are associated with a Bitcoin transaction have their state confirmed by the Sentinel. If a transaction that was flagged by the chain is not confirmed on Bitcoin, the Sova state associated with the flagged Bitcoin tx will be reverted.
 
 ## License
 
