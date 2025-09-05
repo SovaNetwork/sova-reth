@@ -8,19 +8,10 @@
   [![Apache-2.0 License][apache-badge]][apache-url]
   [![CI Status][actions-badge]][actions-url]
 
-  **Sova's custom EVM with built-in Bitcoin finality protection.**
+  **The Bitcoin-powered EVM with native BTC interoperability**
 
-  ---
-  [Overview](#overview) •
-  [Docs](https://docs.sova.io/) •
-  [Validators](#validators) •
-  [Sova Testnet](https://docs.sova.io/network-information/connect-a-wallet#sova-testnet)
-
+  A sova-reth is a custom EVM node built upon the [Reth SDK](https://reth.rs/sdk). It extends the EVM to enable a new set of Bitcoin precompiles. The precompiles are used to send and receive Bitcoin on the Sova Network during EVM transaction execution.
 </div>
-
-## Overview
-
-A Sova node is a custom EVM node built upon the [Reth SDK](https://reth.rs/sdk). sova-reth extends the EVM to enable a new set of Bitcoin precompiles. The precompiles are used to send and receive Bitcoin on the Sova Network during EVM transaction execution.
 
 ## Building and Running
 
@@ -55,7 +46,7 @@ For more information on how to use the precompiles see related [docs](https://do
 
 ## Sentinel
 
-The Sentinel is a necessary component to every sove-reth node. It is used in custom EVM hooks to enforce Bitcoin finality. Transactions on Sova that are associated with a Bitcoin transaction have their state confirmed by the Sentinel. If a transaction that was flagged by the chain is not confirmed on Bitcoin, the Sova state associated with the flagged Bitcoin tx will be reverted.
+The [sova-sentinel](https://github.com/SovaNetwork/sova-sentinel) is a necessary component to every sove-reth node. It is used in custom EVM hooks to enforce Bitcoin finality. Transactions on Sova that are associated with a Bitcoin transaction have their state confirmed by the sova-sentinel. If a transaction that was flagged by the chain is not confirmed on Bitcoin, the Sova state associated with the flagged Bitcoin tx will be reverted.
 
 ## License
 
