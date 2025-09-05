@@ -18,7 +18,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # sova
-sova-reth = { path = "node" }
+sova-node = { path = "node" }
 sova-chainspec = { path = "chainspec" }
 sova-evm = { path = "evm" }
 
