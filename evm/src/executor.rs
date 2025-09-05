@@ -19,10 +19,7 @@ use alloy_evm::{
     eth::receipt_builder::ReceiptBuilderCtx,
     Database, Evm, EvmEnv, EvmFactory, FromRecoveredTx, FromTxWithEncoded,
 };
-use alloy_op_evm::{
-    block::{receipt_builder::OpReceiptBuilder},
-    OpBlockExecutionCtx,
-};
+use alloy_op_evm::{block::receipt_builder::OpReceiptBuilder, OpBlockExecutionCtx};
 use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
