@@ -1,4 +1,4 @@
-<div align="center">
+<div align="left">
 
   # sova-reth
 
@@ -16,12 +16,11 @@
   [Validators](#validators) •
   [Sova Testnet](https://docs.sova.io/network-information/connect-a-wallet#sova-testnet)
 
-  <img src="./assets/sova-reth-prod-etch-2.png" alt="sova-reth" width="100%">
 </div>
 
 ## Overview
 
-A Sova node is an extension of the EVM execution client [Reth](https://github.com/paradigmxyz/reth). This extension of reth enables a new subset of Bitcoin precompiles. The precompiles are used to directly interface with a Bitcoin node during EVM transaction execution.
+A Sova node is a custom EVM node built upon the [Reth SDK](https://reth.rs/sdk). sova-reth extends the EVM to enable a new set of Bitcoin precompiles. The precompiles are used to send and receive Bitcoin on the Sova Network during EVM transaction execution.
 
 ## Building and Running
 
