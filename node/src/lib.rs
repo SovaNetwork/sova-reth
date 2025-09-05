@@ -31,7 +31,6 @@ pub struct SovaNode {
 impl NodeTypes for SovaNode {
     type Primitives = OpPrimitives;
     type ChainSpec = OpChainSpec;
-    type StateCommitment = <OpNode as NodeTypes>::StateCommitment;
     type Storage = <OpNode as NodeTypes>::Storage;
     type Payload = <OpNode as NodeTypes>::Payload;
 }
