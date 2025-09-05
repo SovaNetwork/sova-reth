@@ -22,9 +22,7 @@ use reth_optimism_evm::{
     OpRethReceiptBuilder,
 };
 use reth_optimism_primitives::{DepositReceipt, OpPrimitives};
-use reth_primitives_traits::{
-    NodePrimitives, SealedBlock, SealedHeader, SignedTransaction, TxTy,
-};
+use reth_primitives_traits::{NodePrimitives, SealedBlock, SealedHeader, SignedTransaction, TxTy};
 use reth_storage_errors::any::AnyError;
 use reth_tasks::TaskExecutor;
 
