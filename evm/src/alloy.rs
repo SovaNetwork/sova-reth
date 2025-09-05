@@ -17,10 +17,6 @@ use crate::revm::default::DefaultSova;
 use crate::{inspector::SovaInspector, revm::builder::SovaBuilder};
 use crate::{sova_revm::SovaRevmEvm, SovaPrecompiles};
 
-/// Public alias so RPC converters & builders can target the same Tx type the
-/// Reth/OP stack already implements traits for.
-pub type SovaTx = OpTransaction<TxEnv>;
-
 /// Sova EVM implementation.
 ///
 /// This is a wrapper type around the `revm` evm with optional [`Inspector`] (tracing)
@@ -45,7 +41,7 @@ impl<DB: Database, I, P> SovaEvm<DB, I, P> {
 }
 
 impl<DB: Database, I, P> SovaEvm<DB, I, P> {
-    /// Creates a new OP EVM instance.
+    /// Creates a new Sova EVM instance.
     ///
     /// The `inspect` argument determines whether the configured [`Inspector`] of the given
     /// [`SovaRevmEvm`](sova_revm::SovaRevmEvm) should be invoked on [`Evm::transact`].
@@ -83,7 +79,7 @@ where
     P: PrecompileProvider<OpContext<DB>, Output = InterpreterResult>,
 {
     type DB = DB;
-    type Tx = SovaTx;
+    type Tx = OpTransaction<TxEnv>;
     type Error = EVMError<DB::Error, OpTransactionError>;
     type HaltReason = OpHaltReason;
     type Spec = OpSpecId;
@@ -151,26 +147,14 @@ where
 }
 
 /// Factory producing [`SovaEvm`]s.
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
+#[non_exhaustive]
 pub struct SovaEvmFactory;
-
-impl SovaEvmFactory {
-    /// Create a new SovaEvmFactory
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for SovaEvmFactory {
-    fn default() -> Self {
-        Self
-    }
-}
 
 impl EvmFactory for SovaEvmFactory {
     type Evm<DB: Database, I: Inspector<OpContext<DB>>> = SovaEvm<DB, I, Self::Precompiles>;
     type Context<DB: Database> = OpContext<DB>;
-    type Tx = SovaTx;
+    type Tx = OpTransaction<TxEnv>;
     type Error<DBError: core::error::Error + Send + Sync + 'static> =
         EVMError<DBError, OpTransactionError>;
     type HaltReason = OpHaltReason;
