@@ -19,10 +19,7 @@ use alloy_evm::{
     eth::receipt_builder::ReceiptBuilderCtx,
     Database, Evm, EvmEnv, EvmFactory, FromRecoveredTx, FromTxWithEncoded,
 };
-use alloy_op_evm::{
-    block::{receipt_builder::OpReceiptBuilder, OpAlloyReceiptBuilder},
-    OpBlockExecutionCtx,
-};
+use alloy_op_evm::{block::receipt_builder::OpReceiptBuilder, OpBlockExecutionCtx};
 use alloy_op_hardforks::{OpChainHardforks, OpHardforks};
 use alloy_primitives::{
     map::foldhash::{HashMap, HashMapExt},
@@ -32,6 +29,7 @@ use eyre::Result;
 use op_alloy_consensus::OpDepositReceipt;
 use op_revm::{transaction::deposit::DEPOSIT_TRANSACTION_TYPE, OpSpecId};
 use reth_evm::block::InternalBlockExecutionError;
+use reth_optimism_evm::OpRethReceiptBuilder;
 use reth_tasks::TaskExecutor;
 use revm::context::result::ResultAndState;
 use revm::state::EvmStorageSlot;
@@ -454,7 +452,7 @@ where
 /// Ethereum block executor factory.
 #[derive(Debug, Clone)]
 pub struct SovaBlockExecutorFactory<
-    R = OpAlloyReceiptBuilder,
+    R = OpRethReceiptBuilder,
     Spec = OpChainHardforks,
     EvmFactory = SovaEvmFactory,
 > {
