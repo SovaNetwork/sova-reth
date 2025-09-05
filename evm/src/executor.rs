@@ -247,7 +247,7 @@ where
             evm_sim.enable_inspector();
 
             evm_sim
-                .transact(tx)
+                .transact(&tx)
                 .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
 
             let (_, insp, _) = evm_sim.components_mut();
@@ -326,7 +326,7 @@ where
             evm_tx.enable_inspector();
 
             let ResultAndState { result, state } = evm_tx
-                .transact(tx) // consume original tx now
+                .transact(&tx)
                 .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
 
             // Pull the per-tx SovaInspector out and merge its lock_data back into the block-level handle

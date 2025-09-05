@@ -103,7 +103,7 @@ where
     CTX: OpContextTr<Tx: SystemCallTx> + ContextSetters,
     PRECOMPILE: PrecompileProvider<CTX, Output = InterpreterResult>,
 {
-    fn transact_system_call_with_caller(
+    fn system_call_one_with_caller(
         &mut self,
         caller: Address,
         system_contract_address: Address,

@@ -9,7 +9,7 @@ mod precompiles;
 mod revm;
 mod sova_revm;
 
-pub use alloy::{SovaEvm, SovaTx};
+pub use alloy::SovaEvm;
 pub use builder::SovaExecutorBuilder;
 pub use config::SovaEvmConfig;
 pub use executor::SovaBlockExecutor;

@@ -4,6 +4,8 @@ mod bitcoin_precompile;
 mod btc_client;
 mod precompile_utils;
 
+use std::borrow::Cow;
+
 pub use bitcoin_precompile::BitcoinRpcPrecompile;
 pub use precompile_utils::BitcoinMethodHelper;
 
@@ -11,7 +13,7 @@ use once_cell::race::OnceBox;
 
 use op_revm::{precompiles::OpPrecompiles, OpSpecId};
 use revm_precompile::{
-    u64_to_address, PrecompileError, PrecompileOutput, PrecompileResult, PrecompileWithAddress,
+    u64_to_address, Precompile, PrecompileError, PrecompileId, PrecompileOutput, PrecompileResult,
     Precompiles,
 };
 
@@ -87,23 +89,27 @@ pub fn bitcoin_vault_spend(input: &[u8], gas_limit: u64) -> PrecompileResult {
     }
 }
 
-/// PrecompileWithAddress constants for Bitcoin precompiles
-pub const BITCOIN_BROADCAST: PrecompileWithAddress = PrecompileWithAddress(
+/// Precompile constants for Bitcoin precompiles
+pub const BITCOIN_BROADCAST: Precompile = Precompile::new(
+    PrecompileId::Custom(Cow::Borrowed("bitcoin_broadcast")),
     u64_to_address(BROADCAST_TRANSACTION_PRECOMPILE_ID),
     bitcoin_broadcast_transaction,
 );
 
-pub const BITCOIN_DECODE: PrecompileWithAddress = PrecompileWithAddress(
+pub const BITCOIN_DECODE: Precompile = Precompile::new(
+    PrecompileId::Custom(Cow::Borrowed("bitcoin_decode")),
     u64_to_address(DECODE_TRANSACTION_PRECOMPILE_ID),
     bitcoin_decode_transaction,
 );
 
-pub const BITCOIN_CONVERT: PrecompileWithAddress = PrecompileWithAddress(
+pub const BITCOIN_CONVERT: Precompile = Precompile::new(
+    PrecompileId::Custom(Cow::Borrowed("bitcoin_convert")),
     u64_to_address(CONVERT_ADDRESS_PRECOMPILE_ID),
     bitcoin_convert_address,
 );
 
-pub const BITCOIN_VAULT_SPEND: PrecompileWithAddress = PrecompileWithAddress(
+pub const BITCOIN_VAULT_SPEND: Precompile = Precompile::new(
+    PrecompileId::Custom(Cow::Borrowed("bitcoin_vault_spend")),
     u64_to_address(VAULT_SPEND_PRECOMPILE_ID),
     bitcoin_vault_spend,
 );
