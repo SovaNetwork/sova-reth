@@ -310,7 +310,7 @@ impl SovaInspector {
             ));
         }
 
-        // intercept all BTC broadcast precompile calls and check locks
+        // intercept all BTC broadcast precompile calls and checks locks
         if !self
             .cache
             .bitcoin_precompile_addresses

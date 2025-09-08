@@ -9863,6 +9863,7 @@ dependencies = [
  "reth-optimism-forks",
  "reth-optimism-primitives",
  "reth-optimism-rpc",
+ "reth-optimism-txpool",
  "reth-payload-primitives",
  "reth-primitives-traits",
  "reth-revm",

@@ -45,6 +45,7 @@ reth-optimism-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d
 reth-optimism-forks = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d56da53ec0ad60e229456a0c70b338501d923a5" }
 reth-optimism-node = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d56da53ec0ad60e229456a0c70b338501d923a5" }
 reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d56da53ec0ad60e229456a0c70b338501d923a5", features = ["serde", "serde-bincode-compat", "reth-codec"]}
+reth-optimism-txpool = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d56da53ec0ad60e229456a0c70b338501d923a5" }
 reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d56da53ec0ad60e229456a0c70b338501d923a5" }
 reth-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d56da53ec0ad60e229456a0c70b338501d923a5", features = ["evm"] }
 reth-op = { git = "https://github.com/paradigmxyz/reth.git", rev = "9d56da53ec0ad60e229456a0c70b338501d923a5", features = ["node-api"] }

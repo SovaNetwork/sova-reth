@@ -11,7 +11,7 @@ pub trait DefaultSova {
 impl DefaultSova for OpContext<EmptyDB> {
     fn sova() -> Self {
         Context::mainnet()
-            .with_tx(OpTransaction::builder().build_fill())
+            .with_tx(OpTransaction::default())
             .with_cfg(CfgEnv::new_with_spec(OpSpecId::BEDROCK))
             .with_chain(L1BlockInfo::default())
     }
