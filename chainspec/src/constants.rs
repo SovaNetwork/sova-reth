@@ -78,10 +78,10 @@ pub const VAULT_SPEND_PRECOMPILE_ID: u64 = 0x996;
 
 /// Gas constants for Bitcoin precompiles
 /// These are base gas costs for each Bitcoin operation
-pub const BITCOIN_BROADCAST_BASE_GAS: u64 = 21000;
+pub const BITCOIN_BROADCAST_BASE_GAS: u64 = 30000;
 pub const BITCOIN_DECODE_BASE_GAS: u64 = 3000;
-pub const BITCOIN_CONVERT_BASE_GAS: u64 = 21000;
-pub const BITCOIN_VAULT_SPEND_BASE_GAS: u64 = 50000;
+pub const BITCOIN_CONVERT_BASE_GAS: u64 = 3000;
+pub const BITCOIN_VAULT_SPEND_BASE_GAS: u64 = 30000;
 
 /// Represents all available Bitcoin precompile methods with their associated gas parameter
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
