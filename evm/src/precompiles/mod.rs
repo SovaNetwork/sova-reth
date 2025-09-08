@@ -13,8 +13,7 @@ use once_cell::race::OnceBox;
 
 use op_revm::{precompiles::OpPrecompiles, OpSpecId};
 use revm_precompile::{
-    u64_to_address, Precompile, PrecompileError, PrecompileId, PrecompileOutput, PrecompileResult,
-    Precompiles,
+    u64_to_address, Precompile, PrecompileId, PrecompileOutput, PrecompileResult, Precompiles,
 };
 
 // Import for PrecompileProvider trait
@@ -24,67 +23,40 @@ use revm::{
     interpreter::{InputsImpl, InterpreterResult},
 };
 use sova_chainspec::{
-    BITCOIN_BROADCAST_BASE_GAS, BITCOIN_CONVERT_BASE_GAS, BITCOIN_DECODE_BASE_GAS,
-    BITCOIN_VAULT_SPEND_BASE_GAS, BROADCAST_TRANSACTION_PRECOMPILE_ID,
-    CONVERT_ADDRESS_PRECOMPILE_ID, DECODE_TRANSACTION_PRECOMPILE_ID, SOVA_BTC_CONTRACT_ADDRESS,
-    VAULT_SPEND_PRECOMPILE_ID,
+    BROADCAST_TRANSACTION_PRECOMPILE_ID, CONVERT_ADDRESS_PRECOMPILE_ID,
+    DECODE_TRANSACTION_PRECOMPILE_ID, SOVA_BTC_CONTRACT_ADDRESS, VAULT_SPEND_PRECOMPILE_ID,
 };
 
 /// Bitcoin transaction broadcast precompile
 pub fn bitcoin_broadcast_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
-    if BITCOIN_BROADCAST_BASE_GAS > gas_limit {
-        return Err(PrecompileError::OutOfGas);
-    }
-
     // Caller validation is handled by SovaInspector before this function is called
     match BitcoinRpcPrecompile::run_broadcast_transaction(input, gas_limit) {
-        Ok(output) => Ok(PrecompileOutput::new(
-            BITCOIN_BROADCAST_BASE_GAS,
-            output.bytes,
-        )),
+        Ok(output) => Ok(PrecompileOutput::new(output.gas_used, output.bytes)),
         Err(e) => Err(e),
     }
 }
 
 /// Bitcoin transaction decode precompile
 pub fn bitcoin_decode_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
-    if BITCOIN_DECODE_BASE_GAS > gas_limit {
-        return Err(PrecompileError::OutOfGas);
-    }
-
     match BitcoinRpcPrecompile::run_decode_transaction(input, gas_limit) {
-        Ok(output) => Ok(PrecompileOutput::new(BITCOIN_DECODE_BASE_GAS, output.bytes)),
+        Ok(output) => Ok(PrecompileOutput::new(output.gas_used, output.bytes)),
         Err(e) => Err(e),
     }
 }
 
 /// Bitcoin address conversion precompile
 pub fn bitcoin_convert_address(input: &[u8], gas_limit: u64) -> PrecompileResult {
-    if BITCOIN_CONVERT_BASE_GAS > gas_limit {
-        return Err(PrecompileError::OutOfGas);
-    }
-
     match BitcoinRpcPrecompile::run_convert_address(input, gas_limit) {
-        Ok(output) => Ok(PrecompileOutput::new(
-            BITCOIN_CONVERT_BASE_GAS,
-            output.bytes,
-        )),
+        Ok(output) => Ok(PrecompileOutput::new(output.gas_used, output.bytes)),
         Err(e) => Err(e),
     }
 }
 
 /// Bitcoin vault spend precompile
 pub fn bitcoin_vault_spend(input: &[u8], gas_limit: u64) -> PrecompileResult {
-    if BITCOIN_VAULT_SPEND_BASE_GAS > gas_limit {
-        return Err(PrecompileError::OutOfGas);
-    }
-
     // Caller validation is handled by SovaInspector before this function is called
     match BitcoinRpcPrecompile::run_vault_spend(input, gas_limit) {
-        Ok(output) => Ok(PrecompileOutput::new(
-            BITCOIN_VAULT_SPEND_BASE_GAS,
-            output.bytes,
-        )),
+        Ok(output) => Ok(PrecompileOutput::new(output.gas_used, output.bytes)),
         Err(e) => Err(e),
     }
 }
