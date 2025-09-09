@@ -554,10 +554,7 @@ impl BitcoinRpcPrecompile {
         let txid = self.broadcast_transaction(&tx)?;
 
         let response = self.format_txid_to_bytes32(txid);
-        Ok(PrecompileOutput::new(
-            gas_used,
-            Bytes::from(response),
-        ))
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 
     fn decode_raw_transaction(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
@@ -718,9 +715,6 @@ impl BitcoinRpcPrecompile {
             self.format_txid_to_bytes32(txid)
         };
 
-        Ok(PrecompileOutput::new(
-            gas_used,
-            Bytes::from(response),
-        ))
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 }

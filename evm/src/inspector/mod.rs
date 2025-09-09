@@ -54,6 +54,8 @@ pub struct StorageChange {
 /// EVM engine inspector for enforcing storage slot locks
 #[derive(Debug, Clone)]
 pub struct SovaInspector {
+    /// addresses to add lock checking too
+    bitcoin_precompile_addresses: [Address; 4],
     /// accessed storage cache
     pub cache: StorageCache,
     /// client for calling lock storage service
@@ -77,7 +79,8 @@ impl SovaInspector {
             Arc::new(StorageSlotProvider::new(sentinel_url, task_executor)?);
 
         Ok(Self {
-            cache: StorageCache::new(bitcoin_precompile_addresses, excluded_addresses),
+            bitcoin_precompile_addresses,
+            cache: StorageCache::new(excluded_addresses),
             storage_slot_provider,
             slot_revert_cache: Vec::new(),
             checkpoint: None,
@@ -310,9 +313,8 @@ impl SovaInspector {
             ));
         }
 
-        // intercept all BTC broadcast precompile calls and checks locks
+        // intercept all precompile calls and checks locks
         if !self
-            .cache
             .bitcoin_precompile_addresses
             .contains(&inputs.target_address)
         {
@@ -643,7 +645,6 @@ impl SovaInspector {
 
         // Handle Bitcoin precompile calls
         if self
-            .cache
             .bitcoin_precompile_addresses
             .contains(&inputs.target_address)
         {
