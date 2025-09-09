@@ -29,7 +29,7 @@ use eyre::Result;
 use op_alloy_consensus::OpDepositReceipt;
 use op_revm::{transaction::deposit::DEPOSIT_TRANSACTION_TYPE, OpSpecId};
 use reth_evm::block::InternalBlockExecutionError;
-use reth_optimism_evm::OpRethReceiptBuilder;
+use reth_optimism_evm::{revm_spec_by_timestamp_after_bedrock, OpRethReceiptBuilder};
 use reth_tasks::TaskExecutor;
 use revm::context::result::ResultAndState;
 use revm::state::EvmStorageSlot;
@@ -123,6 +123,7 @@ where
     E: Evm<
         DB = &'db mut State<DB>,
         Tx: FromRecoveredTx<R::Transaction> + FromTxWithEncoded<R::Transaction>,
+        Spec = OpSpecId,
     >,
     R: OpReceiptBuilder<Transaction: Transaction + Encodable2718, Receipt: TxReceipt>,
     Spec: OpHardforks,
@@ -137,6 +138,36 @@ where
     type Evm = E;
 
     fn apply_pre_execution_changes(&mut self) -> Result<(), BlockExecutionError> {
+        // Sova pre-flight ops
+
+        // Compute the *same* spec the main EVM uses for this block timestamp
+        let spec_id: OpSpecId = revm_spec_by_timestamp_after_bedrock(
+            &self.spec,
+            self.evm.block().timestamp.saturating_to(),
+        );
+
+        // Rebuild cfg env using the live chain_id() from the running EVM
+        let cfg = CfgEnv::new()
+            .with_chain_id(self.evm.chain_id())
+            .with_spec(spec_id);
+
+        // Rebuild EvmEnv with the *exact* live BlockEnv
+        self.evm_env = alloy_evm::EvmEnv {
+            cfg_env: cfg,
+            block_env: self.evm.block().clone(), // keeps blob_excess_gas_and_price, basefee, etc.
+        };
+
+        // Install SovaInspector for this block:
+        let sova = SovaInspector::new(
+            BITCOIN_PRECOMPILE_ADDRESSES,
+            [SOVA_L1_BLOCK_CONTRACT_ADDRESS].to_vec(),
+            self.sentinel_url.clone(),
+            self.task_executor.clone(),
+        )
+        .map_err(BlockExecutionError::other)?;
+
+        self.inspector = InspectorHandle::new(sova);
+
         // Set state clear flag if the block is after the Spurious Dragon hardfork.
         let state_clear_flag = self
             .spec
@@ -158,17 +189,6 @@ where
             self.evm.db_mut(),
         )
         .map_err(BlockExecutionError::other)?;
-
-        // Install SovaInspector for this block:
-        let sova = SovaInspector::new(
-            BITCOIN_PRECOMPILE_ADDRESSES,
-            [SOVA_L1_BLOCK_CONTRACT_ADDRESS].to_vec(),
-            self.sentinel_url.clone(),
-            self.task_executor.clone(),
-        )
-        .map_err(BlockExecutionError::other)?;
-
-        self.inspector = InspectorHandle::new(sova);
 
         Ok(())
     }

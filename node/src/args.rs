@@ -1,8 +1,10 @@
-use bitcoin::Network;
 use clap::Parser;
+
+use reth_optimism_txpool::supervisor::DEFAULT_SUPERVISOR_URL;
+
 use op_alloy_consensus::interop::SafetyLevel;
-// use reth_optimism_txpool::supervisor::DEFAULT_SUPERVISOR_URL;
-const DEFAULT_SUPERVISOR_URL: &str = "http://127.0.0.1:9545";
+
+use bitcoin::Network;
 
 /// Custom CLI args extension that adds flags to configure Bitcoin functionality
 #[derive(Clone, Debug, Parser)]

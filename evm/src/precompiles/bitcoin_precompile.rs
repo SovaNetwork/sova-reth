@@ -1,6 +1,7 @@
 use abi::{abi_encode_tx_data, decode_input, DecodedInput};
 pub use btc_client::{BitcoinClient, BitcoinClientError};
 use revm_precompile::interface::{PrecompileError, PrecompileResult};
+use revm_precompile::PrecompileOutput;
 use sova_chainspec::BitcoinPrecompileMethod;
 use tracing::{debug, info, warn};
 
@@ -211,13 +212,13 @@ impl BitcoinRpcPrecompile {
     pub fn run_broadcast_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        // Calculate gas used based on input length
+        // Calculate gas used
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::BroadcastTransaction,
             input.len(),
         );
 
-        // Check if gas exceeds method's limit using the new helper method
+        // Enforce limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::BroadcastTransaction,
             input.len(),
@@ -238,13 +239,13 @@ impl BitcoinRpcPrecompile {
     pub fn run_decode_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        // Calculate gas used based on input length
+        // Calculate gas used
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::DecodeTransaction,
             input.len(),
         );
 
-        // Check if gas exceeds method's limit using the new helper method
+        // Enforce limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::DecodeTransaction,
             input.len(),
@@ -265,13 +266,13 @@ impl BitcoinRpcPrecompile {
     pub fn run_convert_address(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        // Calculate gas used based on input length
+        // Calculate gas used
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::ConvertAddress,
             input.len(),
         );
 
-        // Check if gas exceeds method's limit using the new helper method
+        // Enforce limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::ConvertAddress,
             input.len(),
@@ -292,13 +293,13 @@ impl BitcoinRpcPrecompile {
     pub fn run_vault_spend(input: &[u8], _gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        // Calculate gas used based on input length
+        // Calculate gas used
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::VaultSpend,
             input.len(),
         );
 
-        // Check if gas exceeds method's limit using the new helper method
+        // Enforce limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::VaultSpend,
             input.len(),
@@ -538,7 +539,7 @@ impl BitcoinRpcPrecompile {
         }
     }
 
-    pub fn broadcast_btc_tx(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
+    fn broadcast_btc_tx(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
         // Deserialize the Bitcoin transaction
         let tx: bitcoin::Transaction = match deserialize(input) {
             Ok(tx) => tx,
@@ -553,13 +554,10 @@ impl BitcoinRpcPrecompile {
         let txid = self.broadcast_transaction(&tx)?;
 
         let response = self.format_txid_to_bytes32(txid);
-        Ok(revm_precompile::interface::PrecompileOutput::new(
-            gas_used,
-            Bytes::from(response),
-        ))
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 
-    pub fn decode_raw_transaction(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
+    fn decode_raw_transaction(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
         let tx: bitcoin::Transaction = deserialize(input).map_err(|_| {
             PrecompileError::Other("Failed to deserialize Bitcoin transaction".into())
         })?;
@@ -577,7 +575,7 @@ impl BitcoinRpcPrecompile {
             PrecompileError::Other(format!("Failed to encode transaction data: {e:?}"))
         })?;
 
-        Ok(revm_precompile::interface::PrecompileOutput::new(
+        Ok(PrecompileOutput::new(
             gas_used,
             Bytes::from(encoded_data.to_vec()),
         ))
@@ -638,7 +636,7 @@ impl BitcoinRpcPrecompile {
                 .to_string()
         };
 
-        Ok(revm_precompile::interface::PrecompileOutput::new(
+        Ok(PrecompileOutput::new(
             gas_used,
             Bytes::from(bitcoin_address.as_bytes().to_vec()),
         ))
@@ -717,9 +715,6 @@ impl BitcoinRpcPrecompile {
             self.format_txid_to_bytes32(txid)
         };
 
-        Ok(revm_precompile::interface::PrecompileOutput::new(
-            gas_used,
-            Bytes::from(response),
-        ))
+        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 }

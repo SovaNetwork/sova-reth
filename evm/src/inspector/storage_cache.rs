@@ -84,8 +84,6 @@ pub struct BroadcastResult {
 
 #[derive(Debug, Clone)]
 pub struct StorageCache {
-    /// Bitcoin precompile address used for filtering calls to the broadcast tx method
-    pub bitcoin_precompile_addresses: [Address; 4],
     /// Excluded addresses from the inspector
     excluded_addresses: HashSet<Address>,
     /// Local cache of storage slot data for a tx since the last broadcast precompile call
@@ -95,12 +93,8 @@ pub struct StorageCache {
 }
 
 impl StorageCache {
-    pub fn new(
-        bitcoin_precompile_addresses: [Address; 4],
-        excluded_addresses: impl IntoIterator<Item = Address>,
-    ) -> Self {
+    pub fn new(excluded_addresses: impl IntoIterator<Item = Address>) -> Self {
         Self {
-            bitcoin_precompile_addresses,
             excluded_addresses: excluded_addresses.into_iter().collect(),
             broadcast_accessed_storage: AccessedStorage::new(),
             lock_data: HashMap::new(),
