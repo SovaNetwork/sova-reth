@@ -191,8 +191,8 @@ impl ExternalRpcClient {
             .client
             .post(&self.url)
             .json(&json!({
-                "jsonrpc": "1.0",
-                "id": id.to_string(),
+                "jsonrpc": "2.0",
+                "id": id,
                 "method": method,
                 "params": params
             }))
