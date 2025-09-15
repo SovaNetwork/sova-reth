@@ -9739,7 +9739,7 @@ dependencies = [
 
 [[package]]
 name = "sova"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "eyre",
@@ -9756,7 +9756,7 @@ dependencies = [
 
 [[package]]
 name = "sova-chainspec"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "alloy-genesis",
  "alloy-primitives",
@@ -9772,7 +9772,7 @@ dependencies = [
 
 [[package]]
 name = "sova-evm"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
@@ -9819,7 +9819,7 @@ dependencies = [
 
 [[package]]
 name = "sova-node"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "alloy-consensus",
  "alloy-dyn-abi",
