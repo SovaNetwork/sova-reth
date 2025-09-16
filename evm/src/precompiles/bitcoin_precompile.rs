@@ -648,11 +648,6 @@ impl BitcoinRpcPrecompile {
             derived_bitcoin_address
         };
 
-        debug!(
-            "Derived Bitcoin address in convert_address precompile: {}",
-            bitcoin_address
-        );
-
         Ok(PrecompileOutput::new(
             gas_used,
             Bytes::from(bitcoin_address.as_bytes().to_vec()),
