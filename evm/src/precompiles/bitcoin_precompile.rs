@@ -3,7 +3,7 @@ pub use btc_client::{BitcoinClient, BitcoinClientError};
 use revm_precompile::interface::{PrecompileError, PrecompileResult};
 use revm_precompile::PrecompileOutput;
 use sova_chainspec::BitcoinPrecompileMethod;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use std::{env, str::FromStr, sync::Arc};
 
@@ -628,13 +628,30 @@ impl BitcoinRpcPrecompile {
     pub fn convert_address(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
         let ethereum_address_bytes = self.parse_eth_address_bytes(input)?;
 
+        let derived_bitcoin_address = self
+            .address_deriver
+            .derive_bitcoin_address(&ethereum_address_bytes)?
+            .to_string();
+
         let bitcoin_address = if self.sequencer_mode {
-            self.derive_btc_address_with_caching(&ethereum_address_bytes)?
+            // derive address with network deposit pk and cache in indexer
+            let cached_address = self.derive_btc_address_with_caching(&ethereum_address_bytes)?;
+
+            // the cached_address is derived from the network-enclave and considered the
+            // 'canonical' implementation that is why this invariant must hold true
+            if cached_address != derived_bitcoin_address {
+                error!("Derivation is not the same, this results in state mismatches");
+            }
+
+            cached_address
         } else {
-            self.address_deriver
-                .derive_bitcoin_address(&ethereum_address_bytes)?
-                .to_string()
+            derived_bitcoin_address
         };
+
+        debug!(
+            "Derived Bitcoin address in convert_address precompile: {}",
+            bitcoin_address
+        );
 
         Ok(PrecompileOutput::new(
             gas_used,
