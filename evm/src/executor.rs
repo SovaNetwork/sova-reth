@@ -322,7 +322,7 @@ where
                     changes.insert(*address, revm_acc);
 
                     if !commit {
-                        return Ok(None);
+                        continue;
                     }
 
                     self.system_caller.on_state(
