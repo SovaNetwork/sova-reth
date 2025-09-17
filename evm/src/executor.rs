@@ -244,6 +244,8 @@ where
         // Snapshot pre-execution bundle so we can discard the simulation effects cleanly.
         let pre_execution_bundle = self.evm.db_mut().take_bundle();
 
+        let mut commit: bool = true;
+
         // Run the TX once to populate the inspector's revert cache
         let pending_reverts: Vec<(Address, reth_revm::db::states::TransitionAccount)> = {
             let mut per_tx_insp = MaybeSovaInspector::empty(NoOpInspector);
@@ -264,9 +266,13 @@ where
             );
             evm_sim.enable_inspector();
 
-            evm_sim
+            let exec_result_and_state = evm_sim
                 .transact(&tx)
                 .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
+
+            if !f(&exec_result_and_state.result).should_commit() {
+                commit = false;
+            }
 
             let (_, insp, _) = evm_sim.components_mut();
             if let Some(sova) = insp.sova_mut() {
@@ -314,6 +320,16 @@ where
                     // Commit the change
                     let mut changes: HashMap<Address, revm::state::Account> = HashMap::new();
                     changes.insert(*address, revm_acc);
+
+                    if !commit {
+                        continue;
+                    }
+
+                    self.system_caller.on_state(
+                        StateChangeSource::Transaction(self.receipts.len()),
+                        &changes,
+                    );
+
                     self.evm.db_mut().commit(changes);
                 }
             }
@@ -357,7 +373,7 @@ where
             (result, state)
         };
 
-        if !f(&result).should_commit() {
+        if !commit {
             return Ok(None);
         }
 
