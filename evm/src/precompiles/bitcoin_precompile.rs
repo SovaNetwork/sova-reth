@@ -377,164 +377,124 @@ impl BitcoinRpcPrecompile {
         response
     }
 
+    fn is_already_in_chain_msg(s: &str) -> bool {
+        let m = s.to_ascii_lowercase();
+        m.contains("outputs already in utxo set")
+            || m.contains("already in block chain")
+            || m.contains("code: -27")
+            || m.contains("(-27)")
+    }
+
+    fn is_already_known_msg(s: &str) -> bool {
+        let m = s.to_ascii_lowercase();
+        m.contains("already in the mempool")
+            || m.contains("already known")
+            || m.contains("duplicate transaction")
+    }
+
+    fn is_inputs_missing_or_spent_msg(s: &str) -> bool {
+        let m = s.to_ascii_lowercase();
+        m.contains("missingorspent") || m.contains("code: -25") || m.contains("(-25)")
+    }
+
     fn broadcast_transaction(
         &self,
         tx: &bitcoin::Transaction,
     ) -> Result<bitcoin::Txid, PrecompileError> {
-        // Attempt to broadcast the transaction
         match self.bitcoin_client.send_raw_transaction(tx) {
             Ok(txid) => {
-                // Successfully broadcast
                 info!("Broadcast bitcoin txid: {}", txid);
                 Ok(txid)
             }
             Err(e) => {
-                // Filter error codes from the node and return. The filter make transaction broadcasting idempotent.
-                // Meaning braodcasting a tx multiple times has the same effect as performing it once. In the context of
-                // block building this means when nodes are syncing and verifying transactions, they will get the same
-                // result as the entity that broadcast the tx.
-                //
-                // Filters include:
-                // - RPC_VERIFY_ALREADY_IN_CHAIN or RPC_TRANSACTION_ALREADY_IN_CHAIN (-27)
-                // - RPC_VERIFY_REJECTED or RPC_TRANSACTION_REJECTED (-26)
+                let txid = tx.txid();
                 debug!("Failed to broadcast transaction: {}", e);
-                match &e {
-                    // Handle BitcoinCoreRpc errors
-                    BitcoinClientError::BitcoinCoreRpc(bitcoincore_rpc::Error::JsonRpc(
-                        jsonrpc_err,
-                    )) => {
-                        match jsonrpc_err {
-                            bitcoincore_rpc::jsonrpc::error::Error::Rpc(rpc_error) => {
-                                match rpc_error.code {
-                                    // RPC_VERIFY_ALREADY_IN_CHAIN or RPC_TRANSACTION_ALREADY_IN_CHAIN (-27)
-                                    -27 => {
-                                        debug!(
-                                            "Json rpc error -27. Txid: {} msg: {}",
-                                            tx.txid(),
-                                            rpc_error.message
-                                        );
-                                        Ok(tx.txid())
-                                    }
-                                    // RPC_VERIFY_REJECTED or RPC_TRANSACTION_REJECTED (-26)
-                                    // TODO: Verify that all of these actually needed in a multi-node environment
-                                    -26 => {
-                                        let err_msg = &rpc_error.message;
-                                        if err_msg.contains("already in mempool")
-                                            || err_msg.contains("already known")
-                                            || err_msg.contains("duplicate transaction")
-                                        {
-                                            debug!(
-                                                "Json rpc error -26. Txid: {} msg: {}",
-                                                tx.txid(),
-                                                rpc_error.message
-                                            );
-                                            Ok(tx.txid())
-                                        } else {
-                                            // Other type of rejection
-                                            warn!(
-                                                "WARNING: Transaction rejected: {} (code: {})",
-                                                rpc_error.message, rpc_error.code
-                                            );
-                                            Err(PrecompileError::Other(format!(
-                                                "Transaction rejected: {}",
-                                                rpc_error.message
-                                            )))
-                                        }
-                                    }
-                                    // TX_MISSING_INPUTS (bad-txns-inputs-missingorspent) (-25)
-                                    -25 => {
-                                        debug!(
-                                            "Json rpc error -25 (inputs missing/spent). Txid: {} msg: {}",
-                                            tx.txid(),
-                                            rpc_error.message
-                                        );
-                                        // Return success since the transaction was likely already processed
-                                        // The sentinel service will verify actual finality on Bitcoin
-                                        Ok(tx.txid())
-                                    }
-                                    // Other RPC error
-                                    _ => {
-                                        warn!(
-                                            "WARNING: Bitcoin RPC error: {} (code: {})",
-                                            rpc_error.message, rpc_error.code
-                                        );
-                                        Err(PrecompileError::Other(format!(
-                                            "Bitcoin RPC error: {} (code: {})",
-                                            rpc_error.message, rpc_error.code
-                                        )))
-                                    }
+
+                // 1) Structured JSON-RPC with numeric codes
+                if let BitcoinClientError::BitcoinCoreRpc(bitcoincore_rpc::Error::JsonRpc(j)) = &e {
+                    if let bitcoincore_rpc::jsonrpc::error::Error::Rpc(rpc) = j {
+                        match rpc.code {
+                            -27 => {
+                                debug!(
+                                    "Idempotent: already in chain (-27). txid={} msg={}",
+                                    txid, rpc.message
+                                );
+                                return Ok(txid);
+                            }
+                            -26 => {
+                                if Self::is_already_known_msg(&rpc.message) {
+                                    debug!(
+                                        "Idempotent: already known (-26). txid={} msg={}",
+                                        txid, rpc.message
+                                    );
+                                    return Ok(txid);
                                 }
+                                warn!("WARNING: Transaction rejected: {} (code: -26)", rpc.message);
+                                return Err(PrecompileError::Other(format!(
+                                    "Transaction rejected: {}",
+                                    rpc.message
+                                )));
                             }
-                            // Other JSON-RPC errors
+                            -25 => {
+                                debug!(
+                                    "Soft-success: inputs missing/spent (-25). txid={} msg={}",
+                                    txid, rpc.message
+                                );
+                                return Ok(txid);
+                            }
                             _ => {
-                                warn!("WARNING: JSON-RPC error: {jsonrpc_err:?}");
-                                Err(PrecompileError::Other(format!(
-                                    "JSON-RPC error: {jsonrpc_err:?}",
-                                )))
+                                warn!(
+                                    "WARNING: Bitcoin RPC error: {} (code: {})",
+                                    rpc.message, rpc.code
+                                );
+                                return Err(PrecompileError::Other(format!(
+                                    "Bitcoin RPC error: {} (code: {})",
+                                    rpc.message, rpc.code
+                                )));
                             }
                         }
                     }
-                    // Handle ReturnedError
-                    BitcoinClientError::BitcoinCoreRpc(bitcoincore_rpc::Error::ReturnedError(
-                        err_msg,
-                    )) => {
-                        if err_msg.contains("already in block chain")
-                            || err_msg.contains("already in the mempool")
-                            || err_msg.contains("already known")
-                            || err_msg.contains("duplicate transaction")
-                        {
-                            debug!("Transaction already known: {} ({err_msg})", tx.txid());
-                            Ok(tx.txid())
-                        } else {
-                            warn!("WARNING: Bitcoin returned error: {err_msg}");
-                            Err(PrecompileError::Other(format!(
-                                "Bitcoin returned error: {err_msg}",
-                            )))
-                        }
-                    }
-                    // Handle other BitcoinClientError types
-                    BitcoinClientError::Reqwest(reqwest_err) => {
-                        // For external RPC client, check for common broadcast error patterns
-                        let err_msg = reqwest_err.to_string();
-                        if err_msg.contains("already in block chain")
-                            || err_msg.contains("already in the mempool")
-                            || err_msg.contains("already known")
-                            || err_msg.contains("duplicate transaction")
-                        {
-                            debug!(
-                                "Transaction already known via external client: {} ({err_msg})",
-                                tx.txid()
-                            );
-                            Ok(tx.txid())
-                        } else {
-                            warn!("WARNING: External RPC client error: {reqwest_err}");
-                            Err(PrecompileError::Other(format!(
-                                "External RPC client error: {reqwest_err}",
-                            )))
-                        }
-                    }
-                    BitcoinClientError::RpcError(err_msg) => {
-                        // Handle custom RPC errors from external client
-                        if err_msg.contains("already in block chain")
-                            || err_msg.contains("already in the mempool")
-                            || err_msg.contains("already known")
-                            || err_msg.contains("duplicate transaction")
-                        {
-                            debug!("Transaction already known: {} ({err_msg})", tx.txid());
-                            Ok(tx.txid())
-                        } else {
-                            warn!("WARNING: RPC error: {err_msg}");
-                            Err(PrecompileError::Other(format!("RPC error: {err_msg}",)))
-                        }
-                    }
-                    // All other error types
-                    _ => {
-                        warn!("WARNING: Bitcoin client error: {e:?}");
-                        Err(PrecompileError::Other(format!(
-                            "Bitcoin client error: {e:?}",
-                        )))
-                    }
+                    warn!("WARNING: JSON-RPC error: {j:?}");
+                    return Err(PrecompileError::Other(format!("JSON-RPC error: {j:?}")));
                 }
+
+                // 2) String-like paths. Normalize by substring.
+                let msg_norm = match &e {
+                    BitcoinClientError::BitcoinCoreRpc(bitcoincore_rpc::Error::ReturnedError(
+                        m,
+                    )) => m.to_string(),
+                    BitcoinClientError::Reqwest(err) => err.to_string(),
+                    BitcoinClientError::RpcError(m) => m.clone(),
+                    other => format!("{other:?}"),
+                };
+
+                if Self::is_already_in_chain_msg(&msg_norm) {
+                    debug!(
+                        "Idempotent: already in chain (string). txid={} msg={}",
+                        txid, msg_norm
+                    );
+                    return Ok(txid);
+                }
+                if Self::is_already_known_msg(&msg_norm) {
+                    debug!(
+                        "Idempotent: already known (string). txid={} msg={}",
+                        txid, msg_norm
+                    );
+                    return Ok(txid);
+                }
+                if Self::is_inputs_missing_or_spent_msg(&msg_norm) {
+                    debug!(
+                        "Soft-success: inputs missing/spent (string). txid={} msg={}",
+                        txid, msg_norm
+                    );
+                    return Ok(txid);
+                }
+
+                // 3) Anything else is a real error
+                warn!("WARNING: Bitcoin client error: {e:?}");
+                Err(PrecompileError::Other(format!(
+                    "Bitcoin client error: {e:?}"
+                )))
             }
         }
     }
