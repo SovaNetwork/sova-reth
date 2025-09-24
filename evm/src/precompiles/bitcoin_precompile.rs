@@ -209,7 +209,7 @@ impl BitcoinRpcPrecompile {
         .expect("Failed to create BitcoinRpcPrecompile from environment")
     }
 
-    pub fn run_broadcast_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+    pub fn run_broadcast_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used
@@ -218,7 +218,12 @@ impl BitcoinRpcPrecompile {
             input.len(),
         );
 
-        // Enforce limit if the precompile accounts for dynamic input lengths
+        // Check if we have enough gas limit from EVM for this operation
+        if gas_used > gas_limit {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::BroadcastTransaction,
             input.len(),
@@ -236,7 +241,7 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    pub fn run_decode_transaction(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+    pub fn run_decode_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used
@@ -245,7 +250,12 @@ impl BitcoinRpcPrecompile {
             input.len(),
         );
 
-        // Enforce limit if the precompile accounts for dynamic input lengths
+        // Check if we have enough gas limit from EVM for this operation
+        if gas_used > gas_limit {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::DecodeTransaction,
             input.len(),
@@ -263,7 +273,7 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    pub fn run_convert_address(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+    pub fn run_convert_address(input: &[u8], gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used
@@ -272,7 +282,12 @@ impl BitcoinRpcPrecompile {
             input.len(),
         );
 
-        // Enforce limit if the precompile accounts for dynamic input lengths
+        // Check if we have enough gas limit from EVM for this operation
+        if gas_used > gas_limit {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::ConvertAddress,
             input.len(),
@@ -290,7 +305,7 @@ impl BitcoinRpcPrecompile {
         res
     }
 
-    pub fn run_vault_spend(input: &[u8], _gas_limit: u64) -> PrecompileResult {
+    pub fn run_vault_spend(input: &[u8], gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
         // Calculate gas used
@@ -299,7 +314,12 @@ impl BitcoinRpcPrecompile {
             input.len(),
         );
 
-        // Enforce limit if the precompile accounts for dynamic input lengths
+        // Check if we have enough gas limit from EVM for this operation
+        if gas_used > gas_limit {
+            return Err(PrecompileError::OutOfGas);
+        }
+
+        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::VaultSpend,
             input.len(),
