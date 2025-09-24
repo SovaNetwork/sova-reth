@@ -31,10 +31,10 @@ use op_revm::{transaction::deposit::DEPOSIT_TRANSACTION_TYPE, OpSpecId};
 use reth_evm::block::InternalBlockExecutionError;
 use reth_optimism_evm::{revm_spec_by_timestamp_after_bedrock, OpRethReceiptBuilder};
 use reth_tasks::TaskExecutor;
-use revm::context::result::ResultAndState;
+use revm::context::result::{ExecutionResult, ResultAndState};
 use revm::state::EvmStorageSlot;
 use revm::{
-    context::{result::ExecutionResult, CfgEnv},
+    context::CfgEnv,
     database::State,
     inspector::NoOpInspector,
     DatabaseCommit, Inspector,
@@ -193,58 +193,28 @@ where
         Ok(())
     }
 
-    /// This method has been modified to execute the transaction twice.
-    ///
-    /// Execution 1: Execute transaction on scratch state to feed storage changes to the slot-lock-manager.
-    /// The manager queries the Sentinel and fills its revert cache with any slots that need correction.
-    ///
-    /// Apply corrections: Get pending reverts from manager and apply them to the real DB.
-    /// This materializes corrective state (reverted slots, locks) before the second execution.
-    ///
-    /// Execution 2: Execute transaction normally on the corrected DB. Transactions that should revert
-    /// will now naturally fail due to the applied corrections, without needing runtime hooks.
-    fn execute_transaction_with_commit_condition(
+    fn execute_transaction_without_commit(
         &mut self,
         tx: impl ExecutableTx<Self>,
-        f: impl FnOnce(&ExecutionResult<<Self::Evm as Evm>::HaltReason>) -> CommitChanges,
-    ) -> Result<Option<u64>, BlockExecutionError> {
+    ) -> Result<ResultAndState<<Self::Evm as Evm>::HaltReason>, BlockExecutionError> {
         let is_deposit = tx.tx().ty() == DEPOSIT_TRANSACTION_TYPE;
 
-        // The sum of the transaction’s gas limit, Tg, and the gas utilized in this block prior,
-        // must be no greater than the block’s gasLimit.
+        // The sum of the transaction's gas limit, Tg, and the gas utilized in this block prior,
+        // must be no greater than the block's gasLimit.
         let block_available_gas = self.evm.block().gas_limit - self.gas_used;
         if tx.tx().gas_limit() > block_available_gas && (self.is_regolith || !is_deposit) {
-            return Err(
-                BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
-                    transaction_gas_limit: tx.tx().gas_limit(),
-                    block_available_gas,
-                }
-                .into(),
-            );
+            return Err(BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
+                transaction_gas_limit: tx.tx().gas_limit(),
+                block_available_gas,
+            }
+            .into());
         }
-
-        // Cache the depositor account prior to the state transition for the deposit nonce.
-        //
-        // Note that this *only* needs to be done post-regolith hardfork, as deposit nonces
-        // were not introduced in Bedrock. In addition, regular transactions don't have deposit
-        // nonces, so we don't need to touch the DB for those.
-        let depositor = (self.is_regolith && is_deposit)
-            .then(|| {
-                self.evm
-                    .db_mut()
-                    .load_cache_account(*tx.signer())
-                    .map(|acc| acc.account_info().unwrap_or_default())
-            })
-            .transpose()
-            .map_err(BlockExecutionError::other)?;
 
         let tx_hash = tx.tx().trie_hash();
 
         // ---- Simulation Phase (Pass #1) ----
         // Snapshot pre-execution bundle so we can discard the simulation effects cleanly.
         let pre_execution_bundle = self.evm.db_mut().take_bundle();
-
-        let mut commit: bool = true;
 
         // Run the TX once to populate the inspector's revert cache
         let pending_reverts: Vec<(Address, reth_revm::db::states::TransitionAccount)> = {
@@ -266,20 +236,16 @@ where
             );
             evm_sim.enable_inspector();
 
-            let exec_result_and_state = evm_sim
+            let _exec_result_and_state = evm_sim
                 .transact(&tx)
                 .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
-
-            if !f(&exec_result_and_state.result).should_commit() {
-                commit = false;
-            }
 
             let (_, insp, _) = evm_sim.components_mut();
             if let Some(sova) = insp.sova_mut() {
                 sova.take_slot_revert_cache()
             } else {
                 return Err(BlockExecutionError::msg(
-                    "execute_transaction_with_commit_condition::error: sova inspector field should always be set during simulation"
+                    "execute_transaction_without_commit::error: sova inspector field should always be set during simulation"
                 ));
             }
         };
@@ -321,10 +287,6 @@ where
                     let mut changes: HashMap<Address, revm::state::Account> = HashMap::new();
                     changes.insert(*address, revm_acc);
 
-                    if !commit {
-                        continue;
-                    }
-
                     self.system_caller.on_state(
                         StateChangeSource::Transaction(self.receipts.len()),
                         &changes,
@@ -336,7 +298,7 @@ where
         }
 
         // ---- Final Execution Phase (Pass #2) ----
-        // Re-execute transaction on corrected DB and update receipts/state as usual.
+        // Re-execute transaction on corrected DB and return the result without committing
 
         // Build a fresh, per-tx inspector for the canonical pass (so it can record lock_data).
         let mut per_tx_insp2 = MaybeSovaInspector::empty(NoOpInspector);
@@ -351,34 +313,50 @@ where
         );
 
         // Create an EVM bound to our DB snapshot + the new per-tx inspector.
-        let (result, state) = {
-            let mut evm_tx = self.evm_factory.create_evm_with_inspector(
-                self.evm.db_mut(),
-                self.evm_env.clone(),
-                per_tx_insp2,
-            );
-            evm_tx.enable_inspector();
+        let mut evm_tx = self.evm_factory.create_evm_with_inspector(
+            self.evm.db_mut(),
+            self.evm_env.clone(),
+            per_tx_insp2,
+        );
+        evm_tx.enable_inspector();
 
-            let ResultAndState { result, state } = evm_tx
-                .transact(&tx)
-                .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
+        let result_and_state = evm_tx
+            .transact(&tx)
+            .map_err(|err| BlockExecutionError::evm(err, tx_hash))?;
 
-            // Pull the per-tx SovaInspector out and merge its lock_data back into the block-level handle
-            let (_, insp, _) = evm_tx.components_mut();
-            if let Some(mut sova_ptx) = core::mem::take(&mut insp.sova) {
-                // merge so `finish()` sees everything in lock_data via self.inspector
-                self.inspector.append_lock_data_from(&mut sova_ptx);
-            }
-
-            (result, state)
-        };
-
-        if !commit {
-            return Ok(None);
+        // Pull the per-tx SovaInspector out and merge its lock_data back into the block-level handle
+        let (_, insp, _) = evm_tx.components_mut();
+        if let Some(mut sova_ptx) = core::mem::take(&mut insp.sova) {
+            // merge so `finish()` sees everything in lock_data via self.inspector
+            self.inspector.append_lock_data_from(&mut sova_ptx);
         }
 
-        self.system_caller
-            .on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
+        Ok(result_and_state)
+    }
+
+    fn commit_transaction(
+        &mut self,
+        output: ResultAndState<<Self::Evm as Evm>::HaltReason>,
+        tx: impl ExecutableTx<Self>,
+    ) -> Result<u64, BlockExecutionError> {
+        let ResultAndState { result, state } = output;
+        let is_deposit = tx.tx().ty() == DEPOSIT_TRANSACTION_TYPE;
+
+        // Fetch the depositor account from the database for the deposit nonce.
+        // Note that this *only* needs to be done post-regolith hardfork, as deposit nonces
+        // were not introduced in Bedrock. In addition, regular transactions don't have deposit
+        // nonces, so we don't need to touch the DB for those.
+        let depositor = (self.is_regolith && is_deposit)
+            .then(|| {
+                self.evm
+                    .db_mut()
+                    .load_cache_account(*tx.signer())
+                    .map(|acc| acc.account_info().unwrap_or_default())
+            })
+            .transpose()
+            .map_err(BlockExecutionError::other)?;
+
+        self.system_caller.on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
 
         let gas_used = result.gas_used();
 
@@ -403,28 +381,56 @@ where
                         logs: ctx.result.into_logs(),
                     };
 
-                    self.receipt_builder
-                        .build_deposit_receipt(OpDepositReceipt {
-                            inner: receipt,
-                            deposit_nonce: depositor.map(|account| account.nonce),
-                            // The deposit receipt version was introduced in Canyon to indicate an
-                            // update to how receipt hashes should be computed
-                            // when set. The state transition process ensures
-                            // this is only set for post-Canyon deposit
-                            // transactions.
-                            deposit_receipt_version: (is_deposit
-                                && self.spec.is_canyon_active_at_timestamp(
-                                    self.evm.block().timestamp.saturating_to(),
-                                ))
-                            .then_some(1),
-                        })
+                    self.receipt_builder.build_deposit_receipt(OpDepositReceipt {
+                        inner: receipt,
+                        deposit_nonce: depositor.map(|account| account.nonce),
+                        // The deposit receipt version was introduced in Canyon to indicate an
+                        // update to how receipt hashes should be computed
+                        // when set. The state transition process ensures
+                        // this is only set for post-Canyon deposit
+                        // transactions.
+                        deposit_receipt_version: (is_deposit
+                            && self.spec.is_canyon_active_at_timestamp(
+                                self.evm.block().timestamp.saturating_to(),
+                            ))
+                        .then_some(1),
+                    })
                 }
             },
         );
 
         self.evm.db_mut().commit(state);
 
-        Ok(Some(gas_used))
+        Ok(gas_used)
+    }
+
+    /// This method has been modified to execute the transaction twice.
+    ///
+    /// Execution 1: Execute transaction on scratch state to feed storage changes to the slot-lock-manager.
+    /// The manager queries the Sentinel and fills its revert cache with any slots that need correction.
+    ///
+    /// Apply corrections: Get pending reverts from manager and apply them to the real DB.
+    /// This materializes corrective state (reverted slots, locks) before the second execution.
+    ///
+    /// Execution 2: Execute transaction normally on the corrected DB. Transactions that should revert
+    /// will now naturally fail due to the applied corrections, without needing runtime hooks.
+    fn execute_transaction_with_commit_condition(
+        &mut self,
+        tx: impl ExecutableTx<Self>,
+        f: impl FnOnce(&ExecutionResult<<Self::Evm as Evm>::HaltReason>) -> CommitChanges,
+    ) -> Result<Option<u64>, BlockExecutionError> {
+        // Execute transaction without committing first
+        let result_and_state = self.execute_transaction_without_commit(&tx)?;
+
+        // Check if we should commit based on the provided function
+        if f(&result_and_state.result).should_commit() {
+            // Commit the transaction and return gas used
+            let gas_used = self.commit_transaction(result_and_state, tx)?;
+            Ok(Some(gas_used))
+        } else {
+            // Don't commit, return None
+            Ok(None)
+        }
     }
 
     fn finish(
