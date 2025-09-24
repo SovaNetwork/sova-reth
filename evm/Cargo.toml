@@ -32,6 +32,7 @@ reth-tracing.workspace = true
 
 # revm
 revm.workspace = true
+revm-context.workspace = true
 revm-precompile.workspace = true
 
 # alloy

@@ -33,7 +33,8 @@ use reth_optimism_evm::{revm_spec_by_timestamp_after_bedrock, OpRethReceiptBuild
 use reth_tasks::TaskExecutor;
 use revm::context::result::{ExecutionResult, ResultAndState};
 use revm::state::EvmStorageSlot;
-use revm::{context::CfgEnv, database::State, inspector::NoOpInspector, DatabaseCommit, Inspector};
+use revm::{database::State, inspector::NoOpInspector, DatabaseCommit, Inspector};
+use revm_context::CfgEnv;
 use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_L1_BLOCK_CONTRACT_ADDRESS};
 use tracing::debug;
 
@@ -144,7 +145,8 @@ where
         // Rebuild cfg env using the live chain_id() from the running EVM
         let cfg = CfgEnv::new()
             .with_chain_id(self.evm.chain_id())
-            .with_spec(spec_id);
+            .with_spec(spec_id)
+            .with_disable_fee_charge(true);
 
         // Rebuild EvmEnv with the *exact* live BlockEnv
         self.evm_env = alloy_evm::EvmEnv {
