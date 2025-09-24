@@ -33,12 +33,7 @@ use reth_optimism_evm::{revm_spec_by_timestamp_after_bedrock, OpRethReceiptBuild
 use reth_tasks::TaskExecutor;
 use revm::context::result::{ExecutionResult, ResultAndState};
 use revm::state::EvmStorageSlot;
-use revm::{
-    context::CfgEnv,
-    database::State,
-    inspector::NoOpInspector,
-    DatabaseCommit, Inspector,
-};
+use revm::{context::CfgEnv, database::State, inspector::NoOpInspector, DatabaseCommit, Inspector};
 use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_L1_BLOCK_CONTRACT_ADDRESS};
 use tracing::debug;
 
@@ -203,11 +198,13 @@ where
         // must be no greater than the block's gasLimit.
         let block_available_gas = self.evm.block().gas_limit - self.gas_used;
         if tx.tx().gas_limit() > block_available_gas && (self.is_regolith || !is_deposit) {
-            return Err(BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
-                transaction_gas_limit: tx.tx().gas_limit(),
-                block_available_gas,
-            }
-            .into());
+            return Err(
+                BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
+                    transaction_gas_limit: tx.tx().gas_limit(),
+                    block_available_gas,
+                }
+                .into(),
+            );
         }
 
         let tx_hash = tx.tx().trie_hash();
@@ -356,7 +353,8 @@ where
             .transpose()
             .map_err(BlockExecutionError::other)?;
 
-        self.system_caller.on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
+        self.system_caller
+            .on_state(StateChangeSource::Transaction(self.receipts.len()), &state);
 
         let gas_used = result.gas_used();
 
@@ -381,20 +379,21 @@ where
                         logs: ctx.result.into_logs(),
                     };
 
-                    self.receipt_builder.build_deposit_receipt(OpDepositReceipt {
-                        inner: receipt,
-                        deposit_nonce: depositor.map(|account| account.nonce),
-                        // The deposit receipt version was introduced in Canyon to indicate an
-                        // update to how receipt hashes should be computed
-                        // when set. The state transition process ensures
-                        // this is only set for post-Canyon deposit
-                        // transactions.
-                        deposit_receipt_version: (is_deposit
-                            && self.spec.is_canyon_active_at_timestamp(
-                                self.evm.block().timestamp.saturating_to(),
-                            ))
-                        .then_some(1),
-                    })
+                    self.receipt_builder
+                        .build_deposit_receipt(OpDepositReceipt {
+                            inner: receipt,
+                            deposit_nonce: depositor.map(|account| account.nonce),
+                            // The deposit receipt version was introduced in Canyon to indicate an
+                            // update to how receipt hashes should be computed
+                            // when set. The state transition process ensures
+                            // this is only set for post-Canyon deposit
+                            // transactions.
+                            deposit_receipt_version: (is_deposit
+                                && self.spec.is_canyon_active_at_timestamp(
+                                    self.evm.block().timestamp.saturating_to(),
+                                ))
+                            .then_some(1),
+                        })
                 }
             },
         );
