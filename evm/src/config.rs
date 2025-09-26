@@ -27,11 +27,10 @@ use reth_storage_errors::any::AnyError;
 use reth_tasks::TaskExecutor;
 
 use revm::{
-    context::{BlockEnv, TxEnv},
+    context::{BlockEnv, CfgEnv, TxEnv},
     context_interface::block::BlobExcessGasAndPrice,
     primitives::hardfork::SpecId,
 };
-use revm_context::CfgEnv;
 
 use crate::{alloy::SovaEvmFactory, executor::SovaBlockExecutorFactory};
 
@@ -121,8 +120,7 @@ where
 
         let cfg_env = CfgEnv::new()
             .with_chain_id(self.chain_spec().chain().id())
-            .with_spec(spec)
-            .with_disable_fee_charge(true);
+            .with_spec(spec);
 
         let blob_excess_gas_and_price = spec
             .into_eth_spec()
@@ -166,8 +164,7 @@ where
         // configure evm env based on parent block
         let cfg_env = CfgEnv::new()
             .with_chain_id(self.chain_spec().chain().id())
-            .with_spec(spec_id)
-            .with_disable_fee_charge(true);
+            .with_spec(spec_id);
 
         // if the parent block did not have excess blob gas (i.e. it was pre-cancun), but it is
         // cancun now, we need to set the excess blob gas to the default value(0)
@@ -241,8 +238,7 @@ where
 
         let cfg_env = CfgEnv::new()
             .with_chain_id(self.chain_spec().chain().id())
-            .with_spec(spec)
-            .with_disable_fee_charge(true);
+            .with_spec(spec);
 
         let blob_excess_gas_and_price = spec
             .into_eth_spec()
