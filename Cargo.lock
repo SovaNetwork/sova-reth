@@ -9902,7 +9902,6 @@ dependencies = [
  "sova-sentinel-proto",
  "thiserror 2.0.15",
  "tokio",
- "uuid",
 ]
 
 [[package]]
