@@ -1,7 +1,7 @@
 use std::{env, str::FromStr, sync::Arc};
 
 pub use btc_client::{BitcoinClient, BitcoinClientError};
-use reth_tracing::tracing::{debug, info, warn, error};
+use reth_tracing::tracing::{debug, error, info, warn};
 use revm_precompile::interface::{PrecompileError, PrecompileResult};
 use revm_precompile::PrecompileOutput;
 
