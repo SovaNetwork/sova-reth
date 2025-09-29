@@ -172,22 +172,22 @@ pub fn sova_btc_contract_storage() -> BTreeMap<B256, B256> {
 
     // Set initial withdraw signer in the withdrawSigners mapping (slot 5)
     // withdrawSigners[0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266] = true
-    let signer_address = B256::from_str(
-        "0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
-    ).unwrap();
-    
+    let signer_address =
+        B256::from_str("0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266")
+            .unwrap();
+
     // Slot 5 is the withdrawSigners mapping
-    let slot_5 = B256::from_str(
-        "0x0000000000000000000000000000000000000000000000000000000000000005"
-    ).unwrap();
-    
+    let slot_5 =
+        B256::from_str("0x0000000000000000000000000000000000000000000000000000000000000005")
+            .unwrap();
+
     // Calculate keccak256(address . slot) for the mapping key
     let mut data = [0u8; 64];
     data[0..32].copy_from_slice(&signer_address.0);
     data[32..64].copy_from_slice(&slot_5.0);
-    
-    let storage_slot = keccak256(&data);
-    
+
+    let storage_slot = keccak256(data);
+
     sova_btc_storage.insert(
         storage_slot,
         // Value = true (1)
