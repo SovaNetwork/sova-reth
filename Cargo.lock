@@ -9762,7 +9762,7 @@ dependencies = [
 
 [[package]]
 name = "sova"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "clap",
  "eyre",
@@ -9779,7 +9779,7 @@ dependencies = [
 
 [[package]]
 name = "sova-chainspec"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "alloy-genesis",
  "alloy-primitives",
@@ -9795,10 +9795,9 @@ dependencies = [
 
 [[package]]
 name = "sova-evm"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
  "alloy-eips",
  "alloy-evm",
  "alloy-op-evm",
@@ -9836,16 +9835,14 @@ dependencies = [
  "sova-sentinel-proto",
  "tokio",
  "tonic",
- "tracing",
  "uuid",
 ]
 
 [[package]]
 name = "sova-node"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
  "alloy-eips",
  "alloy-evm",
  "alloy-genesis",
@@ -9905,8 +9902,6 @@ dependencies = [
  "sova-sentinel-proto",
  "thiserror 2.0.15",
  "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]

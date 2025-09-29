@@ -1,4 +1,3 @@
-use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{sol, SolValue};
 
@@ -11,70 +10,6 @@ use bitcoincore_rpc::bitcoincore_rpc_json::{
     GetRawTransactionResultVin, GetRawTransactionResultVout,
 };
 use bitcoincore_rpc::json::DecodeRawTransactionResult;
-
-// Decoding
-
-pub struct DecodedInput {
-    #[allow(dead_code)]
-    pub caller: String,
-    pub amount: u64,
-    pub btc_gas_limit: u64,
-    pub block_height: u64,
-    pub destination: String,
-}
-
-pub fn decode_input(input: &[u8]) -> Result<DecodedInput, PrecompileError> {
-    let input_type = DynSolType::Tuple(vec![
-        DynSolType::Address,  // caller address
-        DynSolType::Uint(64), // amount
-        DynSolType::Uint(64), // btcGasLimit
-        DynSolType::Uint(64), // block_height
-        DynSolType::String,   // destination
-    ]);
-
-    let decoded = input_type
-        .abi_decode_params(input)
-        .map_err(|e| PrecompileError::Other(format!("Failed to decode input: {e:?}")))?;
-
-    if let DynSolValue::Tuple(values) = decoded {
-        Ok(DecodedInput {
-            caller: extract_address(&values[0])?,
-            amount: extract_uint(&values[1])?,
-            btc_gas_limit: extract_uint(&values[2])?,
-            block_height: extract_uint(&values[3])?,
-            destination: extract_string(&values[4])?,
-        })
-    } else {
-        Err(PrecompileError::Other(
-            "Invalid input structure".to_string(),
-        ))
-    }
-}
-
-fn extract_address(value: &DynSolValue) -> Result<String, PrecompileError> {
-    if let DynSolValue::Address(addr) = value {
-        Ok(format!("{addr:?}").trim_start_matches("0x").to_string())
-    } else {
-        Err(PrecompileError::Other("Invalid address".to_string()))
-    }
-}
-
-fn extract_uint(value: &DynSolValue) -> Result<u64, PrecompileError> {
-    if let DynSolValue::Uint(amount, _) = value {
-        Ok(amount.to::<u64>())
-    } else {
-        Err(PrecompileError::Other("Invalid uint".to_string()))
-    }
-}
-
-fn extract_string(value: &DynSolValue) -> Result<String, PrecompileError> {
-    if let DynSolValue::String(s) = value {
-        Ok(s.clone())
-    } else {
-        Err(PrecompileError::Other("Invalid string".to_string()))
-    }
-}
-
 // Encoding
 
 sol! {

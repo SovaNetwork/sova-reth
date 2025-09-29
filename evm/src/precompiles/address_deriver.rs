@@ -3,8 +3,8 @@ use bitcoin::hashes::{sha256, Hash, HashEngine};
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::{Address, Network, PublicKey};
 
+use reth_tracing::tracing::warn;
 use revm_precompile::interface::PrecompileError;
-use tracing::warn;
 
 use sova_chainspec::SOVA_ADDR_CONVERT_DOMAIN_TAG;
 

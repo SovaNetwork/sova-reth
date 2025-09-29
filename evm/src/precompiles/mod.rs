@@ -16,7 +16,6 @@ use revm_precompile::{
     u64_to_address, Precompile, PrecompileId, PrecompileOutput, PrecompileResult, Precompiles,
 };
 
-// Import for PrecompileProvider trait
 use revm::{
     context::{Cfg, ContextTr},
     handler::PrecompileProvider,
@@ -24,7 +23,7 @@ use revm::{
 };
 use sova_chainspec::{
     BROADCAST_TRANSACTION_PRECOMPILE_ID, CONVERT_ADDRESS_PRECOMPILE_ID,
-    DECODE_TRANSACTION_PRECOMPILE_ID, SOVA_BTC_CONTRACT_ADDRESS, VAULT_SPEND_PRECOMPILE_ID,
+    DECODE_TRANSACTION_PRECOMPILE_ID, SOVA_BTC_CONTRACT_ADDRESS,
 };
 
 /// Bitcoin transaction broadcast precompile
@@ -52,15 +51,6 @@ pub fn bitcoin_convert_address(input: &[u8], gas_limit: u64) -> PrecompileResult
     }
 }
 
-/// Bitcoin vault spend precompile
-pub fn bitcoin_vault_spend(input: &[u8], gas_limit: u64) -> PrecompileResult {
-    // Caller validation is handled by SovaInspector before this function is called
-    match BitcoinRpcPrecompile::run_vault_spend(input, gas_limit) {
-        Ok(output) => Ok(PrecompileOutput::new(output.gas_used, output.bytes)),
-        Err(e) => Err(e),
-    }
-}
-
 /// Precompile constants for Bitcoin precompiles
 pub const BITCOIN_BROADCAST: Precompile = Precompile::new(
     PrecompileId::Custom(Cow::Borrowed("bitcoin_broadcast")),
@@ -78,12 +68,6 @@ pub const BITCOIN_CONVERT: Precompile = Precompile::new(
     PrecompileId::Custom(Cow::Borrowed("bitcoin_convert")),
     u64_to_address(CONVERT_ADDRESS_PRECOMPILE_ID),
     bitcoin_convert_address,
-);
-
-pub const BITCOIN_VAULT_SPEND: Precompile = Precompile::new(
-    PrecompileId::Custom(Cow::Borrowed("bitcoin_vault_spend")),
-    u64_to_address(VAULT_SPEND_PRECOMPILE_ID),
-    bitcoin_vault_spend,
 );
 
 /// SovaPrecompiles - extends OpPrecompiles with Bitcoin functionality
@@ -118,12 +102,7 @@ impl SovaPrecompiles {
             let mut all_precompiles = OpPrecompiles::new_with_spec(spec).precompiles().clone();
 
             // Extend with Bitcoin precompiles for Satoshi fork
-            all_precompiles.extend([
-                BITCOIN_BROADCAST,
-                BITCOIN_CONVERT,
-                BITCOIN_DECODE,
-                BITCOIN_VAULT_SPEND,
-            ]);
+            all_precompiles.extend([BITCOIN_BROADCAST, BITCOIN_CONVERT, BITCOIN_DECODE]);
 
             Box::new(all_precompiles)
         })
@@ -169,16 +148,10 @@ where
             sova_chainspec::BROADCAST_TRANSACTION_ADDRESS => {
                 // Only the native bitcoin wrapper contract can call this method
                 if caller != SOVA_BTC_CONTRACT_ADDRESS {
-                    Err("Unauthorized precompile caller. Only the enshrined SovaBTC contract may broadcast transactions.".to_string())
-                } else {
-                    self.inner
-                        .run(context, address, inputs, is_static, gas_limit)
-                }
-            }
-            sova_chainspec::VAULT_SPEND_ADDRESS => {
-                // Only the native bitcoin wrapper contract can call this method
-                if caller != SOVA_BTC_CONTRACT_ADDRESS {
-                    Err("Unauthorized precompile caller. Only the enshrined SovaBTC contract may use network signing.".to_string())
+                    Err(
+                        "Unauthorized caller. Only SovaBTC contract may call broadcast precompile."
+                            .to_string(),
+                    )
                 } else {
                     self.inner
                         .run(context, address, inputs, is_static, gas_limit)
