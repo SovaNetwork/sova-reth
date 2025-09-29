@@ -40,7 +40,6 @@ Validators are free to join the testnet and sync their own historical chain data
 | **Broadcast Transaction** | `0x0000000000000000000000000000000000000999` | Broadcasts Bitcoin transactions |
 | **Decode Transaction** | `0x0000000000000000000000000000000000000998` | Decodes raw Bitcoin transactions |
 | **Convert Address** | `0x0000000000000000000000000000000000000997` | EVM to Bitcoin address conversion |
-| **Vault Spend** | `0x0000000000000000000000000000000000000996` | Network vault spending |
 
 For more information on how to use the precompiles see related [docs](https://docs.sova.io/technology/bitcoin-precompiles).
 

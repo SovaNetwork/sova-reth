@@ -1,7 +1,7 @@
 use alloy_primitives::Address;
 use sova_chainspec::{
     BitcoinPrecompileMethod, BROADCAST_TRANSACTION_ADDRESS, CONVERT_ADDRESS_ADDRESS,
-    DECODE_TRANSACTION_ADDRESS, VAULT_SPEND_ADDRESS,
+    DECODE_TRANSACTION_ADDRESS,
 };
 
 /// Gas configuration for each Bitcoin method
@@ -36,11 +36,6 @@ impl BitcoinMethodHelper {
                 base_cost: 3_000,
                 cost_per_byte: 0,
             },
-            BitcoinPrecompileMethod::VaultSpend => GasConfig {
-                limit: 30_000,
-                base_cost: 30_000,
-                cost_per_byte: 0,
-            },
         }
     }
 
@@ -73,7 +68,6 @@ impl BitcoinMethodHelper {
             BROADCAST_TRANSACTION_ADDRESS => Ok(BitcoinPrecompileMethod::BroadcastTransaction),
             DECODE_TRANSACTION_ADDRESS => Ok(BitcoinPrecompileMethod::DecodeTransaction),
             CONVERT_ADDRESS_ADDRESS => Ok(BitcoinPrecompileMethod::ConvertAddress),
-            VAULT_SPEND_ADDRESS => Ok(BitcoinPrecompileMethod::VaultSpend),
             _ => Err(format!(
                 "Unknown Bitcoin precompile address: {}",
                 hex::encode(address)

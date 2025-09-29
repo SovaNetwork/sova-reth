@@ -67,14 +67,9 @@ pub fn sova_forks() -> ChainHardforks {
     ])
 }
 
-/// - BROADCAST_TRANSACTION_ADDRESS: 0x999
-/// - DECODE_TRANSACTION_ADDRESS: 0x998  
-/// - CONVERT_ADDRESS_ADDRESS: 0x997
-/// - VAULT_SPEND_ADDRESS: 0x996
 pub const BROADCAST_TRANSACTION_PRECOMPILE_ID: u64 = 0x999;
 pub const DECODE_TRANSACTION_PRECOMPILE_ID: u64 = 0x998;
 pub const CONVERT_ADDRESS_PRECOMPILE_ID: u64 = 0x997;
-pub const VAULT_SPEND_PRECOMPILE_ID: u64 = 0x996;
 
 /// Represents all available Bitcoin precompile methods with their associated gas parameter
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
@@ -85,8 +80,6 @@ pub enum BitcoinPrecompileMethod {
     DecodeTransaction,
     /// Converts EVM address to Bitcoin address
     ConvertAddress,
-    /// Creates, signs, and broadcasts a Bitcoin transaction from a specified signer
-    VaultSpend,
 }
 
 pub const BROADCAST_TRANSACTION_ADDRESS: Address =
@@ -94,13 +87,11 @@ pub const BROADCAST_TRANSACTION_ADDRESS: Address =
 pub const DECODE_TRANSACTION_ADDRESS: Address =
     address!("0000000000000000000000000000000000000998");
 pub const CONVERT_ADDRESS_ADDRESS: Address = address!("0000000000000000000000000000000000000997");
-pub const VAULT_SPEND_ADDRESS: Address = address!("0000000000000000000000000000000000000996");
 
-pub const BITCOIN_PRECOMPILE_ADDRESSES: [Address; 4] = [
+pub const BITCOIN_PRECOMPILE_ADDRESSES: [Address; 3] = [
     BROADCAST_TRANSACTION_ADDRESS,
     DECODE_TRANSACTION_ADDRESS,
     CONVERT_ADDRESS_ADDRESS,
-    VAULT_SPEND_ADDRESS,
 ];
 
 // Sova L1Block contract address

@@ -31,11 +31,11 @@ use op_revm::{transaction::deposit::DEPOSIT_TRANSACTION_TYPE, OpSpecId};
 use reth_evm::block::InternalBlockExecutionError;
 use reth_optimism_evm::{revm_spec_by_timestamp_after_bedrock, OpRethReceiptBuilder};
 use reth_tasks::TaskExecutor;
+use reth_tracing::tracing::debug;
 use revm::context::result::{ExecutionResult, ResultAndState};
 use revm::state::EvmStorageSlot;
 use revm::{context::CfgEnv, database::State, inspector::NoOpInspector, DatabaseCommit, Inspector};
 use sova_chainspec::{BITCOIN_PRECOMPILE_ADDRESSES, SOVA_L1_BLOCK_CONTRACT_ADDRESS};
-use tracing::debug;
 
 /// Block executor for Sova.
 ///

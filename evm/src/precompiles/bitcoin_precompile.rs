@@ -1,19 +1,19 @@
-use abi::{abi_encode_tx_data, decode_input, DecodedInput};
+use std::{env, str::FromStr, sync::Arc};
+
 pub use btc_client::{BitcoinClient, BitcoinClientError};
+use reth_tracing::tracing::{debug, info, warn, error};
 use revm_precompile::interface::{PrecompileError, PrecompileResult};
 use revm_precompile::PrecompileOutput;
-use sova_chainspec::BitcoinPrecompileMethod;
-use tracing::{debug, error, info, warn};
-
-use std::{env, str::FromStr, sync::Arc};
 
 use eyre::Result;
 use reqwest::blocking::Client as BlockingRequestClient;
-use serde::Deserialize;
 
 use alloy_primitives::Bytes;
 
-use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network, Txid};
+use bitcoin::{consensus::encode::deserialize, hashes::Hash, Network};
+
+use abi::abi_encode_tx_data;
+use sova_chainspec::BitcoinPrecompileMethod;
 
 use super::abi;
 use super::address_deriver::SovaAddressDeriver;
@@ -51,34 +51,6 @@ impl SovaBitcoinConfig {
         self.rpc_connection_type = connection_type.to_string();
         self
     }
-}
-
-#[derive(Deserialize)]
-#[allow(dead_code)]
-struct UtxoSelectionResponse {
-    block_height: i32,
-    address: String,
-    target_amount: i64,
-    selected_utxos: Vec<UtxoUpdate>,
-    total_amount: i64,
-}
-
-#[derive(Deserialize)]
-#[allow(dead_code)]
-struct UtxoUpdate {
-    id: String,
-    address: String,
-    public_key: Option<String>,
-    txid: String,
-    vout: i32,
-    amount: i64,
-    script_pub_key: String,
-    script_type: String,
-    created_at: String,
-    block_height: i32,
-    spent_txid: Option<String>,
-    spent_at: Option<String>,
-    spent_block: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -212,18 +184,15 @@ impl BitcoinRpcPrecompile {
     pub fn run_broadcast_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        // Calculate gas used
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::BroadcastTransaction,
             input.len(),
         );
 
-        // Check if we have enough gas limit from EVM for this operation
         if gas_used > gas_limit {
             return Err(PrecompileError::OutOfGas);
         }
 
-        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::BroadcastTransaction,
             input.len(),
@@ -244,18 +213,15 @@ impl BitcoinRpcPrecompile {
     pub fn run_decode_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        // Calculate gas used
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::DecodeTransaction,
             input.len(),
         );
 
-        // Check if we have enough gas limit from EVM for this operation
         if gas_used > gas_limit {
             return Err(PrecompileError::OutOfGas);
         }
 
-        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::DecodeTransaction,
             input.len(),
@@ -276,18 +242,15 @@ impl BitcoinRpcPrecompile {
     pub fn run_convert_address(input: &[u8], gas_limit: u64) -> PrecompileResult {
         let btc_precompile = BitcoinRpcPrecompile::from_env();
 
-        // Calculate gas used
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::ConvertAddress,
             input.len(),
         );
 
-        // Check if we have enough gas limit from EVM for this operation
         if gas_used > gas_limit {
             return Err(PrecompileError::OutOfGas);
         }
 
-        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
         if BitcoinMethodHelper::is_gas_limit_exceeded(
             &BitcoinPrecompileMethod::ConvertAddress,
             input.len(),
@@ -297,37 +260,6 @@ impl BitcoinRpcPrecompile {
 
         let input_bytes = Bytes::copy_from_slice(input);
         let res = btc_precompile.convert_address(&input_bytes, gas_used);
-
-        if res.is_err() {
-            warn!("Precompile error: {:?}", res);
-        }
-
-        res
-    }
-
-    pub fn run_vault_spend(input: &[u8], gas_limit: u64) -> PrecompileResult {
-        let btc_precompile = BitcoinRpcPrecompile::from_env();
-
-        // Calculate gas used
-        let gas_used = BitcoinMethodHelper::calculate_gas_used(
-            &BitcoinPrecompileMethod::VaultSpend,
-            input.len(),
-        );
-
-        // Check if we have enough gas limit from EVM for this operation
-        if gas_used > gas_limit {
-            return Err(PrecompileError::OutOfGas);
-        }
-
-        // Enforce our internal method limit if the precompile accounts for dynamic input lengths
-        if BitcoinMethodHelper::is_gas_limit_exceeded(
-            &BitcoinPrecompileMethod::VaultSpend,
-            input.len(),
-        ) {
-            return Err(PrecompileError::OutOfGas);
-        }
-
-        let res = btc_precompile.network_spend(input, gas_used);
 
         if res.is_err() {
             warn!("Precompile error: {:?}", res);
@@ -632,81 +564,5 @@ impl BitcoinRpcPrecompile {
             gas_used,
             Bytes::from(bitcoin_address.as_bytes().to_vec()),
         ))
-    }
-
-    pub fn network_spend(&self, input: &[u8], gas_used: u64) -> PrecompileResult {
-        let decoded_input: DecodedInput = decode_input(input)?;
-
-        let mut request = serde_json::json!({
-            "block_height": decoded_input.block_height,
-            "amount": decoded_input.amount,
-            "destination": decoded_input.destination,
-            "fee": decoded_input.btc_gas_limit,
-            "caller": decoded_input.caller, // msg.sender, data comes from contract
-        });
-
-        let response: Vec<u8> = if self.sequencer_mode {
-            info!("Processing Bitcoin withdrawal as sequencer");
-
-            let sign_response: serde_json::Value =
-                self.call_network_utxos("sign-transaction", &request)?;
-
-            let signed_tx_hex = sign_response["signed_tx"]
-                .as_str()
-                .ok_or_else(|| PrecompileError::Other("Missing signed_tx in response".into()))?;
-
-            let txid_str = sign_response["txid"]
-                .as_str()
-                .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
-            info!("Signed txid {txid_str}");
-
-            let signed_tx_bytes = hex::decode(signed_tx_hex).map_err(|e| {
-                PrecompileError::Other(format!("Failed to decode signed transaction: {e:?}"))
-            })?;
-
-            let signed_tx: bitcoin::Transaction = deserialize(&signed_tx_bytes).map_err(|e| {
-                PrecompileError::Other(format!(
-                    "Failed to deserialize signed Bitcoin transaction: {e:?}"
-                ))
-            })?;
-
-            let broadcast_txid = self.broadcast_transaction(&signed_tx)?;
-
-            let expected_txid = Txid::from_str(txid_str).map_err(|e| {
-                PrecompileError::Other(format!("Invalid txid from signing service: {e:?}"))
-            })?;
-
-            if broadcast_txid != expected_txid {
-                warn!(
-                    "Broadcast txid {broadcast_txid} does not match indexer txid {expected_txid}",
-                );
-            }
-
-            self.format_txid_to_bytes32(expected_txid)
-        } else {
-            // remove caller field for prepare-transaction calls to indexer
-            if let Some(obj) = request.as_object_mut() {
-                obj.remove("caller");
-            }
-
-            let prepare_response: serde_json::Value =
-                self.call_network_utxos("prepare-transaction", &request)?;
-
-            let txid_str = prepare_response["txid"]
-                .as_str()
-                .ok_or_else(|| PrecompileError::Other("Missing txid in response".into()))?;
-
-            debug!(
-                "Network spend: Non-sequencer mode: received txid {}",
-                txid_str
-            );
-
-            let txid = Txid::from_str(txid_str)
-                .map_err(|e| PrecompileError::Other(format!("Invalid txid: {e:?}")))?;
-
-            self.format_txid_to_bytes32(txid)
-        };
-
-        Ok(PrecompileOutput::new(gas_used, Bytes::from(response)))
     }
 }
