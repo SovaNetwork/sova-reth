@@ -1,31 +1,22 @@
-use std::{
-    str::FromStr,
-    sync::{Arc, LazyLock},
-};
-
-use alloy_genesis::Genesis;
-use alloy_primitives::{address, b256, Bytes, U256};
+use std::sync::{Arc, LazyLock};
 
 use reth_chainspec::Chain;
 use reth_optimism_chainspec::{OpChainSpec, OpChainSpecBuilder};
 
 use super::constants::sova_forks;
 
+/// Sova mainnet derivation xpub
+pub const SOVA_MAINNET_DERIVATION_XPUB: &str = "xpub661MyMwAqRbcGdAvHLio9QdLWhMTbnfa27fZSD5quMusfEwxeyrXrbMrkvoPzQ2bcMAeMGbwHDueBpgHRjuHLfR2hFot14QgKqaWrL8PSAj";
+
 /// Sova main chain specification.
 pub static SOVA: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
-    let genesis = Genesis::default()
-        .with_nonce(0x01d83d)
-        .with_timestamp(0x673e4f9b)
-        .with_extra_data(Bytes::from_str("0x4853").unwrap())
-        .with_gas_limit(0x1c9c380)
-        .with_difficulty(U256::from(1))
-        .with_mix_hash(b256!(
-            "0000000000000000000000000000000000000000000000000000000000000000"
-        ))
-        .with_coinbase(address!("0000000000000000000000000000000000000000"));
+    // Load genesis from embedded file
+    let genesis_str = include_str!("res/genesis/sova.json");
+    let genesis =
+        serde_json::from_str(genesis_str).expect("Failed to parse sova.json genesis file");
 
     let spec: OpChainSpec = OpChainSpecBuilder::default()
-        .chain(Chain::from_id(120893))
+        .chain(Chain::from_id(100021))
         .genesis(genesis)
         .with_forks(sova_forks())
         .build();

@@ -6,7 +6,7 @@ use reth_optimism_forks::OpHardfork;
 
 pub const SOVA_ADDR_CONVERT_DOMAIN_TAG: &[u8] = b"sova:evm2btc:v1.0";
 
-pub fn sova_forks() -> ChainHardforks {
+pub fn sova_testnet_forks() -> ChainHardforks {
     ChainHardforks::new(vec![
         (EthereumHardfork::Frontier.boxed(), ForkCondition::Block(0)),
         (EthereumHardfork::Homestead.boxed(), ForkCondition::Block(0)),
@@ -64,6 +64,59 @@ pub fn sova_forks() -> ChainHardforks {
         //     ForkCondition::Timestamp(0),
         // ),
         // (OpHardfork::Isthmus.boxed(), ForkCondition::Timestamp(0)),
+    ])
+}
+
+pub fn sova_forks() -> ChainHardforks {
+    ChainHardforks::new(vec![
+        (EthereumHardfork::Frontier.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Homestead.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Dao.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Tangerine.boxed(), ForkCondition::Block(0)),
+        (
+            EthereumHardfork::SpuriousDragon.boxed(),
+            ForkCondition::Block(0),
+        ),
+        (EthereumHardfork::Byzantium.boxed(), ForkCondition::Block(0)),
+        (
+            EthereumHardfork::Constantinople.boxed(),
+            ForkCondition::Block(0),
+        ),
+        (
+            EthereumHardfork::Petersburg.boxed(),
+            ForkCondition::Block(0),
+        ),
+        (EthereumHardfork::Istanbul.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::Berlin.boxed(), ForkCondition::Block(0)),
+        (EthereumHardfork::London.boxed(), ForkCondition::Block(0)),
+        (
+            EthereumHardfork::Paris.boxed(),
+            ForkCondition::TTD {
+                fork_block: None,
+                total_difficulty: U256::ZERO,
+                activation_block_number: 0,
+            },
+        ),
+        (OpHardfork::Bedrock.boxed(), ForkCondition::Block(0)),
+        (OpHardfork::Regolith.boxed(), ForkCondition::Timestamp(0)),
+        (
+            EthereumHardfork::Shanghai.boxed(),
+            ForkCondition::Timestamp(0),
+        ),
+        (OpHardfork::Canyon.boxed(), ForkCondition::Timestamp(0)),
+        (
+            EthereumHardfork::Cancun.boxed(),
+            ForkCondition::Timestamp(0),
+        ),
+        (OpHardfork::Ecotone.boxed(), ForkCondition::Timestamp(0)),
+        (OpHardfork::Fjord.boxed(), ForkCondition::Timestamp(0)),
+        (OpHardfork::Granite.boxed(), ForkCondition::Timestamp(0)),
+        (OpHardfork::Holocene.boxed(), ForkCondition::Timestamp(0)),
+        (
+            EthereumHardfork::Prague.boxed(),
+            ForkCondition::Timestamp(0),
+        ),
+        (OpHardfork::Isthmus.boxed(), ForkCondition::Timestamp(0)),
     ])
 }
 

@@ -144,15 +144,17 @@ impl BitcoinRpcPrecompile {
     }
 
     fn address_deriver_from_env(network: Network) -> Arc<SovaAddressDeriver> {
-        let derivation_xpub_str = env::var("SOVA_DERIVATION_XPUB")
-            .expect("SOVA_DERIVATION_XPUB environment variable must be set");
+        // Use hardcoded chainspec xpub based on network
+        let derivation_xpub_str = match network {
+            Network::Bitcoin => sova_chainspec::SOVA_MAINNET_DERIVATION_XPUB,
+            Network::Testnet | Network::Regtest | Network::Signet => {
+                sova_chainspec::SOVA_TESTNET_DERIVATION_XPUB
+            }
+            _ => panic!("Unsupported Bitcoin network: {network:?}"),
+        };
 
-        if derivation_xpub_str.trim().is_empty() {
-            panic!("SOVA_DERIVATION_XPUB environment variable cannot be empty");
-        }
-
-        let derivation_xpub = bitcoin::bip32::Xpub::from_str(&derivation_xpub_str)
-            .expect("Invalid SOVA_DERIVATION_XPUB format");
+        let derivation_xpub = bitcoin::bip32::Xpub::from_str(derivation_xpub_str)
+            .expect("Invalid derivation xpub format");
 
         Arc::new(SovaAddressDeriver::new(derivation_xpub, network))
     }

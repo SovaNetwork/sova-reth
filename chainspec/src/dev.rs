@@ -12,9 +12,13 @@ use reth_primitives_traits::SealedHeader;
 use reth_revm::primitives::hex;
 
 use super::constants::{
-    sova_btc_contract_storage, sova_forks, sova_l1_block_contract_storage, L1_BLOCK_CONTRACT_CODE,
-    SOVA_BTC_CONTRACT_ADDRESS, SOVA_BTC_CONTRACT_CODE, SOVA_L1_BLOCK_CONTRACT_ADDRESS,
+    sova_btc_contract_storage, sova_l1_block_contract_storage, sova_testnet_forks,
+    L1_BLOCK_CONTRACT_CODE, SOVA_BTC_CONTRACT_ADDRESS, SOVA_BTC_CONTRACT_CODE,
+    SOVA_L1_BLOCK_CONTRACT_ADDRESS,
 };
+
+/// Sova testnet derivation xpub
+pub const SOVA_TESTNET_DERIVATION_XPUB: &str = "tpubDBDW1EWi7SNXqzpbci5DUc9HuXhx3cUPZ1wyjgxWmDTpwNQR9ijpEb9VomyDEoH7rAZiGmC9f2yQFfqDn5z4H54NavPGK8yuTLJC8JZzTv9";
 
 /// Sova dev devnet specification.
 pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
@@ -53,7 +57,7 @@ pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
             ),
         ]);
 
-    let hardforks = sova_forks();
+    let hardforks = sova_testnet_forks();
     let genesis_header = SealedHeader::seal_slow(make_op_genesis_header(&genesis, &hardforks));
 
     OpChainSpec {
