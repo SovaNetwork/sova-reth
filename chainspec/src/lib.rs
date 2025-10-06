@@ -1,7 +1,7 @@
 mod constants;
 mod dev;
-mod testnet;
 mod mainnet;
+mod testnet;
 
 pub use constants::{
     BitcoinPrecompileMethod, BITCOIN_PRECOMPILE_ADDRESSES, BROADCAST_TRANSACTION_ADDRESS,
@@ -11,8 +11,8 @@ pub use constants::{
     SOVA_L1_BLOCK_CONTRACT_ADDRESS,
 };
 pub use dev::{DEV, SOVA_TESTNET_DERIVATION_XPUB};
-pub use testnet::TESTNET;
 pub use mainnet::{SOVA, SOVA_MAINNET_DERIVATION_XPUB};
+pub use testnet::TESTNET;
 
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ use reth_cli::chainspec::{parse_genesis, ChainSpecParser};
 use reth_optimism_chainspec::OpChainSpec;
 
 /// Chains supported by sova-reth
-/// 
+///
 /// mainnet -> sova (Bitcoin mainnet, ETH Mainnet)
 /// devnet -> dev (Bitcoin regtest, ETH Sepolia)
 pub const SUPPORTED_CHAINS: &[&str] = &["dev", "testnet", "sova"];
