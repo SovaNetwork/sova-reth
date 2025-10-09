@@ -10,7 +10,7 @@
 
   **The Bitcoin-powered EVM with native BTC interoperability**
 
-  A sova-reth is a custom EVM node built upon the [Reth SDK](https://reth.rs/sdk). It extends the EVM to enable a new set of Bitcoin precompiles. Along with the precompiles, a first of its kind Bitcoin finality inspector is employed in the transaction execution pipeline to ensure any Sova state that is tied to a pending Bitcoin transaction is properly finalized depending on the outcome of the Bitcoin transaction. The Inspector plays a big part in mitigating double-spend attacks, chain reorganizations, and other cross-chain race conditions.
+  A sova-reth is a custom EVM node built upon the [Reth SDK](https://reth.rs/sdk). It extends the EVM to enable a new set of Bitcoin precompiles. Along with the precompiles, a first of its kind Bitcoin finality inspector is employed in the transaction execution pipeline. The Inspector ensures any Sova state that is tied to a pending Bitcoin transaction is properly finalized depending on the outcome of the Bitcoin transaction. The Inspector plays a big part in mitigating double-spend attacks, chain reorganizations, and other cross-chain race conditions.
 </div>
 
 ## Building and Running
