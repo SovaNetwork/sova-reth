@@ -12,7 +12,7 @@ use reth_primitives_traits::SealedHeader;
 use reth_revm::primitives::hex;
 
 use super::constants::{
-    sova_btc_contract_storage, sova_l1_block_contract_storage, sova_testnet_forks,
+    sova_btc_contract_storage, sova_devnet_forks, sova_l1_block_contract_storage,
     L1_BLOCK_CONTRACT_CODE, SOVA_BTC_CONTRACT_ADDRESS, SOVA_BTC_CONTRACT_CODE,
     SOVA_L1_BLOCK_CONTRACT_ADDRESS,
 };
@@ -57,7 +57,7 @@ pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
             ),
         ]);
 
-    let hardforks = sova_testnet_forks();
+    let hardforks = sova_devnet_forks();
     let genesis_header = SealedHeader::seal_slow(make_op_genesis_header(&genesis, &hardforks));
 
     OpChainSpec {

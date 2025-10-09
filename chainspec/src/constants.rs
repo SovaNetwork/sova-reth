@@ -6,7 +6,7 @@ use reth_optimism_forks::OpHardfork;
 
 pub const SOVA_ADDR_CONVERT_DOMAIN_TAG: &[u8] = b"sova:evm2btc:v1.0";
 
-pub fn sova_testnet_forks() -> ChainHardforks {
+pub fn sova_devnet_forks() -> ChainHardforks {
     ChainHardforks::new(vec![
         (EthereumHardfork::Frontier.boxed(), ForkCondition::Block(0)),
         (EthereumHardfork::Homestead.boxed(), ForkCondition::Block(0)),
