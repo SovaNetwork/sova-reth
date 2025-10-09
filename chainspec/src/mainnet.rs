@@ -8,12 +8,9 @@ use super::constants::sova_forks;
 /// Sova mainnet derivation xpub
 pub const SOVA_MAINNET_DERIVATION_XPUB: &str = "xpub661MyMwAqRbcGdAvHLio9QdLWhMTbnfa27fZSD5quMusfEwxeyrXrbMrkvoPzQ2bcMAeMGbwHDueBpgHRjuHLfR2hFot14QgKqaWrL8PSAj";
 
-/// Sova main chain specification.
 pub static SOVA: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
-    // Load genesis from embedded file
-    let genesis_str = include_str!("res/genesis/sova.json");
-    let genesis =
-        serde_json::from_str(genesis_str).expect("Failed to parse sova.json genesis file");
+    let genesis = serde_json::from_str(include_str!("res/genesis/sova.json"))
+        .expect("Can't deserialize Sova Mainnet genesis json");
 
     let spec: OpChainSpec = OpChainSpecBuilder::default()
         .chain(Chain::from_id(100021))

@@ -147,9 +147,8 @@ impl BitcoinRpcPrecompile {
         // Use hardcoded chainspec xpub based on network
         let derivation_xpub_str = match network {
             Network::Bitcoin => sova_chainspec::SOVA_MAINNET_DERIVATION_XPUB,
-            Network::Testnet | Network::Regtest | Network::Signet => {
-                sova_chainspec::SOVA_TESTNET_DERIVATION_XPUB
-            }
+            Network::Testnet | Network::Signet => sova_chainspec::SOVA_TESTNET_DERIVATION_XPUB,
+            Network::Regtest => sova_chainspec::SOVA_DEVNET_DERIVATION_XPUB,
             _ => panic!("Unsupported Bitcoin network: {network:?}"),
         };
 

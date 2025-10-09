@@ -17,8 +17,9 @@ use super::constants::{
     SOVA_L1_BLOCK_CONTRACT_ADDRESS,
 };
 
-/// Sova testnet derivation xpub
-pub const SOVA_TESTNET_DERIVATION_XPUB: &str = "tpubDBDW1EWi7SNXqzpbci5DUc9HuXhx3cUPZ1wyjgxWmDTpwNQR9ijpEb9VomyDEoH7rAZiGmC9f2yQFfqDn5z4H54NavPGK8yuTLJC8JZzTv9";
+/// Sova devnet derivation xpub
+/// Derived from public BIP32 seed: 999102030405060708090a0b0c0d0e0f
+pub const SOVA_DEVNET_DERIVATION_XPUB: &str = "tpubDBDW1EWi7SNXqzpbci5DUc9HuXhx3cUPZ1wyjgxWmDTpwNQR9ijpEb9VomyDEoH7rAZiGmC9f2yQFfqDn5z4H54NavPGK8yuTLJC8JZzTv9";
 
 /// Sova dev devnet specification.
 pub static DEV: LazyLock<Arc<OpChainSpec>> = LazyLock::new(|| {
