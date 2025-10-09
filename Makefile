@@ -18,9 +18,8 @@ CARGO_INSTALL_EXTRA_FLAGS ?=
 # API key for network signing service
 NETWORK_UTXOS_API_KEY ?= indexer_api_key_here
 
-SOVA_DERIVATION_XPUB ?= tpubDBDW1EWi7SNXqzpbci5DUc9HuXhx3cUPZ1wyjgxWmDTpwNQR9ijpEb9VomyDEoH7rAZiGmC9f2yQFfqDn5z4H54NavPGK8yuTLJC8JZzTv9
-
-SOVA_SEQUENCER_MODE ?= true
+# If true amy address derivations will be cached in the indexer
+ADD_TO_ADDRESS_DERIVATION_CACHE ?= true
 
 ##@ Help
 
@@ -172,8 +171,8 @@ endef
 .PHONY: run-sova-regtest
 run-sova-regtest: ## Compile and run sova-reth in dev mode using bitcoin regtest and accompanying services
 	if [ "$(clean)" = "clean" ]; then $(MAKE) clean-data; fi
-	$(MAKE) build && NETWORK_UTXOS_API_KEY=$(NETWORK_UTXOS_API_KEY) SOVA_DERIVATION_XPUB=$(SOVA_DERIVATION_XPUB) SOVA_SEQUENCER_MODE=$(SOVA_SEQUENCER_MODE) ./target/release/sova-reth node \
-	--chain dev \
+	$(MAKE) build && NETWORK_UTXOS_API_KEY=$(NETWORK_UTXOS_API_KEY) ADD_TO_ADDRESS_DERIVATION_CACHE=$(ADD_TO_ADDRESS_DERIVATION_CACHE) ./target/release/sova-reth node \
+	--chain sova-devnet \
 	--btc-network "regtest" \
 	--btc-network-url "http://127.0.0.1:18443" \
 	--btc-rpc-username "user" \

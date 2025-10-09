@@ -19,11 +19,12 @@ use std::sync::Arc;
 use reth_cli::chainspec::{parse_genesis, ChainSpecParser};
 use reth_optimism_chainspec::OpChainSpec;
 
-/// Chains supported by sova-reth
+/// Chain configurations supported
 ///
-/// mainnet -> sova (Bitcoin mainnet, ETH Mainnet)
-/// devnet -> dev (Bitcoin regtest, ETH Sepolia)
-pub const SUPPORTED_CHAINS: &[&str] = &["dev", "testnet", "sova"];
+/// mainnet -> Bitcoin mainnet, ETH Mainnet
+/// testnet -> Bitcoin regtest, ETH Sepolia
+/// devnet -> Bitcoin regtest, Local (Mock) Consensus, see reth's `--dev` flag for more details.
+pub const SUPPORTED_CHAINS: &[&str] = &["sova-devnet", "sova-testnet", "sova"];
 
 /// Sova chain specification parser
 /// Using OpChainSpec for inheriting all past and future OP & ethereum forkchoices.
@@ -38,8 +39,8 @@ impl ChainSpecParser for SovaChainSpecParser {
 
     fn parse(s: &str) -> eyre::Result<Arc<Self::ChainSpec>> {
         Ok(match s {
-            "dev" => DEV.clone(),
-            "testnet" => TESTNET.clone(),
+            "sova-devnet" => DEV.clone(),
+            "sova-testnet" => TESTNET.clone(),
             "sova" => SOVA.clone(),
             _ => Arc::new(parse_genesis(s)?.into()),
         })

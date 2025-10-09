@@ -59,7 +59,7 @@ pub struct BitcoinRpcPrecompile {
     network: Network,
     http_client: Arc<BlockingRequestClient>,
     network_utxos_url: String,
-    sequencer_mode: bool,
+    add_to_address_derivation_cache: bool,
     address_deriver: Arc<SovaAddressDeriver>,
 }
 
@@ -75,7 +75,7 @@ impl Default for BitcoinRpcPrecompile {
             network: Network::Regtest,
             http_client: Arc::new(BlockingRequestClient::new()),
             network_utxos_url: String::new(),
-            sequencer_mode: false,
+            add_to_address_derivation_cache: false,
             address_deriver,
         }
     }
@@ -86,12 +86,12 @@ impl BitcoinRpcPrecompile {
         bitcoin_client: Arc<BitcoinClient>,
         network: Network,
         network_utxos_url: String,
-        sequencer_mode: bool,
+        add_to_address_derivation_cache: bool,
         address_deriver: Arc<SovaAddressDeriver>,
     ) -> Result<Self, bitcoincore_rpc::Error> {
         // Check for env vars at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
-        if api_key.is_empty() && sequencer_mode {
+        if api_key.is_empty() && add_to_address_derivation_cache {
             warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set. Required for sequencer mode.");
         }
 
@@ -100,7 +100,7 @@ impl BitcoinRpcPrecompile {
             network,
             http_client: Arc::new(BlockingRequestClient::new()),
             network_utxos_url,
-            sequencer_mode,
+            add_to_address_derivation_cache,
             address_deriver,
         })
     }
@@ -169,7 +169,8 @@ impl BitcoinRpcPrecompile {
 
         let network_utxos_url = env::var("SOVA_NETWORK_UTXOS_URL").unwrap_or_default();
 
-        let sequencer_mode = env::var("SOVA_SEQUENCER_MODE").is_ok_and(|v| v == "true");
+        let add_to_address_derivation_cache =
+            env::var("ADD_TO_ADDRESS_DERIVATION_CACHE").is_ok_and(|v| v == "true");
 
         let address_deriver = Self::address_deriver_from_env(network);
 
@@ -177,7 +178,7 @@ impl BitcoinRpcPrecompile {
             bitcoin_client,
             network,
             network_utxos_url,
-            sequencer_mode,
+            add_to_address_derivation_cache,
             address_deriver,
         )
         .expect("Failed to create BitcoinRpcPrecompile from environment")
@@ -411,8 +412,8 @@ impl BitcoinRpcPrecompile {
         Ok(array)
     }
 
-    /// Call indexer to derive Bitcoin address (sequencer mode only)
-    /// This ensures the indexer caches the derivation AND adds address to watched set
+    /// Call indexer to derive Bitcoin address instead of deriving locally
+    /// This ensures the indexer caches the derivation and adds address to watched set
     fn derive_btc_address_with_caching(
         &self,
         ethereum_address_bytes: &[u8; 20],
@@ -449,7 +450,7 @@ impl BitcoinRpcPrecompile {
             .derive_bitcoin_address(&ethereum_address_bytes)?
             .to_string();
 
-        let bitcoin_address = if self.sequencer_mode {
+        let bitcoin_address = if self.add_to_address_derivation_cache {
             // derive address with network deposit pk and cache in indexer
             let cached_address = self.derive_btc_address_with_caching(&ethereum_address_bytes)?;
 
