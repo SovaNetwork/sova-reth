@@ -10,12 +10,10 @@
 
   **The Bitcoin-powered EVM with native BTC interoperability**
 
-  A sova-reth is a custom EVM node built upon the [Reth SDK](https://reth.rs/sdk). It extends the EVM to enable a new set of Bitcoin precompiles. The precompiles are used to send and receive Bitcoin on the Sova Network during EVM transaction execution.
+  A sova-reth is a custom EVM node built upon the [Reth SDK](https://reth.rs/sdk). It extends the EVM to enable a new set of Bitcoin precompiles. Along with the precompiles, a first of its kind Bitcoin finality inspector is employed in the transaction execution pipeline to ensure any Sova state that is tied to a pending Bitcoin transaction is properly finalized depending on the outcome of the Bitcoin transaction. The Inspector plays a big part in mitigating double-spend attacks, chain reorganizations, and other cross-chain race conditions.
 </div>
 
 ## Building and Running
-
-A Makefile is used as a command runner to execute repository commands.
 
 ```bash
 # view all make commands
@@ -28,11 +26,6 @@ make build
 make run-sova-regtest
 ```
 
-## Validators
-
-Validators are free to join the testnet and sync their own historical chain data from genesis. For more information on how to join the Testnet as an operator view our [Guide](https://docs.sova.io/node-operators/network-operation-manual).
-
-
 ## Precompiles
 
  Precompile Name | Address | Description |
@@ -41,9 +34,13 @@ Validators are free to join the testnet and sync their own historical chain data
 | **Decode Transaction** | `0x0000000000000000000000000000000000000998` | Decodes raw Bitcoin transactions |
 | **Convert Address** | `0x0000000000000000000000000000000000000997` | EVM to Bitcoin address conversion |
 
-For more information on how to use the precompiles see related [docs](https://docs.sova.io/technology/bitcoin-precompiles).
+For more information on how to use the precompiles see related [docs](https://docs.sova.io/sova-chain/technology/bitcoin-precompiles).
 
-## Sentinel
+## Validators
+
+Validators are free to join the mainnet or testnet. Validators are required to provide their own Bitcoin node API connection, and also run their own Sentinel database service.
+
+### Sentinel
 
 The [sova-sentinel](https://github.com/SovaNetwork/sova-sentinel) is a necessary component to every sove-reth node. It is used in custom EVM hooks to enforce Bitcoin finality. Transactions on Sova that are associated with a Bitcoin transaction have their state confirmed by the sova-sentinel. If a transaction that was flagged by the chain is not confirmed on Bitcoin, the Sova state associated with the flagged Bitcoin tx will be reverted.
 
