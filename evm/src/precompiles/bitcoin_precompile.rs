@@ -92,7 +92,7 @@ impl BitcoinRpcPrecompile {
         // Check for env vars at initialization
         let api_key = std::env::var("NETWORK_UTXOS_API_KEY").unwrap_or_default();
         if api_key.is_empty() && add_to_address_derivation_cache {
-            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set. Required for sequencer mode.");
+            warn!("WARNING: NETWORK_UTXOS_API_KEY env var not set. Required for address caching.");
         }
 
         Ok(Self {
