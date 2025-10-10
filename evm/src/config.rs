@@ -16,7 +16,6 @@ use reth_evm::{
     FromRecoveredTx, FromTxWithEncoded,
 };
 use reth_op::chainspec::EthChainSpec;
-use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_evm::{
     revm_spec_by_timestamp_after_bedrock, OpBlockAssembler, OpNextBlockEnvAttributes,
     OpRethReceiptBuilder,
@@ -31,13 +30,14 @@ use revm::{
     context_interface::block::BlobExcessGasAndPrice,
     primitives::hardfork::SpecId,
 };
+use sova_chainspec::SovaChainSpec;
 
 use crate::{alloy::SovaEvmFactory, executor::SovaBlockExecutorFactory};
 
 /// Sova EVM configuration
 #[derive(Debug)]
 pub struct SovaEvmConfig<
-    ChainSpec = OpChainSpec,
+    ChainSpec = SovaChainSpec,
     N: NodePrimitives = OpPrimitives,
     R = OpRethReceiptBuilder,
 > {
