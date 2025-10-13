@@ -20,7 +20,7 @@ pub use testnet::{SOVA_TESTNET_DERIVATION_XPUB, TESTNET};
 use std::sync::Arc;
 
 use reth_cli::chainspec::{parse_genesis, ChainSpecParser};
-use reth_ethereum::chainspec::{Hardfork, EthChainSpec, EthereumHardforks};
+use reth_ethereum::chainspec::{EthChainSpec, EthereumHardforks, Hardfork};
 use reth_network_peers::NodeRecord;
 use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_forks::OpHardforks;
@@ -156,15 +156,15 @@ impl ChainSpecParser for SovaChainSpecParser {
     const SUPPORTED_CHAINS: &[&str] = &["sova-devnet", "sova-testnet", "sova"];
 
     fn parse(s: &str) -> eyre::Result<Arc<Self::ChainSpec>> {
-       chain_value_parser(s)
+        chain_value_parser(s)
     }
 }
 
 pub fn chain_value_parser(s: &str) -> eyre::Result<Arc<SovaChainSpec>, eyre::Error> {
     Ok(match s {
-            "sova-devnet" => DEV.clone(),
-            "sova-testnet" => TESTNET.clone(),
-            "sova" => SOVA.clone(),
-            _ => Arc::new(parse_genesis(s)?.into()),
-        })
+        "sova-devnet" => DEV.clone(),
+        "sova-testnet" => TESTNET.clone(),
+        "sova" => SOVA.clone(),
+        _ => Arc::new(parse_genesis(s)?.into()),
+    })
 }

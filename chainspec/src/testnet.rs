@@ -21,7 +21,5 @@ pub static TESTNET: LazyLock<Arc<SovaChainSpec>> = LazyLock::new(|| {
         .with_forks(sova_forks())
         .build();
 
-    SovaChainSpec {
-        inner: spec
-    }.into()
+    SovaChainSpec { inner: spec }.into()
 });

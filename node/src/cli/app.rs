@@ -26,7 +26,12 @@ where
     Rpc: RpcModuleValidator,
 {
     pub(crate) fn new(cli: Cli<C, Ext, Rpc>) -> Self {
-        Self { cli, runner: None, layers: Some(Layers::new()), guard: None }
+        Self {
+            cli,
+            runner: None,
+            layers: Some(Layers::new()),
+            guard: None,
+        }
     }
 
     /// Sets the runner for the CLI commander.
@@ -41,7 +46,9 @@ where
     /// Returns a mutable reference to the tracing layers, or error
     /// if tracing initialized and layers have detached already.
     pub fn access_tracing_layers(&mut self) -> Result<&mut Layers> {
-        self.layers.as_mut().ok_or_else(|| eyre!("Tracing already initialized"))
+        self.layers
+            .as_mut()
+            .ok_or_else(|| eyre!("Tracing already initialized"))
     }
 
     /// Execute the configured cli command.
@@ -83,9 +90,15 @@ where
             Commands::Init(command) => {
                 runner.run_blocking_until_ctrl_c(command.execute::<SovaNode>())
             }
-            Commands::InitState(_command) => unimplemented!("InitState command is not supported for Sova"),
-            Commands::ImportOp(_command) => unimplemented!("ImportOp command is not supported for Sova"),
-            Commands::ImportReceiptsOp(_command) => unimplemented!("ImportReceiptsOp command is not supported for Sova"),
+            Commands::InitState(_command) => {
+                unimplemented!("InitState command is not supported for Sova")
+            }
+            Commands::ImportOp(_command) => {
+                unimplemented!("ImportOp command is not supported for Sova")
+            }
+            Commands::ImportReceiptsOp(_command) => {
+                unimplemented!("ImportReceiptsOp command is not supported for Sova")
+            }
             Commands::DumpGenesis(command) => runner.run_blocking_until_ctrl_c(command.execute()),
             Commands::Db(command) => {
                 runner.run_blocking_until_ctrl_c(command.execute::<SovaNode>())
@@ -94,7 +107,9 @@ where
             Commands::P2P(command) => runner.run_until_ctrl_c(command.execute::<SovaNode>()),
             Commands::Config(command) => runner.run_until_ctrl_c(command.execute()),
             Commands::Prune(command) => runner.run_until_ctrl_c(command.execute::<SovaNode>()),
-            Commands::ReExecute(_command) => unimplemented!("ReExecute command is not supported for Sova"),
+            Commands::ReExecute(_command) => {
+                unimplemented!("ReExecute command is not supported for Sova")
+            }
         }
     }
 

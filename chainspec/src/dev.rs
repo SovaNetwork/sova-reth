@@ -64,7 +64,7 @@ pub static DEV: LazyLock<Arc<SovaChainSpec>> = LazyLock::new(|| {
     let genesis_header = SealedHeader::seal_slow(make_op_genesis_header(&genesis, &hardforks));
 
     SovaChainSpec {
-        inner: OpChainSpec { 
+        inner: OpChainSpec {
             inner: ChainSpec {
                 chain: Chain::from_id(120893),
                 genesis_header,
@@ -73,8 +73,8 @@ pub static DEV: LazyLock<Arc<SovaChainSpec>> = LazyLock::new(|| {
                 hardforks,
                 base_fee_params: BaseFeeParamsKind::Constant(BaseFeeParams::ethereum()),
                 ..Default::default()
-            }, 
-        }
+            },
+        },
     }
     .into()
 });
