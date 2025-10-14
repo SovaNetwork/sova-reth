@@ -80,7 +80,6 @@ bitcoincore-rpc.workspace = true
 async-trait.workspace = true
 derive_more.workspace = true
 eyre.workspace = true
-futures-util.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 hex.workspace = true

@@ -105,7 +105,6 @@ async-trait = "0.1.68"
 clap = { version = "4.4.18", features = ["derive", "env"] }
 derive_more = { version = "2", default-features = false, features = ["full"] }
 eyre = "0.6.0"
-futures-util = "0.3"
 hex = "0.4.3"
 once_cell = { version = "1.19", default-features = false, features = ["critical-section"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
