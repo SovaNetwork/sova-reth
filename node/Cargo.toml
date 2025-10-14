@@ -4,10 +4,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[lib]
-name = "sova_reth"
-path = "src/lib.rs"
-
 [dependencies]
 # sova crates
 sova-chainspec.workspace = true

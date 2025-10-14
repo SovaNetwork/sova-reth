@@ -7,14 +7,12 @@ use reth_cli_runner::CliRunner;
 use reth_db::DatabaseEnv;
 use reth_node_builder::{NodeBuilder, WithLaunchContext};
 use reth_node_core::{args::LogArgs, version::version_metadata};
-use reth_optimism_cli::commands::Commands;
 use reth_optimism_node::args::RollupArgs;
 use reth_rpc_server_types::{DefaultRpcModuleValidator, RpcModuleValidator};
 
-use sova_chainspec::{SovaChainSpec, SovaChainSpecParser};
+use sova_chainspec::SovaChainSpec;
 
-mod app;
-pub use app::CliApp;
+use crate::{app::CliApp, chainspec::SovaChainSpecParser, commands::Commands};
 
 /// The main sova-reth cli interface.
 ///

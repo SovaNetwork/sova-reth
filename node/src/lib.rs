@@ -20,10 +20,7 @@ use sova_evm::SovaExecutorBuilder;
 use std::sync::Arc;
 
 pub mod args;
-pub mod cli;
-
 pub use args::SovaArgs;
-pub use cli::Cli;
 
 #[derive(Debug, Clone, Default)]
 pub struct SovaNode {

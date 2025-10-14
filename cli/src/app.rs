@@ -1,14 +1,20 @@
-use crate::{cli::Cli, SovaNode};
+use crate::{cli::Cli, commands::Commands};
+
+use std::{fmt, sync::Arc};
+
 use eyre::{eyre, Result};
+
 use reth_cli::chainspec::ChainSpecParser;
 use reth_cli_commands::launcher::Launcher;
 use reth_cli_runner::CliRunner;
 use reth_node_metrics::recorder::install_prometheus_recorder;
-use reth_optimism_cli::commands::Commands;
+use reth_optimism_consensus::OpBeaconConsensus;
 use reth_rpc_server_types::RpcModuleValidator;
 use reth_tracing::{tracing::info, FileWorkerGuard, Layers};
+
 use sova_chainspec::SovaChainSpec;
-use std::fmt;
+use sova_evm::SovaExecutorProvider;
+use sova_node::SovaNode;
 
 /// A wrapper around a parsed CLI that handles command execution.
 #[derive(Debug)]
@@ -75,6 +81,13 @@ where
         // Install the prometheus recorder to be sure to record all metrics
         let _ = install_prometheus_recorder();
 
+        let components = |spec: Arc<SovaChainSpec>| {
+            (
+                SovaExecutorProvider::sova(spec.clone()),
+                Arc::new(OpBeaconConsensus::new(spec)),
+            )
+        };
+
         match self.cli.command {
             Commands::Node(command) => {
                 // Validate RPC modules using the configured validator
@@ -90,25 +103,29 @@ where
             Commands::Init(command) => {
                 runner.run_blocking_until_ctrl_c(command.execute::<SovaNode>())
             }
-            Commands::InitState(_command) => {
-                unimplemented!("InitState command is not supported for Sova")
-            }
-            Commands::ImportOp(_command) => {
-                unimplemented!("ImportOp command is not supported for Sova")
-            }
-            Commands::ImportReceiptsOp(_command) => {
-                unimplemented!("ImportReceiptsOp command is not supported for Sova")
-            }
+            // Commands::InitState(command) => {
+            //     runner.run_blocking_until_ctrl_c(command.execute::<SovaNode>())
+            // }
+            // Commands::ImportOp(command) => {
+            //     runner.run_blocking_until_ctrl_c(command.execute::<SovaNode>())
+            // }
+            // Commands::ImportReceiptsOp(command) => {
+            //     runner.run_blocking_until_ctrl_c(command.execute::<SovaNode>())
+            // }
             Commands::DumpGenesis(command) => runner.run_blocking_until_ctrl_c(command.execute()),
             Commands::Db(command) => {
                 runner.run_blocking_until_ctrl_c(command.execute::<SovaNode>())
             }
-            Commands::Stage(_command) => unimplemented!("Stage command is not supported for Sova"),
+            Commands::Stage(command) => {
+                runner.run_command_until_exit(|ctx| command.execute::<SovaNode, _>(ctx, components))
+            }
             Commands::P2P(command) => runner.run_until_ctrl_c(command.execute::<SovaNode>()),
             Commands::Config(command) => runner.run_until_ctrl_c(command.execute()),
             Commands::Prune(command) => runner.run_until_ctrl_c(command.execute::<SovaNode>()),
-            Commands::ReExecute(_command) => {
-                unimplemented!("ReExecute command is not supported for Sova")
+            // #[cfg(feature = "dev")]
+            // Commands::TestVectors(command) => runner.run_until_ctrl_c(command.execute()),
+            Commands::ReExecute(command) => {
+                runner.run_until_ctrl_c(command.execute::<SovaNode>(components))
             }
         }
     }

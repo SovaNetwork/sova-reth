@@ -9772,7 +9772,7 @@ dependencies = [
  "reth-optimism-cli",
  "reth-optimism-node",
  "reth-tracing",
- "sova-chainspec",
+ "sova-cli",
  "sova-evm",
  "sova-node",
 ]
@@ -9797,6 +9797,29 @@ dependencies = [
  "reth-tracing",
  "revm-primitives",
  "serde_json",
+]
+
+[[package]]
+name = "sova-cli"
+version = "0.4.1"
+dependencies = [
+ "clap",
+ "eyre",
+ "reth-chainspec",
+ "reth-cli",
+ "reth-cli-commands",
+ "reth-cli-runner",
+ "reth-db",
+ "reth-node-builder",
+ "reth-node-core",
+ "reth-node-metrics",
+ "reth-optimism-consensus",
+ "reth-optimism-node",
+ "reth-rpc-server-types",
+ "reth-tracing",
+ "sova-chainspec",
+ "sova-evm",
+ "sova-node",
 ]
 
 [[package]]

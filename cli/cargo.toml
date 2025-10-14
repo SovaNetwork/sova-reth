@@ -1,0 +1,31 @@
+[package]
+name = "sova-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+
+[dependencies]
+# sova crates
+sova-chainspec.workspace = true
+sova-evm.workspace = true
+sova-node.workspace = true
+
+# reth
+reth-chainspec.workspace = true
+reth-cli.workspace = true
+reth-cli-commands.workspace = true
+reth-cli-runner.workspace = true
+reth-db.workspace = true
+reth-node-builder.workspace = true
+reth-node-core.workspace = true
+reth-node-metrics.workspace = true
+reth-optimism-consensus.workspace = true
+reth-optimism-node.workspace = true
+reth-rpc-server-types.workspace = true
+reth-tracing.workspace = true
+
+clap.workspace = true
+eyre.workspace = true

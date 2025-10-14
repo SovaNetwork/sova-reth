@@ -11,7 +11,7 @@ mod sova_revm;
 
 pub use alloy::SovaEvm;
 pub use builder::SovaExecutorBuilder;
-pub use config::SovaEvmConfig;
+pub use config::{SovaEvmConfig, SovaExecutorProvider};
 pub use executor::SovaBlockExecutor;
 pub use maybe_sova_inspector::MaybeSovaInspector;
 pub use precompiles::{BitcoinRpcPrecompile, SovaPrecompiles};

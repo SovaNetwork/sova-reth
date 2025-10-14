@@ -34,6 +34,9 @@ use sova_chainspec::SovaChainSpec;
 
 use crate::{alloy::SovaEvmFactory, executor::SovaBlockExecutorFactory};
 
+/// Helper type with backwards compatible methods to obtain executor providers.
+pub type SovaExecutorProvider = SovaEvmConfig;
+
 /// Sova EVM configuration
 #[derive(Debug)]
 pub struct SovaEvmConfig<

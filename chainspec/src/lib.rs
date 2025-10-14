@@ -3,8 +3,6 @@ mod dev;
 mod mainnet;
 mod testnet;
 
-use alloy_consensus::Header;
-use alloy_genesis::Genesis;
 pub use constants::{
     BitcoinPrecompileMethod, BITCOIN_PRECOMPILE_ADDRESSES, BROADCAST_TRANSACTION_ADDRESS,
     BROADCAST_TRANSACTION_PRECOMPILE_ID, CONVERT_ADDRESS_ADDRESS, CONVERT_ADDRESS_PRECOMPILE_ID,
@@ -14,12 +12,12 @@ pub use constants::{
 };
 pub use dev::{DEV, SOVA_DEVNET_DERIVATION_XPUB};
 pub use mainnet::{SOVA, SOVA_MAINNET_DERIVATION_XPUB};
-use reth_chainspec::Hardforks;
 pub use testnet::{SOVA_TESTNET_DERIVATION_XPUB, TESTNET};
 
-use std::sync::Arc;
+use alloy_consensus::Header;
+use alloy_genesis::Genesis;
 
-use reth_cli::chainspec::{parse_genesis, ChainSpecParser};
+use reth_chainspec::Hardforks;
 use reth_ethereum::chainspec::{EthChainSpec, EthereumHardforks, Hardfork};
 use reth_network_peers::NodeRecord;
 use reth_optimism_chainspec::OpChainSpec;
@@ -139,32 +137,4 @@ impl From<Genesis> for SovaChainSpec {
             inner: OpChainSpec::from(genesis),
         }
     }
-}
-
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct SovaChainSpecParser;
-
-impl ChainSpecParser for SovaChainSpecParser {
-    type ChainSpec = SovaChainSpec;
-
-    /// Chain configurations supported
-    ///
-    /// mainnet -> Bitcoin mainnet, ETH Mainnet
-    /// testnet -> Bitcoin regtest, ETH Sepolia
-    /// devnet -> Bitcoin regtest, Local (Mock) Consensus, see reth's `--dev` flag for more details.
-    const SUPPORTED_CHAINS: &[&str] = &["sova-devnet", "sova-testnet", "sova"];
-
-    fn parse(s: &str) -> eyre::Result<Arc<Self::ChainSpec>> {
-        chain_value_parser(s)
-    }
-}
-
-pub fn chain_value_parser(s: &str) -> eyre::Result<Arc<SovaChainSpec>, eyre::Error> {
-    Ok(match s {
-        "sova-devnet" => DEV.clone(),
-        "sova-testnet" => TESTNET.clone(),
-        "sova" => SOVA.clone(),
-        _ => Arc::new(parse_genesis(s)?.into()),
-    })
 }

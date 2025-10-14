@@ -4,9 +4,9 @@ use clap::Parser;
 
 use reth_tracing::tracing::info;
 
-use sova_chainspec::SovaChainSpecParser;
+use sova_cli::{Cli, SovaChainSpecParser};
 use sova_evm::BitcoinRpcPrecompile;
-use sova_reth::{Cli, SovaArgs, SovaNode};
+use sova_node::{SovaArgs, SovaNode};
 
 #[global_allocator]
 static ALLOC: reth_cli_util::allocator::Allocator = reth_cli_util::allocator::new_allocator();
