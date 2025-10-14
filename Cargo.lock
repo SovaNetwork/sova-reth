@@ -9762,7 +9762,7 @@ dependencies = [
 
 [[package]]
 name = "sova"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "clap",
  "eyre",
@@ -9772,30 +9772,59 @@ dependencies = [
  "reth-optimism-cli",
  "reth-optimism-node",
  "reth-tracing",
- "sova-chainspec",
+ "sova-cli",
  "sova-evm",
  "sova-node",
 ]
 
 [[package]]
 name = "sova-chainspec"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
  "alloy-genesis",
  "alloy-primitives",
  "eyre",
  "reth-chainspec",
  "reth-cli",
+ "reth-ethereum",
+ "reth-network-peers",
  "reth-optimism-chainspec",
  "reth-optimism-forks",
  "reth-primitives-traits",
  "reth-revm",
+ "reth-tracing",
+ "revm-primitives",
  "serde_json",
 ]
 
 [[package]]
+name = "sova-cli"
+version = "0.4.1"
+dependencies = [
+ "clap",
+ "eyre",
+ "reth-chainspec",
+ "reth-cli",
+ "reth-cli-commands",
+ "reth-cli-runner",
+ "reth-db",
+ "reth-node-builder",
+ "reth-node-core",
+ "reth-node-metrics",
+ "reth-optimism-consensus",
+ "reth-optimism-node",
+ "reth-rpc-server-types",
+ "reth-tracing",
+ "sova-chainspec",
+ "sova-evm",
+ "sova-node",
+]
+
+[[package]]
 name = "sova-evm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -9840,7 +9869,7 @@ dependencies = [
 
 [[package]]
 name = "sova-node"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -9869,7 +9898,10 @@ dependencies = [
  "reth-chain-state",
  "reth-chainspec",
  "reth-cli",
+ "reth-cli-commands",
+ "reth-cli-runner",
  "reth-codecs",
+ "reth-db",
  "reth-db-api",
  "reth-engine-local",
  "reth-engine-primitives",
@@ -9878,9 +9910,14 @@ dependencies = [
  "reth-network-peers",
  "reth-node-api",
  "reth-node-builder",
+ "reth-node-core",
+ "reth-node-metrics",
  "reth-op",
  "reth-optimism-chainspec",
+ "reth-optimism-cli",
+ "reth-optimism-consensus",
  "reth-optimism-forks",
+ "reth-optimism-node",
  "reth-optimism-primitives",
  "reth-optimism-rpc",
  "reth-optimism-txpool",
@@ -9890,6 +9927,7 @@ dependencies = [
  "reth-rpc-api",
  "reth-rpc-engine-api",
  "reth-rpc-eth-api",
+ "reth-rpc-server-types",
  "reth-tracing",
  "revm",
  "revm-precompile",

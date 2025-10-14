@@ -13,14 +13,13 @@ use reth_op::{
     },
     rpc::OpEthApiBuilder,
 };
-use reth_optimism_chainspec::OpChainSpec;
 use reth_optimism_primitives::OpPrimitives;
 use reth_payload_primitives::{PayloadAttributesBuilder, PayloadTypes};
+use sova_chainspec::SovaChainSpec;
 use sova_evm::SovaExecutorBuilder;
 use std::sync::Arc;
 
 pub mod args;
-
 pub use args::SovaArgs;
 
 #[derive(Debug, Clone, Default)]
@@ -30,7 +29,7 @@ pub struct SovaNode {
 
 impl NodeTypes for SovaNode {
     type Primitives = OpPrimitives;
-    type ChainSpec = OpChainSpec;
+    type ChainSpec = SovaChainSpec;
     type Storage = <OpNode as NodeTypes>::Storage;
     type Payload = <OpNode as NodeTypes>::Payload;
 }
@@ -38,7 +37,7 @@ impl NodeTypes for SovaNode {
 impl<N> Node<N> for SovaNode
 where
     N: FullNodeTypes<Types: OpFullNodeTypes + OpNodeTypes>,
-    N::Types: NodeTypes<ChainSpec = OpChainSpec, Primitives = OpPrimitives>,
+    N::Types: NodeTypes<ChainSpec = SovaChainSpec, Primitives = OpPrimitives>,
 {
     type ComponentsBuilder = ComponentsBuilder<
         N,

@@ -54,11 +54,6 @@ pub struct SovaArgs {
     #[arg(long = "rollup.disable-tx-pool-gossip")]
     pub disable_txpool_gossip: bool,
 
-    /// Enable walkback to genesis on startup. This is useful for re-validating the existing DB
-    /// prior to beginning normal syncing.
-    #[arg(long = "rollup.enable-genesis-walkback")]
-    pub enable_genesis_walkback: bool,
-
     /// By default the pending block equals the latest block
     /// to save resources and not leak txs from the tx-pool,
     /// this flag enables computing of the pending block
@@ -107,7 +102,6 @@ impl Default for SovaArgs {
             sentinel_confirmation_threshold: 6,
             sequencer: None,
             disable_txpool_gossip: false,
-            enable_genesis_walkback: false,
             compute_pending_block: false,
             discovery_v4: false,
             enable_tx_conditional: false,

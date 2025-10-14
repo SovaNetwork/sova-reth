@@ -14,35 +14,127 @@ pub use dev::{DEV, SOVA_DEVNET_DERIVATION_XPUB};
 pub use mainnet::{SOVA, SOVA_MAINNET_DERIVATION_XPUB};
 pub use testnet::{SOVA_TESTNET_DERIVATION_XPUB, TESTNET};
 
-use std::sync::Arc;
+use alloy_consensus::Header;
+use alloy_genesis::Genesis;
 
-use reth_cli::chainspec::{parse_genesis, ChainSpecParser};
+use reth_chainspec::Hardforks;
+use reth_ethereum::chainspec::{EthChainSpec, EthereumHardforks, Hardfork};
+use reth_network_peers::NodeRecord;
 use reth_optimism_chainspec::OpChainSpec;
+use reth_optimism_forks::OpHardforks;
 
-/// Chain configurations supported
-///
-/// mainnet -> Bitcoin mainnet, ETH Mainnet
-/// testnet -> Bitcoin regtest, ETH Sepolia
-/// devnet -> Bitcoin regtest, Local (Mock) Consensus, see reth's `--dev` flag for more details.
-pub const SUPPORTED_CHAINS: &[&str] = &["sova-devnet", "sova-testnet", "sova"];
+#[derive(Debug, Clone)]
+pub struct SovaChainSpec {
+    inner: OpChainSpec,
+}
 
-/// Sova chain specification parser
-/// Using OpChainSpec for inheriting all past and future OP & ethereum forkchoices.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct SovaChainSpecParser;
+impl SovaChainSpec {
+    pub const fn inner(&self) -> &OpChainSpec {
+        &self.inner
+    }
+}
 
-impl ChainSpecParser for SovaChainSpecParser {
-    type ChainSpec = OpChainSpec;
+impl Hardforks for SovaChainSpec {
+    fn fork<H: Hardfork>(&self, fork: H) -> reth_ethereum::chainspec::ForkCondition {
+        self.inner.fork(fork)
+    }
 
-    const SUPPORTED_CHAINS: &'static [&'static str] = SUPPORTED_CHAINS;
+    fn forks_iter(
+        &self,
+    ) -> impl Iterator<Item = (&dyn Hardfork, reth_ethereum::chainspec::ForkCondition)> {
+        self.inner.forks_iter()
+    }
 
-    fn parse(s: &str) -> eyre::Result<Arc<Self::ChainSpec>> {
-        Ok(match s {
-            "sova-devnet" => DEV.clone(),
-            "sova-testnet" => TESTNET.clone(),
-            "sova" => SOVA.clone(),
-            _ => Arc::new(parse_genesis(s)?.into()),
-        })
+    fn fork_id(&self, head: &reth_ethereum::chainspec::Head) -> reth_ethereum::chainspec::ForkId {
+        self.inner.fork_id(head)
+    }
+
+    fn latest_fork_id(&self) -> reth_ethereum::chainspec::ForkId {
+        self.inner.latest_fork_id()
+    }
+
+    fn fork_filter(
+        &self,
+        head: reth_ethereum::chainspec::Head,
+    ) -> reth_ethereum::chainspec::ForkFilter {
+        self.inner.fork_filter(head)
+    }
+}
+
+impl EthChainSpec for SovaChainSpec {
+    type Header = Header;
+
+    fn chain(&self) -> reth_ethereum::chainspec::Chain {
+        self.inner.chain()
+    }
+
+    fn base_fee_params_at_timestamp(
+        &self,
+        timestamp: u64,
+    ) -> reth_ethereum::chainspec::BaseFeeParams {
+        self.inner.base_fee_params_at_timestamp(timestamp)
+    }
+
+    fn blob_params_at_timestamp(&self, timestamp: u64) -> Option<alloy_eips::eip7840::BlobParams> {
+        self.inner.blob_params_at_timestamp(timestamp)
+    }
+
+    fn deposit_contract(&self) -> Option<&reth_ethereum::chainspec::DepositContract> {
+        self.inner.deposit_contract()
+    }
+
+    fn genesis_hash(&self) -> revm_primitives::B256 {
+        self.inner.genesis_hash()
+    }
+
+    fn prune_delete_limit(&self) -> usize {
+        self.inner.prune_delete_limit()
+    }
+
+    fn display_hardforks(&self) -> Box<dyn std::fmt::Display> {
+        self.inner.display_hardforks()
+    }
+
+    fn genesis_header(&self) -> &Self::Header {
+        self.inner().genesis_header()
+    }
+
+    fn genesis(&self) -> &Genesis {
+        self.inner.genesis()
+    }
+
+    // TODO(powvt): override when bootnode urls are ready
+    fn bootnodes(&self) -> Option<Vec<NodeRecord>> {
+        self.inner.bootnodes()
+    }
+
+    fn final_paris_total_difficulty(&self) -> Option<revm_primitives::U256> {
+        self.inner.get_final_paris_total_difficulty()
+    }
+}
+
+impl EthereumHardforks for SovaChainSpec {
+    fn ethereum_fork_activation(
+        &self,
+        fork: reth_ethereum::chainspec::EthereumHardfork,
+    ) -> reth_ethereum::chainspec::ForkCondition {
+        self.inner.ethereum_fork_activation(fork)
+    }
+}
+
+impl OpHardforks for SovaChainSpec {
+    fn op_fork_activation(
+        &self,
+        fork: reth_optimism_forks::OpHardfork,
+    ) -> reth_ethereum::chainspec::ForkCondition {
+        self.inner.op_fork_activation(fork)
+    }
+}
+
+impl From<Genesis> for SovaChainSpec {
+    fn from(genesis: Genesis) -> Self {
+        Self {
+            inner: OpChainSpec::from(genesis),
+        }
     }
 }

@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -10,6 +10,7 @@ keywords = ["bitcoin", "blockchain", "evm", "reth", "sova-reth"]
 members = [
     "bin/sova/",
     "chainspec",
+    "cli",
     "evm",
     "node",
 ]
@@ -18,9 +19,10 @@ resolver = "2"
 
 [workspace.dependencies]
 # sova
-sova-node = { path = "node" }
 sova-chainspec = { path = "chainspec" }
+sova-cli = { path = "cli" }
 sova-evm = { path = "evm" }
+sova-node = { path = "node" }
 
 # sova external
 sova-sentinel-client = { git = "https://github.com/SovaNetwork/sova-sentinel.git", rev = "40e585da3223a35451d694213474b6d04fcc8e2e" }
@@ -30,24 +32,30 @@ sova-sentinel-proto = { git = "https://github.com/SovaNetwork/sova-sentinel.git"
 reth-chain-state = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-cli = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-cli-commands = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-cli-runner = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-codecs = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-db = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-engine-local = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-db-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-engine-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736", features = ["evm"] }
 reth-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-network-peers = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-node-builder = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-node-metrics = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-optimism-chainspec = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-optimism-cli = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-optimism-consensus = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-optimism-evm = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-optimism-forks = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-optimism-node = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-optimism-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736", features = ["serde", "serde-bincode-compat", "reth-codec"]}
 reth-optimism-txpool = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-optimism-rpc = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
-reth-ethereum = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736", features = ["evm"] }
 reth-op = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736", features = ["node-api"] }
 reth-payload-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-primitives-traits = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
@@ -55,6 +63,7 @@ reth-revm = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51e
 reth-rpc-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-rpc-engine-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-rpc-eth-api = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
+reth-rpc-server-types = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-storage-errors = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-tasks = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "e6608be51ea34424b8e3693cf1f946a3eb224736" }
@@ -93,7 +102,7 @@ bitcoincore-rpc = "0.18.0"
 
 # misc
 async-trait = "0.1.68"
-clap = { version = "4.4.18", features = ["derive", "env"] } 
+clap = { version = "4.4.18", features = ["derive", "env"] }
 derive_more = { version = "2", default-features = false, features = ["full"] }
 eyre = "0.6.0"
 hex = "0.4.3"
@@ -104,4 +113,5 @@ serde_json = "1"
 thiserror = { version = "2.0.0", default-features = false }
 tokio = { version = "1.44.2", default-features = false }
 tonic = "0.12.3"
+tracing = "0.1"
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
