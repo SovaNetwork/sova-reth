@@ -24,6 +24,9 @@ alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-genesis.workspace = true
 alloy-primitives.workspace = true
+alloy-hardforks = "0.3.5"
+
+auto_impl = "1.3"
 
 eyre.workspace = true
 serde_json.workspace = true

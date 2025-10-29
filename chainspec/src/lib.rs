@@ -1,6 +1,7 @@
 mod constants;
 mod dev;
 mod mainnet;
+mod sova_hardfork;
 mod testnet;
 
 pub use constants::{
@@ -11,7 +12,8 @@ pub use constants::{
     SOVA_L1_BLOCK_CONTRACT_ADDRESS,
 };
 pub use dev::{DEV, SOVA_DEVNET_DERIVATION_XPUB};
-pub use mainnet::{SOVA, SOVA_MAINNET_DERIVATION_XPUB};
+pub use mainnet::{SOVA, SOVA_MAINNET_DERIVATION_XPUB, SOVA_MAINNET_DERIVATION_XPUB_BETA};
+pub use sova_hardfork::{SovaHardfork, SovaHardforks, SOVA_MAINNET_BETA_BLOCK};
 pub use testnet::{SOVA_TESTNET_DERIVATION_XPUB, TESTNET};
 
 use alloy_consensus::Header;
@@ -128,6 +130,15 @@ impl OpHardforks for SovaChainSpec {
         fork: reth_optimism_forks::OpHardfork,
     ) -> reth_ethereum::chainspec::ForkCondition {
         self.inner.op_fork_activation(fork)
+    }
+}
+
+impl SovaHardforks for SovaChainSpec {
+    fn sova_fork_activation(
+        &self,
+        fork: SovaHardfork,
+    ) -> reth_ethereum::chainspec::ForkCondition {
+        self.fork(fork)
     }
 }
 

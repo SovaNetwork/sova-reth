@@ -143,10 +143,16 @@ impl BitcoinRpcPrecompile {
         )
     }
 
-    fn address_deriver_from_env(network: Network) -> Arc<SovaAddressDeriver> {
+    fn address_deriver_from_env(network: Network, use_beta_xpub: bool) -> Arc<SovaAddressDeriver> {
         // Use hardcoded chainspec xpub based on network
         let derivation_xpub_str = match network {
-            Network::Bitcoin => sova_chainspec::SOVA_MAINNET_DERIVATION_XPUB,
+            Network::Bitcoin => {
+                if use_beta_xpub {
+                    sova_chainspec::SOVA_MAINNET_DERIVATION_XPUB_BETA
+                } else {
+                    sova_chainspec::SOVA_MAINNET_DERIVATION_XPUB
+                }
+            }
             Network::Testnet | Network::Signet => sova_chainspec::SOVA_TESTNET_DERIVATION_XPUB,
             Network::Regtest => sova_chainspec::SOVA_DEVNET_DERIVATION_XPUB,
             _ => panic!("Unsupported Bitcoin network: {network:?}"),
@@ -158,7 +164,7 @@ impl BitcoinRpcPrecompile {
         Arc::new(SovaAddressDeriver::new(derivation_xpub, network))
     }
 
-    pub fn from_env() -> Self {
+    pub fn from_env(use_beta_xpub: bool) -> Self {
         // we call .unwrap() instead of .unwrap_or_else to cause a panic in case of missing environment variables
         // to do this, we call this function once (for sanity check) after the env vars are set just before node start
 
@@ -171,7 +177,7 @@ impl BitcoinRpcPrecompile {
         let add_to_address_derivation_cache =
             env::var("ADD_TO_ADDRESS_DERIVATION_CACHE").is_ok_and(|v| v == "true");
 
-        let address_deriver = Self::address_deriver_from_env(network);
+        let address_deriver = Self::address_deriver_from_env(network, use_beta_xpub);
 
         BitcoinRpcPrecompile::new(
             bitcoin_client,
@@ -184,7 +190,8 @@ impl BitcoinRpcPrecompile {
     }
 
     pub fn run_broadcast_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
-        let btc_precompile = BitcoinRpcPrecompile::from_env();
+        // Broadcast doesn't need address derivation, so Beta flag doesn't matter
+        let btc_precompile = BitcoinRpcPrecompile::from_env(false);
 
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::BroadcastTransaction,
@@ -213,7 +220,8 @@ impl BitcoinRpcPrecompile {
     }
 
     pub fn run_decode_transaction(input: &[u8], gas_limit: u64) -> PrecompileResult {
-        let btc_precompile = BitcoinRpcPrecompile::from_env();
+        // Decode doesn't need address derivation, so Beta flag doesn't matter
+        let btc_precompile = BitcoinRpcPrecompile::from_env(false);
 
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::DecodeTransaction,
@@ -241,8 +249,18 @@ impl BitcoinRpcPrecompile {
         res
     }
 
+    /// Run convert_address with pre-Beta XPUB (default mainnet XPUB)
     pub fn run_convert_address(input: &[u8], gas_limit: u64) -> PrecompileResult {
-        let btc_precompile = BitcoinRpcPrecompile::from_env();
+        Self::run_convert_address_with_xpub(input, gas_limit, false)
+    }
+
+    /// Run convert_address with Beta XPUB (Beta mainnet XPUB)
+    pub fn run_convert_address_beta(input: &[u8], gas_limit: u64) -> PrecompileResult {
+        Self::run_convert_address_with_xpub(input, gas_limit, true)
+    }
+
+    fn run_convert_address_with_xpub(input: &[u8], gas_limit: u64, use_beta_xpub: bool) -> PrecompileResult {
+        let btc_precompile = BitcoinRpcPrecompile::from_env(use_beta_xpub);
 
         let gas_used = BitcoinMethodHelper::calculate_gas_used(
             &BitcoinPrecompileMethod::ConvertAddress,

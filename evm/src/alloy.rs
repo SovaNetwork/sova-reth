@@ -166,7 +166,13 @@ impl EvmFactory for SovaEvmFactory {
         db: DB,
         input: EvmEnv<Self::Spec>,
     ) -> Self::Evm<DB, NoOpInspector> {
-        let spec_id = input.cfg_env.spec;
+        let op_spec_id = input.cfg_env.spec;
+        let block_number = input.block_env.number;
+
+        // Determine if Beta hardfork is active based on block number
+        let is_beta_active = block_number >= sova_chainspec::SOVA_MAINNET_BETA_BLOCK;
+        let sova_spec_id = crate::SovaSpecId::new(op_spec_id, is_beta_active);
+
         SovaEvm {
             inner: Context::sova()
                 .with_db(db)
@@ -174,7 +180,7 @@ impl EvmFactory for SovaEvmFactory {
                 .with_cfg(input.cfg_env)
                 .build_sova_with_inspector(NoOpInspector {})
                 .with_precompiles(PrecompilesMap::from_static(SovaPrecompiles::satoshi(
-                    spec_id,
+                    sova_spec_id,
                 ))),
             inspect: false,
         }
@@ -186,7 +192,13 @@ impl EvmFactory for SovaEvmFactory {
         input: EvmEnv<Self::Spec>,
         inspector: I,
     ) -> Self::Evm<DB, I> {
-        let spec_id = input.cfg_env.spec;
+        let op_spec_id = input.cfg_env.spec;
+        let block_number = input.block_env.number;
+
+        // Determine if Beta hardfork is active based on block number
+        let is_beta_active = block_number >= sova_chainspec::SOVA_MAINNET_BETA_BLOCK;
+        let sova_spec_id = crate::SovaSpecId::new(op_spec_id, is_beta_active);
+
         SovaEvm {
             inner: Context::sova()
                 .with_db(db)
@@ -194,7 +206,7 @@ impl EvmFactory for SovaEvmFactory {
                 .with_cfg(input.cfg_env)
                 .build_sova_with_inspector(inspector)
                 .with_precompiles(PrecompilesMap::from_static(SovaPrecompiles::satoshi(
-                    spec_id,
+                    sova_spec_id,
                 ))),
             inspect: true,
         }
