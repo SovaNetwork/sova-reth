@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.4.3"
+version = "0.4.4"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -69,7 +69,7 @@ reth-tasks = { git = "https://github.com/paradigmxyz/reth.git", rev = "421974151
 reth-tracing = { git = "https://github.com/paradigmxyz/reth.git", rev = "42197415102b7a20be42e4fe919f024b81ceb55b" }
 
 # revm
-op-revm = { version = "10.1.0", default-features = false }
+op-revm = { version = "10.1.1", default-features = false }
 revm = { version = "29.0.1", default-features = false }
 revm-primitives = { version = "20.2.1", default-features = false }
 revm-precompile = { version = "27.0.0", default-features = false }
