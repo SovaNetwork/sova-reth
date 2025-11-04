@@ -74,7 +74,7 @@ where
                 .cli
                 .logs
                 .log_file_directory
-                .join(chain_spec.inner().chain().to_string());
+                .join(chain_spec.inner.chain.to_string());
         }
 
         self.init_tracing()?;

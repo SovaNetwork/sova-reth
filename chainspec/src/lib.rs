@@ -25,13 +25,7 @@ use reth_optimism_forks::OpHardforks;
 
 #[derive(Debug, Clone)]
 pub struct SovaChainSpec {
-    inner: OpChainSpec,
-}
-
-impl SovaChainSpec {
-    pub const fn inner(&self) -> &OpChainSpec {
-        &self.inner
-    }
+    pub inner: OpChainSpec,
 }
 
 impl Hardforks for SovaChainSpec {
@@ -96,16 +90,18 @@ impl EthChainSpec for SovaChainSpec {
     }
 
     fn genesis_header(&self) -> &Self::Header {
-        self.inner().genesis_header()
+        self.inner.genesis_header()
     }
 
     fn genesis(&self) -> &Genesis {
         self.inner.genesis()
     }
 
-    // TODO(powvt): override when bootnode urls are ready
     fn bootnodes(&self) -> Option<Vec<NodeRecord>> {
-        self.inner.bootnodes()
+        // NOTE(powvt): return none, otherwise op mainnet bootnodes are used as default
+        // self.inner.bootnodes()
+
+        None
     }
 
     fn final_paris_total_difficulty(&self) -> Option<revm_primitives::U256> {
