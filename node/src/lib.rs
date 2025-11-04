@@ -25,6 +25,7 @@ pub use args::SovaArgs;
 #[derive(Debug, Clone, Default)]
 pub struct SovaNode {
     inner: OpNode,
+    args: SovaArgs,
 }
 
 impl NodeTypes for SovaNode {
@@ -56,6 +57,12 @@ where
     >;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
+        let SovaArgs {
+            disable_txpool_gossip,
+            discovery_v4,
+            ..
+        } = self.args;
+
         ComponentsBuilder::default()
             .node_types::<N>()
             .pool(OpPoolBuilder::default())
@@ -63,7 +70,7 @@ where
             .payload(BasicPayloadServiceBuilder::new(OpPayloadBuilder::new(
                 false,
             )))
-            .network(OpNetworkBuilder::new(false, false))
+            .network(OpNetworkBuilder::new(disable_txpool_gossip, !discovery_v4))
             .consensus(OpConsensusBuilder::default())
     }
 

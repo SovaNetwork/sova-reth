@@ -9784,7 +9784,7 @@ dependencies = [
 
 [[package]]
 name = "sova"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "clap",
  "eyre",
@@ -9801,7 +9801,7 @@ dependencies = [
 
 [[package]]
 name = "sova-chainspec"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -9823,7 +9823,7 @@ dependencies = [
 
 [[package]]
 name = "sova-cli"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "clap",
  "eyre",
@@ -9846,7 +9846,7 @@ dependencies = [
 
 [[package]]
 name = "sova-evm"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -9891,7 +9891,7 @@ dependencies = [
 
 [[package]]
 name = "sova-node"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
