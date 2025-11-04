@@ -22,19 +22,10 @@ use std::sync::Arc;
 pub mod args;
 pub use args::SovaArgs;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SovaNode {
     inner: OpNode,
     args: SovaArgs,
-}
-
-impl Default for SovaNode {
-    fn default() -> Self {
-        Self {
-            inner: OpNode::default(),
-            args: SovaArgs::default(),
-        }
-    }
 }
 
 impl NodeTypes for SovaNode {
@@ -66,8 +57,11 @@ where
     >;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
-        let SovaArgs { disable_txpool_gossip, compute_pending_block, discovery_v4, .. } =
-            self.args;
+        let SovaArgs {
+            disable_txpool_gossip,
+            discovery_v4,
+            ..
+        } = self.args;
 
         ComponentsBuilder::default()
             .node_types::<N>()
